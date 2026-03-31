@@ -6,9 +6,12 @@ use parser::Parser;
 
 fn main() {
     let input = r#"
-workflow "research"
-    @human "What topic?"
+guarantee safe [no_harmful_content:halt]
+
+workflow "research" @always safe
+    | @human "What topic?"
     | search_web
+    | @llm "Summarize" ([relevant:3] && [concise:halt])
     | @llm "Classify as technical or general"
     | @branch
         -when "technical"
@@ -19,14 +22,24 @@ workflow "research"
             -end
         -when "general"
             | @llm "Write brief summary"
+        -else
+            | @llm "Write overview"
     -end
+    | @unordered
+        -step format_citations
+        -step generate_bibliography
+    -end
+    | @fork refs @call check_references
+    | @fork refs @call verify_sources
+    | @join refs
+    | @llm "Final review" (![needs_revision] && {approved:skip})
+    | @call send_report
     | email to="user"
 "#;
 
-    let parser = Parser::new(input);
-
-    println!("Parser created with {} tokens", parser.tokens().len());
-    for (tok, span) in parser.tokens() {
-        println!("{:<30} {:?}", tok.to_string(), span);
+    let mut parser = Parser::new(input);
+    match parser.parse_program() {
+        Ok(program) => println!("{:#?}", program),
+        Err(e) => eprintln!("{}", e),
     }
 }

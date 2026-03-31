@@ -41,14 +41,12 @@ pub struct ToolCall {
     pub name: String,
     pub params: Vec<Param>,
     pub contract: Option<Contract>,
-    pub failure_policy: Option<FailurePolicy>,
 }
 
 #[derive(Debug)]
 pub struct LlmCall {
     pub prompt: String,
     pub contract: Option<Contract>,
-    pub failure_policy: Option<FailurePolicy>,
 }
 
 #[derive(Debug)]
@@ -66,12 +64,13 @@ pub struct Param {
 #[derive(Debug)]
 pub enum ParamValue {
     String(String),
-    Identifier(String),
+    Contract(Contract),
 }
 
 #[derive(Debug)]
 pub struct BranchBlock {
     pub arms: Vec<WhenArm>,
+    pub else_steps: Option<Vec<Step>>,
 }
 
 #[derive(Debug)]
@@ -120,9 +119,9 @@ pub enum CallType {
 pub enum Contract {
     Literal(String),
     Wildcard,
-    ModelCheck(String),
-    HumanCheck(String),
-    LearnedCheck(String),
+    ModelCheck(String, Option<FailurePolicy>),
+    HumanCheck(String, Option<FailurePolicy>),
+    LearnedCheck(String, Option<FailurePolicy>),
     And(Box<Contract>, Box<Contract>),
     Or(Box<Contract>, Box<Contract>),
     Not(Box<Contract>),
@@ -134,7 +133,7 @@ pub enum Contract {
 
 #[derive(Debug)]
 pub enum FailurePolicy {
-    Retry,
+    Retry(u32),
     Halt,
     Skip,
 }

@@ -54,8 +54,11 @@ pub enum Token {
     #[token("=")]
     Equals,
 
-    #[token("&")]
+    #[token("&&")]
     And,
+
+    #[token("||")]
+    Or,
 
     #[token("!")]
     Not,
@@ -70,18 +73,14 @@ pub enum Token {
     #[token("-when")]
     When,
 
+    #[token("-else")]
+    Else,
+
     #[token("-end")]
     End,
 
-    // Failure policies
-    #[token(":retry")]
-    Retry,
-
-    #[token(":halt")]
-    Halt,
-
-    #[token(":skip")]
-    Skip,
+    #[token("-step")]
+    StepClause,
 
     // Literals and identifiers
     #[regex(r#""[^"]*""#, |lex| lex.slice().to_owned())]
@@ -123,15 +122,15 @@ impl std::fmt::Display for Token {
             Token::Human => write!(f, "@human"),
             Token::Pipe => write!(f, "|"),
             Token::Equals => write!(f, "="),
-            Token::And => write!(f, "&"),
+            Token::And => write!(f, "&&"),
+            Token::Or => write!(f, "||"),
             Token::Not => write!(f, "!"),
             Token::LParen => write!(f, "("),
             Token::RParen => write!(f, ")"),
             Token::When => write!(f, "-when"),
+            Token::Else => write!(f, "-else"),
             Token::End => write!(f, "-end"),
-            Token::Retry => write!(f, ":retry"),
-            Token::Halt => write!(f, ":halt"),
-            Token::Skip => write!(f, ":skip"),
+            Token::StepClause => write!(f, "-step"),
             Token::StringLiteral(s) => write!(f, "STRING({s})"),
             Token::ModelCheck(s) => write!(f, "MODEL_CHECK({s})"),
             Token::HumanCheck(s) => write!(f, "HUMAN_CHECK({s})"),
