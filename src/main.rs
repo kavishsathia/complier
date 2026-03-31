@@ -1,7 +1,8 @@
+mod ast;
 mod lexer;
+mod parser;
 
-use lexer::Token;
-use logos::Logos;
+use parser::Parser;
 
 fn main() {
     let input = r#"
@@ -22,16 +23,10 @@ workflow "research"
     | email to="user"
 "#;
 
-    println!("Input:\n{input}");
-    println!("Tokens:");
-    println!("{:-<40}", "");
+    let parser = Parser::new(input);
 
-    let lexer = Token::lexer(input);
-
-    for (token, span) in lexer.spanned() {
-        match token {
-            Ok(tok) => println!("{:<30} {:?}", tok.to_string(), &input[span]),
-            Err(()) => println!("{:<30} {:?}", "ERROR", &input[span]),
-        }
+    println!("Parser created with {} tokens", parser.tokens().len());
+    for (tok, span) in parser.tokens() {
+        println!("{:<30} {:?}", tok.to_string(), span);
     }
 }
