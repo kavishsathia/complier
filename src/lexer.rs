@@ -20,7 +20,7 @@ pub enum Token {
     #[token("@loop")]
     Loop,
 
-    #[token("@until")]
+    #[token("-until")]
     Until,
 
     #[token("@call")]
@@ -35,6 +35,9 @@ pub enum Token {
     #[token("@fork")]
     Fork,
 
+    #[token("@unordered")]
+    Unordered,
+
     #[token("@join")]
     Join,
 
@@ -47,9 +50,6 @@ pub enum Token {
     // Operators
     #[token("|")]
     Pipe,
-
-    #[token("=>")]
-    Arrow,
 
     #[token("=")]
     Equals,
@@ -69,6 +69,9 @@ pub enum Token {
     // Control flow
     #[token("-when")]
     When,
+
+    #[token("-end")]
+    End,
 
     // Failure policies
     #[token(":retry")]
@@ -109,22 +112,23 @@ impl std::fmt::Display for Token {
             Token::Always => write!(f, "@always"),
             Token::Branch => write!(f, "@branch"),
             Token::Loop => write!(f, "@loop"),
-            Token::Until => write!(f, "@until"),
+            Token::Until => write!(f, "-until"),
             Token::Call => write!(f, "@call"),
             Token::Use => write!(f, "@use"),
             Token::Inline => write!(f, "@inline"),
             Token::Fork => write!(f, "@fork"),
+            Token::Unordered => write!(f, "@unordered"),
             Token::Join => write!(f, "@join"),
             Token::Llm => write!(f, "@llm"),
             Token::Human => write!(f, "@human"),
             Token::Pipe => write!(f, "|"),
-            Token::Arrow => write!(f, "=>"),
             Token::Equals => write!(f, "="),
             Token::And => write!(f, "&"),
             Token::Not => write!(f, "!"),
             Token::LParen => write!(f, "("),
             Token::RParen => write!(f, ")"),
             Token::When => write!(f, "-when"),
+            Token::End => write!(f, "-end"),
             Token::Retry => write!(f, ":retry"),
             Token::Halt => write!(f, ":halt"),
             Token::Skip => write!(f, ":skip"),

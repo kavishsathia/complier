@@ -6,10 +6,20 @@ use logos::Logos;
 fn main() {
     let input = r#"
 workflow "research"
-    @human "What topic?" => topic
-    | search_web query=topic => results
-    | @llm "Summarize" => summary [relevant & concise]
-    | email to="user" body=summary
+    @human "What topic?"
+    | search_web
+    | @llm "Classify as technical or general"
+    | @branch
+        -when "technical"
+            | @llm "Write detailed analysis"
+            | @loop
+                | @human "Is this good enough?"
+                -until "yes"
+            -end
+        -when "general"
+            | @llm "Write brief summary"
+    -end
+    | email to="user"
 "#;
 
     println!("Input:\n{input}");
