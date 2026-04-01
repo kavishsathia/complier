@@ -15,8 +15,6 @@
   <a href="https://www.python.org/"><img src="https://img.shields.io/badge/python-3.10%2B-blue" alt="Python 3.10+"></a>
 </p>
 
----
-
 ## Overview
 
 This language and framework allows you to define what your agent **can** do. It's meant to be a middle ground between n8n's workflows, which remove much of the runtime judgement an agent can have, and OpenClaw's runtime, which can literally do anything given a set of tools.
@@ -121,7 +119,7 @@ The pipeline has three compilation stages and a runtime layer:
 
 4. **Session** — Binds a compiled `Contract` to mutable state (active workflow, completed steps, event history). When a wrapped tool is called, the session checks it against the graph: is this tool allowed at this point? And either lets it through or returns a `BlockedToolResponse` with remediation info. And this part is inspired by HATEOAS: the graph always knows what can happen next, and the agent is told.
 
-The **Visualizer** taps into the same compiled graph, serializing it as JSON and serving it over a local HTTP server so you can see the workflow topology in your browser.
+5. The **Visualizer** taps into the same compiled graph, serializing it as JSON and serving it over a local HTTP server so you can see the workflow topology in your browser.
 
 ## Contributing
 
