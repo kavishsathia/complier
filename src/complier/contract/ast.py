@@ -211,5 +211,5 @@ class OrExpression:
 
 ContractAtom: TypeAlias = ModelCheck | HumanCheck | LearnedCheck | GuaranteeRef
 ContractExpression: TypeAlias = ContractAtom | NotExpression | AndExpression | OrExpression
-ParamValue: TypeAlias = str | ContractExpression
+ParamValue: TypeAlias = str | int | bool | None | ContractExpression
 CallType: TypeAlias = str

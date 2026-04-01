@@ -52,7 +52,12 @@ unordered_step: STEP_KW STRING _NL _INDENT step+ _DEDENT
 
 call_type: "@call" | "@use" | "@inline"
 param: IDENT "=" param_value
-?param_value: STRING | contract_expr
+?param_value: STRING
+            | NUMBER          -> number_value
+            | TRUE            -> true_value
+            | FALSE           -> false_value
+            | NULL            -> null_value
+            | contract_expr
 
 ?contract_expr: or_expr
 ?or_expr: and_expr
@@ -89,6 +94,9 @@ IDENT: /[a-zA-Z_][a-zA-Z0-9_]*/
 NUMBER: /[0-9]+/
 HALT: "halt"
 SKIP: "skip"
+TRUE: "true"
+FALSE: "false"
+NULL: "null"
 
 _NL: /(\r?\n[ \t]*)+/
 
