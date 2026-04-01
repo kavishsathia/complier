@@ -14,4 +14,12 @@ class ContractCompiler:
 
     def compile(self, parsed: Any) -> Contract:
         """Build the runtime contract from a parsed representation."""
-        raise NotImplementedError
+        if not isinstance(parsed, dict):
+            raise TypeError("Parsed contract must be a mapping.")
+
+        return Contract(
+            name="anonymous",
+            metadata={
+                "source": parsed.get("source", ""),
+            },
+        )

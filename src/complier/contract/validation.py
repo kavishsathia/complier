@@ -12,4 +12,5 @@ class ContractValidator:
 
     def validate(self, contract: Any) -> None:
         """Raise if the contract is invalid."""
-        raise NotImplementedError
+        if contract is None:
+            raise ValueError("Contract cannot be None.")

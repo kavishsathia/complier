@@ -10,6 +10,11 @@ from typing import Any
 class ContractParser:
     """Parses source text into an intermediate contract representation."""
 
-    def parse(self, source: str) -> Any:
+    def parse(self, source: str) -> dict[str, Any]:
         """Return a parsed representation of the source contract."""
-        raise NotImplementedError
+        if not isinstance(source, str):
+            raise TypeError("Contract source must be a string.")
+
+        return {
+            "source": source,
+        }

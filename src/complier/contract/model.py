@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 
@@ -18,9 +19,29 @@ class Contract:
     @classmethod
     def from_source(cls, source: str) -> "Contract":
         """Parse and compile an authored contract source string."""
-        raise NotImplementedError
+        from .compiler import ContractCompiler
+        from .parser import ContractParser
+        from .validation import ContractValidator
+
+        parser = ContractParser()
+        compiler = ContractCompiler()
+        validator = ContractValidator()
+
+        parsed = parser.parse(source)
+        contract = compiler.compile(parsed)
+        validator.validate(contract)
+        return contract
 
     @classmethod
-    def load(cls, path: str) -> "Contract":
+    def from_file(cls, path: str | Path) -> "Contract":
         """Load a contract from disk and compile it."""
-        raise NotImplementedError
+        source_path = Path(path)
+        source = source_path.read_text(encoding="utf-8")
+        contract = cls.from_source(source)
+        contract.metadata.setdefault("source_path", str(source_path))
+        return contract
+
+    @classmethod
+    def load(cls, path: str | Path) -> "Contract":
+        """Backward-compatible alias for loading a contract from disk."""
+        return cls.from_file(path)
