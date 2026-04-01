@@ -35,7 +35,7 @@ class VisualizerServer:
 def serve_contract(contract: Contract, host: str = "127.0.0.1", port: int = 8765) -> VisualizerServer:
     """Start a background server for the given contract."""
     graph_payload = contract_to_graph(contract)
-    app_dir = Path.cwd() / "visualizer-app"
+    app_dir = Path.cwd() / "visualizer"
 
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self) -> None:  # noqa: N802
