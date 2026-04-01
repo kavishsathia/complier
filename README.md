@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/kavishsathia/complier/actions"><img src="https://github.com/kavishsathia/complier/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/kavishsathia/complier/actions"><img src="https://github.com/kavishsathia/complier/actions/workflows/test.yml/badge.svg" alt="CI"></a>
   <a href="https://codecov.io/gh/kavishsathia/complier"><img src="https://codecov.io/gh/kavishsathia/complier/graph/badge.svg" alt="codecov"></a>
   <a href="https://github.com/kavishsathia/complier/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT"></a>
   <a href="https://www.python.org/"><img src="https://img.shields.io/badge/python-3.10%2B-blue" alt="Python 3.10+"></a>
