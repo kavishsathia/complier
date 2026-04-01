@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 
 from .model import Memory
 
@@ -11,10 +12,10 @@ from .model import Memory
 class MemoryStore:
     """Loads and saves memory from a storage backend."""
 
-    def load(self, path: str) -> Memory:
+    def load(self, path: str | Path) -> Memory:
         """Load memory from the given location."""
-        raise NotImplementedError
+        return Memory.from_file(path)
 
-    def save(self, memory: Memory, path: str) -> None:
+    def save(self, memory: Memory, path: str | Path) -> None:
         """Save memory to the given location."""
-        raise NotImplementedError
+        memory.save(path)
