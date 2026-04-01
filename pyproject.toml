@@ -28,7 +28,9 @@ classifiers = [
   "Programming Language :: Python :: 3.12",
   "Topic :: Software Development :: Libraries :: Python Modules",
 ]
-dependencies = []
+dependencies = [
+  "lark>=1.2.2",
+]
 
 [project.optional-dependencies]
 dev = [
