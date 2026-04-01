@@ -1,0 +1,59 @@
+guarantee safe [no_harmful_content:halt]
+guarantee cited ([sources_attached] && [quotes_verified:retry(2)])
+guarantee approved ({editor_signed_off:skip} || #{quality_model:retry(3)})
+
+workflow "research" @always safe
+    | @human "What topic?"
+    | @human "Any constraints or target audience?" {clear_scope:halt}
+    | search_web
+    | collect_sources
+    | extract_quotes
+    | @llm "Summarize" ([relevant:3] && [concise:halt])
+    | @llm "Classify as technical or general"
+    | @branch
+        -when "technical"
+            | @llm "Write detailed analysis"
+            | @loop
+                | @human "Is this good enough?"
+                -until "yes"
+            -end
+        -when "general"
+            | @llm "Write brief summary"
+        -else
+            | @llm "Write overview"
+    -end
+    | @unordered
+        -step format_citations
+        -step generate_bibliography
+        -step archive_sources
+    -end
+    | @fork refs @call check_references
+    | @fork refs @call verify_sources
+    | @join refs
+    | @llm "Final review" (![needs_revision] && {approved:skip})
+    | @call send_report
+    | email to="user"
+
+workflow "publish" @always safe @always cited
+    | @call research
+    | draft_post channel="blog" audience="developers"
+    | @llm "Rewrite for clarity and tone" ([clear] && ![too_long])
+    | @branch
+        -when "launch"
+            | prepare_launch_assets
+            | @inline social_teaser
+        -when "newsletter"
+            | draft_newsletter subject="Weekly research digest"
+        -else
+            | save_draft
+    -end
+    | @loop
+        | @human "Approve for publishing?" {yes_or_no:halt}
+        -until "yes"
+    -end
+    | publish_post
+
+workflow "social_teaser" @always safe
+    | @llm "Write three short teaser variants" ([punchy] && [accurate])
+    | select_variant strategy="best_engagement"
+    | schedule_posts platform="x"
