@@ -8,6 +8,9 @@ from typing import Any
 from lark import Lark, Tree
 from lark.indenter import Indenter
 
+from .ast import Program
+from .transformer import ContractTransformer
+
 
 _GRAMMAR = r"""
 start: _NL* item (_NL* item)* _NL*
@@ -50,7 +53,7 @@ until_clause: UNTIL STRING _NL
 unordered_block: "@unordered" _NL _INDENT unordered_step+ _DEDENT
 unordered_step: STEP_KW STRING _NL _INDENT step+ _DEDENT
 
-call_type: "@call" | "@use" | "@inline"
+call_type: CALL | USE | INLINE
 param: IDENT "=" param_value
 ?param_value: STRING
             | NUMBER          -> number_value
@@ -86,6 +89,9 @@ WHEN: "-when"
 ELSE: "-else"
 UNTIL: "-until"
 STEP_KW: "-step"
+CALL: "@call"
+USE: "@use"
+INLINE: "@inline"
 NOT: "!"
 AND: "&&"
 OR: "||"
@@ -114,6 +120,7 @@ class ParsedContract:
 
     source: str
     tree: Tree[Any]
+    program: Program
 
 
 class ContractIndenter(Indenter):
@@ -142,4 +149,5 @@ class ContractParser:
 
         normalized_source = source if source.endswith("\n") else f"{source}\n"
         tree = self.parser.parse(normalized_source)
-        return ParsedContract(source=source, tree=tree)
+        program = ContractTransformer().transform(tree)
+        return ParsedContract(source=source, tree=tree, program=program)
