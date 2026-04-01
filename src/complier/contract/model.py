@@ -8,14 +8,17 @@ from typing import Any
 
 from complier.memory.model import Memory
 
+from .ast import ContractExpression
+from .runtime import CompiledWorkflow
+
 
 @dataclass(slots=True)
 class Contract:
     """Runtime-ready contract compiled from the authored spec."""
 
     name: str
-    workflows: dict[str, Any] = field(default_factory=dict)
-    guarantees: dict[str, Any] = field(default_factory=dict)
+    workflows: dict[str, CompiledWorkflow] = field(default_factory=dict)
+    guarantees: dict[str, ContractExpression] = field(default_factory=dict)
     metadata: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
