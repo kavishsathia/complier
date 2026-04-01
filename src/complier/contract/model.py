@@ -56,3 +56,9 @@ class Contract:
         from complier.session.session import Session
 
         return Session(contract=self, memory=memory)
+
+    def visualize(self, host: str = "127.0.0.1", port: int = 8765):
+        """Start a local visualizer server for this contract."""
+        from complier.visualizer import serve_contract
+
+        return serve_contract(self, host=host, port=port)

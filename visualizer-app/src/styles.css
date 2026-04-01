@@ -1,0 +1,40 @@
+:root {
+  color-scheme: light;
+  font-family: "IBM Plex Sans", "Helvetica Neue", sans-serif;
+  background: #f4efe8;
+  color: #1f1f1f;
+}
+
+body {
+  margin: 0;
+}
+
+.page {
+  min-height: 100vh;
+  padding: 32px;
+  background:
+    radial-gradient(circle at top left, rgba(227, 203, 165, 0.8), transparent 30%),
+    linear-gradient(180deg, #f7f2eb 0%, #efe7dc 100%);
+}
+
+.panel {
+  background: rgba(255, 252, 247, 0.88);
+  border: 1px solid rgba(66, 52, 35, 0.12);
+  border-radius: 16px;
+  padding: 20px;
+  margin-bottom: 20px;
+  box-shadow: 0 12px 30px rgba(66, 52, 35, 0.08);
+}
+
+h1,
+h2 {
+  margin-top: 0;
+}
+
+pre {
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 13px;
+  line-height: 1.5;
+}
