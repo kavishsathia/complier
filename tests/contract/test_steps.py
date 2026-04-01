@@ -43,6 +43,34 @@ workflow "ops" @always safe @always approved
         self.assertIsInstance(workflow.steps[4], ForkStep)
         self.assertIsInstance(workflow.steps[5], JoinStep)
 
+    def test_parses_use_inline_and_fork_join_details(self) -> None:
+        program = parse_program(
+            """
+workflow "ops"
+    | @use triage
+    | @inline summarize
+    | @fork refs @inline collect_refs
+    | @join refs
+"""
+        )
+
+        workflow = program.items[0]
+        self.assertIsInstance(workflow.steps[0], SubworkflowStep)
+        self.assertEqual(workflow.steps[0].call_type, "@use")
+        self.assertEqual(workflow.steps[0].workflow_name, "triage")
+
+        self.assertIsInstance(workflow.steps[1], SubworkflowStep)
+        self.assertEqual(workflow.steps[1].call_type, "@inline")
+        self.assertEqual(workflow.steps[1].workflow_name, "summarize")
+
+        self.assertIsInstance(workflow.steps[2], ForkStep)
+        self.assertEqual(workflow.steps[2].fork_id, "refs")
+        self.assertEqual(workflow.steps[2].target.call_type, "@inline")
+        self.assertEqual(workflow.steps[2].target.workflow_name, "collect_refs")
+
+        self.assertIsInstance(workflow.steps[3], JoinStep)
+        self.assertEqual(workflow.steps[3].fork_id, "refs")
+
     def test_parses_branch_loop_and_unordered_blocks(self) -> None:
         program = parse_program(
             """
@@ -81,3 +109,21 @@ workflow "research"
         self.assertEqual(unordered.cases[0].label, "format citations")
         self.assertIsInstance(unordered.cases[0].steps[0], ToolStep)
         self.assertEqual(unordered.cases[1].label, "generate bibliography")
+
+    def test_preserves_unordered_case_labels_and_steps(self) -> None:
+        program = parse_program(
+            """
+workflow "research"
+    | @unordered
+        -step "first pass"
+            | collect_sources
+        -step "fact check"
+            | verify_sources
+"""
+        )
+
+        unordered = program.items[0].steps[0]
+        self.assertIsInstance(unordered, UnorderedStep)
+        self.assertEqual([case.label for case in unordered.cases], ["first pass", "fact check"])
+        self.assertEqual(unordered.cases[0].steps[0].name, "collect_sources")
+        self.assertEqual(unordered.cases[1].steps[0].name, "verify_sources")

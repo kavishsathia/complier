@@ -2,6 +2,7 @@
 
 import unittest
 
+from complier.contract.parser import ContractParser
 from complier.contract.ast import AndExpression, ModelCheck, Param, ToolStep
 
 from .helpers import parse_program
@@ -46,3 +47,17 @@ workflow "checks"
         self.assertIsInstance(gate.value.right, ModelCheck)
         self.assertEqual(gate.value.left.name, "relevant")
         self.assertEqual(gate.value.right.name, "concise")
+
+    def test_public_parser_round_trips_scalar_param_values_without_trailing_newline(self) -> None:
+        parsed = ContractParser().parse(
+            'workflow "params"\n    | tool count=3 enabled=true disabled=false reviewer=null'
+        )
+
+        tool = parsed.program.items[0].steps[0]
+        self.assertIsInstance(tool, ToolStep)
+        params = {param.name: param.value for param in tool.params}
+
+        self.assertEqual(params["count"], 3)
+        self.assertIs(params["enabled"], True)
+        self.assertIs(params["disabled"], False)
+        self.assertIsNone(params["reviewer"])

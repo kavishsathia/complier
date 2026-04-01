@@ -73,3 +73,39 @@ guarantee gate ([relevant:2] && !{approved:skip}) || safe
         self.assertIsInstance(and_expr.right.expression, HumanCheck)
         self.assertEqual(and_expr.right.expression.name, "approved")
         self.assertEqual(and_expr.right.expression.policy, "skip")
+
+    def test_parses_expression_shapes_and_check_variants(self) -> None:
+        program = parse_program(
+            """
+guarantee blocked !safe
+guarantee fallback safe || [relevant]
+guarantee grouped (!safe && ({editor_review} || #{tone:halt}))
+"""
+        )
+
+        blocked_expr = program.items[0].expression
+        fallback_expr = program.items[1].expression
+        grouped_expr = program.items[2].expression
+
+        self.assertIsInstance(blocked_expr, NotExpression)
+        self.assertIsInstance(blocked_expr.expression, GuaranteeRef)
+        self.assertEqual(blocked_expr.expression.name, "safe")
+
+        self.assertIsInstance(fallback_expr, OrExpression)
+        self.assertIsInstance(fallback_expr.left, GuaranteeRef)
+        self.assertEqual(fallback_expr.left.name, "safe")
+        self.assertIsInstance(fallback_expr.right, ModelCheck)
+        self.assertEqual(fallback_expr.right.name, "relevant")
+        self.assertIsNone(fallback_expr.right.policy)
+
+        self.assertIsInstance(grouped_expr, AndExpression)
+        self.assertIsInstance(grouped_expr.left, NotExpression)
+        self.assertIsInstance(grouped_expr.left.expression, GuaranteeRef)
+        self.assertEqual(grouped_expr.left.expression.name, "safe")
+        self.assertIsInstance(grouped_expr.right, OrExpression)
+        self.assertIsInstance(grouped_expr.right.left, HumanCheck)
+        self.assertEqual(grouped_expr.right.left.name, "editor_review")
+        self.assertIsNone(grouped_expr.right.left.policy)
+        self.assertIsInstance(grouped_expr.right.right, LearnedCheck)
+        self.assertEqual(grouped_expr.right.right.name, "tone")
+        self.assertEqual(grouped_expr.right.right.policy, "halt")

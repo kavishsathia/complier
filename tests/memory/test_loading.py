@@ -1,5 +1,6 @@
 """Tests for memory loading and saving."""
 
+import json
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -49,6 +50,20 @@ class MemoryLoadingTests(unittest.TestCase):
             loaded = Memory.from_file(path)
 
         self.assertEqual(loaded.checks, {"polite": "Use a polite tone."})
+
+    def test_memory_to_dict_and_json_serialize_expected_payload(self) -> None:
+        memory = Memory(checks={"concise": "Keep responses brief.", "polite": "Use a polite tone."})
+
+        self.assertEqual(
+            memory.to_dict(),
+            {
+                "checks": {
+                    "concise": "Keep responses brief.",
+                    "polite": "Use a polite tone.",
+                }
+            },
+        )
+        self.assertEqual(json.loads(memory.to_json()), memory.to_dict())
 
     def test_memory_requires_json_object_payload(self) -> None:
         with self.assertRaises(ValueError):
