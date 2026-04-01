@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import mimetypes
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from threading import Thread
@@ -11,6 +12,10 @@ from typing import Any
 from complier.contract.model import Contract
 
 from .graph import contract_to_graph
+
+mimetypes.add_type("text/javascript", ".js")
+mimetypes.add_type("text/javascript", ".jsx")
+mimetypes.add_type("text/css", ".css")
 
 
 class VisualizerServer:
@@ -52,6 +57,15 @@ def serve_contract(contract: Contract, host: str = "127.0.0.1", port: int = 8765
                     )
                 return
 
+            static_path = self._resolve_static_path(self.path)
+            if static_path is not None:
+                content_type, _ = mimetypes.guess_type(static_path.name)
+                self._send_file(
+                    static_path,
+                    content_type or "application/octet-stream",
+                )
+                return
+
             self._send_json({"error": "Not found."}, status=404)
 
         def log_message(self, format: str, *args: Any) -> None:  # noqa: A003
@@ -72,6 +86,20 @@ def serve_contract(contract: Contract, host: str = "127.0.0.1", port: int = 8765
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)
+
+        def _resolve_static_path(self, request_path: str) -> Path | None:
+            relative_path = request_path.lstrip("/")
+            candidate = (app_dir / relative_path).resolve()
+
+            try:
+                candidate.relative_to(app_dir.resolve())
+            except ValueError:
+                return None
+
+            if candidate.is_file():
+                return candidate
+
+            return None
 
     httpd = ThreadingHTTPServer((host, port), Handler)
     thread = Thread(target=httpd.serve_forever, daemon=True)

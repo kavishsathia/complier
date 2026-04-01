@@ -87,7 +87,7 @@ def _serialize_node(node: RuntimeNode) -> dict[str, Any]:
         raise TypeError(f"Expected dataclass runtime node, got {type(node)!r}")
 
     payload = {
-        field.name: getattr(node, field.name)
+        field.name: _to_json_value(getattr(node, field.name))
         for field in fields(node)
         if field.name != "next_ids"
     }
@@ -96,3 +96,28 @@ def _serialize_node(node: RuntimeNode) -> dict[str, Any]:
         "kind": type(node).__name__,
         "data": payload,
     }
+
+
+def _to_json_value(value: Any) -> Any:
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+
+    if isinstance(value, list):
+        return [_to_json_value(item) for item in value]
+
+    if isinstance(value, dict):
+        return {
+            str(key): _to_json_value(item)
+            for key, item in value.items()
+        }
+
+    if is_dataclass(value):
+        return {
+            "kind": type(value).__name__,
+            "data": {
+                field.name: _to_json_value(getattr(value, field.name))
+                for field in fields(value)
+            },
+        }
+
+    return repr(value)

@@ -26,23 +26,21 @@ workflow "research"
         self.assertTrue(workflow["nodes"])
         self.assertTrue(workflow["edges"])
 
-    def test_contract_visualize_returns_server_handle(self) -> None:
+    def test_session_visualize_returns_server_handle(self) -> None:
         contract = Contract.from_source(
             """
 workflow "research"
     | search_web
 """
         )
+        session = contract.create_session()
 
         with patch("complier.visualizer.server.ThreadingHTTPServer") as httpd_cls:
             with patch("complier.visualizer.server.Thread") as thread_cls:
-                httpd = httpd_cls.return_value
-                thread = thread_cls.return_value
-
-                server = contract.visualize(port=8766)
+                server = session.visualize(port=8766)
 
         self.assertIsInstance(server, VisualizerServer)
         self.assertEqual(server.url, "http://127.0.0.1:8766")
         httpd_cls.assert_called_once()
         thread_cls.assert_called_once()
-        thread.start.assert_called_once()
+        thread_cls.return_value.start.assert_called_once()
