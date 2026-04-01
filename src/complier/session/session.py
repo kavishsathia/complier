@@ -30,7 +30,9 @@ class Session:
 
     def wrap(self, func: Any) -> Any:
         """Bind a callable into this session's enforcement flow."""
-        return func
+        from complier.wrappers.function import wrap_function
+
+        return wrap_function(self, func)
 
     def check_tool_call(self, tool_name: str, args: tuple[Any, ...], kwargs: dict[str, Any]) -> Decision:
         """Evaluate whether a tool call is allowed in the current state."""

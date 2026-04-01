@@ -21,3 +21,13 @@ class Decision:
     allowed: bool
     reason: str | None = None
     remediation: Remediation | None = None
+
+
+@dataclass(slots=True)
+class BlockedToolResponse:
+    """Structured response returned to an agent when a tool call is blocked."""
+
+    tool_name: str
+    allowed: bool = False
+    reason: str | None = None
+    remediation: Remediation | None = None
