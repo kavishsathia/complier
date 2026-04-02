@@ -65,6 +65,19 @@ class MemoryLoadingTests(unittest.TestCase):
         )
         self.assertEqual(json.loads(memory.to_json()), memory.to_dict())
 
+    def test_memory_get_check_returns_empty_string_when_missing(self) -> None:
+        memory = Memory(checks={"polite": "Use a polite tone."})
+
+        self.assertEqual(memory.get_check("polite"), "Use a polite tone.")
+        self.assertEqual(memory.get_check("missing"), "")
+
+    def test_memory_update_check_persists_learned_state(self) -> None:
+        memory = Memory.empty()
+
+        memory.update_check("tone", "Prefer concise answers.")
+
+        self.assertEqual(memory.get_check("tone"), "Prefer concise answers.")
+
     def test_memory_requires_json_object_payload(self) -> None:
         with self.assertRaises(ValueError):
             Memory.from_source('["not", "an", "object"]')

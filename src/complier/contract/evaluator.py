@@ -154,7 +154,7 @@ def _evaluate_learned_checks(
             ),
             {"comments": str, "edited": str},
         )
-        memory_value = "" if memory is None else memory.checks.get(check.name, "")
+        memory_value = "" if memory is None else memory.get_check(check.name)
         model_result = model.verify(
             (
                 f"Use the learned-check memory and human feedback to evaluate '{check.name}'.\n"
@@ -163,9 +163,11 @@ def _evaluate_learned_checks(
                 f"Human comments: {human_feedback.get('comments', '')!r}\n"
                 f"Human edited: {human_feedback.get('edited', '')!r}"
             ),
-            {"passed": bool},
+            {"passed": bool, "memory": str},
         )
         results[check.name] = bool(model_result.get("passed", False))
+        if memory is not None and "memory" in model_result:
+            memory.update_check(check.name, str(model_result["memory"]))
 
     return results, reasons
 

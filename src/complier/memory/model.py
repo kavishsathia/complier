@@ -42,6 +42,14 @@ class Memory:
         """Backward-compatible alias for loading memory from disk."""
         return cls.from_file(path)
 
+    def get_check(self, name: str) -> str:
+        """Return the stored learned state for a named check."""
+        return self.checks.get(name, "")
+
+    def update_check(self, name: str, value: str) -> None:
+        """Persist updated learned state for a named check."""
+        self.checks[name] = value
+
     def to_dict(self) -> dict[str, dict[str, str]]:
         """Return the serialized memory payload."""
         return {"checks": dict(self.checks)}

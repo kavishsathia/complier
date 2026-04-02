@@ -49,18 +49,20 @@ class ContractEvaluatorTests(unittest.TestCase):
 
             def verify(self, prompt: str, output_schema: dict[str, type]) -> dict[str, object]:
                 self.calls.append((prompt, output_schema))
-                return {"passed": True}
+                return {"passed": True, "memory": "Updated learned preference"}
 
         human = StubHuman()
         model = StubModel()
+        memory = Memory(checks={"tone": "Prefer calm, concise answers."})
         result = evaluate_contract_expression(
             LearnedCheck(name="tone"),
             "draft answer",
             model=model,
             human=human,
-            memory=Memory(checks={"tone": "Prefer calm, concise answers."}),
+            memory=memory,
         )
 
         self.assertTrue(result.passed)
         self.assertEqual(human.calls[0][1], {"comments": str, "edited": str})
-        self.assertEqual(model.calls[0][1], {"passed": bool})
+        self.assertEqual(model.calls[0][1], {"passed": bool, "memory": str})
+        self.assertEqual(memory.get_check("tone"), "Updated learned preference")
