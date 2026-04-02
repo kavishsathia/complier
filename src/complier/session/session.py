@@ -37,6 +37,11 @@ class Session:
     human: Integration | None = None
     state: SessionState = field(default_factory=SessionState)
 
+    def __post_init__(self) -> None:
+        """Detach session-owned memory from the caller's original instance."""
+        if self.memory is not None:
+            self.memory = Memory(checks=dict(self.memory.checks))
+
     def activate(self) -> AbstractAsyncContextManager["Session"]:
         """Register this session as active within the current async context."""
         return activate_session(self)
@@ -132,6 +137,10 @@ class Session:
             return Memory.empty()
 
         return Memory(checks=dict(self.memory.checks))
+
+    def get_memory(self) -> str:
+        """Return the current session memory as a serialized string."""
+        return self.snapshot_memory().to_json()
 
     def visualize(self, host: str = "127.0.0.1", port: int = 8765):
         """Start a local visualizer server for this live session."""

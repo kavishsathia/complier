@@ -1,6 +1,7 @@
 """Tests for session creation and async context handling."""
 
 import unittest
+import json
 
 from complier.contract.model import Contract
 from complier.integration import Integration
@@ -9,7 +10,7 @@ from complier.session import Session, get_current_session
 
 
 class SessionCreationTests(unittest.TestCase):
-    def test_contract_create_session_binds_contract_and_memory(self) -> None:
+    def test_contract_create_session_copies_memory_for_session_ownership(self) -> None:
         contract = Contract(name="demo")
         memory = Memory(checks={"polite": "Use a polite tone."})
 
@@ -17,7 +18,8 @@ class SessionCreationTests(unittest.TestCase):
 
         self.assertIsInstance(session, Session)
         self.assertIs(session.contract, contract)
-        self.assertIs(session.memory, memory)
+        self.assertEqual(session.memory.checks, memory.checks)
+        self.assertIsNot(session.memory, memory)
         self.assertIsNone(session.state.active_workflow)
 
     def test_contract_create_session_binds_integrations(self) -> None:
@@ -45,9 +47,29 @@ class SessionCreationTests(unittest.TestCase):
         self.assertEqual(snapshot.checks, memory.checks)
         self.assertIsNot(snapshot, memory)
 
+    def test_session_memory_mutation_does_not_modify_original_memory(self) -> None:
+        original = Memory(checks={"tone": "Prefer concise answers."})
+        session = Contract(name="demo").create_session(memory=original)
+
+        assert session.memory is not None
+        session.memory.update_check("tone", "Prefer detailed answers.")
+
+        self.assertEqual(original.get_check("tone"), "Prefer concise answers.")
+        self.assertEqual(session.memory.get_check("tone"), "Prefer detailed answers.")
+
     def test_snapshot_memory_returns_empty_when_no_memory_present(self) -> None:
         session = Contract(name="demo").create_session()
         self.assertEqual(session.snapshot_memory().checks, {})
+
+    def test_get_memory_returns_serialized_memory_string(self) -> None:
+        session = Contract(name="demo").create_session(
+            memory=Memory(checks={"tone": "Prefer concise answers."})
+        )
+
+        self.assertEqual(
+            json.loads(session.get_memory()),
+            {"checks": {"tone": "Prefer concise answers."}},
+        )
 
 
 class SessionActivationTests(unittest.IsolatedAsyncioTestCase):
