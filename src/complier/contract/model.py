@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from complier.integration import Integration
 from complier.memory.model import Memory
 
 from .ast import ContractExpression
@@ -51,8 +52,13 @@ class Contract:
         """Backward-compatible alias for loading a contract from disk."""
         return cls.from_file(path)
 
-    def create_session(self, memory: Memory | None = None) -> "Session":
+    def create_session(
+        self,
+        memory: Memory | None = None,
+        model: Integration | None = None,
+        human: Integration | None = None,
+    ) -> "Session":
         """Create a stateful session for this contract and optional memory."""
         from complier.session.session import Session
 
-        return Session(contract=self, memory=memory)
+        return Session(contract=self, memory=memory, model=model, human=human)

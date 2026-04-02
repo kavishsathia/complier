@@ -16,6 +16,7 @@ from complier.contract.runtime import (
     UnorderedBackNode,
     UnorderedNode,
 )
+from complier.integration import Integration
 from complier.memory.model import Memory
 
 from .context import activate_session
@@ -32,6 +33,8 @@ class Session:
 
     contract: "Contract"
     memory: Memory | None = None
+    model: Integration | None = None
+    human: Integration | None = None
     state: SessionState = field(default_factory=SessionState)
 
     def activate(self) -> AbstractAsyncContextManager["Session"]:
@@ -215,7 +218,13 @@ class Session:
         for name, constraint in node.params.items():
             if name not in kwargs:
                 return False
-            result = evaluate_constraint(constraint, kwargs[name])
+            result = evaluate_constraint(
+                constraint,
+                kwargs[name],
+                model=self.model,
+                human=self.human,
+                memory=self.memory,
+            )
             if not result.passed:
                 return False
         return True

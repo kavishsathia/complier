@@ -3,6 +3,7 @@
 import unittest
 
 from complier.contract.model import Contract
+from complier.integration import Integration
 
 
 class SessionToolCheckTests(unittest.TestCase):
@@ -59,6 +60,26 @@ workflow "research"
             "search_web",
             (),
             {"query": "agent compliance", "limit": 5},
+        )
+
+        self.assertTrue(decision.allowed)
+
+    def test_expression_params_use_integrations_during_validation(self) -> None:
+        class StubModel(Integration):
+            def verify(self, prompt: str, output_schema: dict[str, type]) -> dict[str, object]:
+                return {"safe": True}
+
+        session = Contract.from_source(
+            """
+workflow "research"
+    | search_web query=[safe]
+"""
+        ).create_session(model=StubModel())
+
+        decision = session.check_tool_call(
+            "search_web",
+            (),
+            {"query": "agent compliance"},
         )
 
         self.assertTrue(decision.allowed)
