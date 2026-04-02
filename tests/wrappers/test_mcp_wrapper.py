@@ -5,6 +5,7 @@ import unittest
 
 import mcp.types as types
 
+from complier.contract.model import Contract
 from complier.wrappers.local_mcp import normalize_tool_name, wrap_local_mcp
 from complier.wrappers.local_stdio_proxy import ProxyState, _list_tools, _resolve_downstream_tool_name
 
@@ -21,22 +22,23 @@ class FakeSession:
 
 class MCPWrapperTests(unittest.TestCase):
     def test_wrap_local_mcp_returns_wrapper_launch_command(self) -> None:
-        details = wrap_local_mcp("Notion", ["uvx", "mcp-notion"])
+        session = Contract(name="demo").create_session()
+        details = wrap_local_mcp(session, "Notion", ["uvx", "mcp-notion"])
 
         self.assertEqual(details.namespace, "notion")
         self.assertEqual(
-            details.command,
+            details.command[:5],
             [
                 sys.executable,
                 "-m",
                 "complier.wrappers.local_stdio_proxy",
                 "--namespace",
                 "notion",
-                "--",
-                "uvx",
-                "mcp-notion",
             ],
         )
+        self.assertEqual(details.command[5], "--session-host")
+        self.assertEqual(details.command[7], "--session-port")
+        self.assertEqual(details.command[9:], ["--", "uvx", "mcp-notion"])
         self.assertIn("PYTHONPATH", details.env)
 
     def test_normalize_tool_name_namespaces_human_label(self) -> None:

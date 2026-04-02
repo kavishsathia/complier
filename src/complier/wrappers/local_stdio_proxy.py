@@ -15,6 +15,8 @@ from mcp.server import NotificationOptions, Server
 from mcp.server.stdio import stdio_server
 
 from .local_mcp import normalize_tool_name
+from complier.session.decisions import BlockedToolResponse
+from complier.session.server import SessionServerClient
 
 
 @dataclass(slots=True)
@@ -23,6 +25,7 @@ class ProxyState:
 
     namespace: str
     exposed_to_downstream: dict[str, str] = field(default_factory=dict)
+    session_client: SessionServerClient | None = None
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -35,6 +38,7 @@ async def _run_proxy(argv: list[str] | None) -> None:
     args = _parse_args(argv)
     server = Server("complier-local-mcp-proxy")
     state = ProxyState(namespace=args.namespace)
+    state.session_client = SessionServerClient(args.session_host, args.session_port)
 
     @asynccontextmanager
     async def lifespan(_: Server):
@@ -56,8 +60,23 @@ async def _run_proxy(argv: list[str] | None) -> None:
     async def call_tool(name: str, arguments: dict[str, Any]) -> types.CallToolResult:
         ctx = server.request_context
         session = ctx.lifespan_context
+        decision = state.session_client.check_tool_call(name, (), arguments or {})
+        if not decision.allowed:
+            state.session_client.record_blocked_call(name, decision)
+            blocked = BlockedToolResponse(
+                tool_name=name,
+                reason=decision.reason,
+                remediation=decision.remediation,
+            )
+            return types.CallToolResult(
+                content=[types.TextContent(type="text", text=str(blocked.to_dict()))],
+                structuredContent=blocked.to_dict(),
+                isError=True,
+            )
         tool_name = await _resolve_downstream_tool_name(session, state, name)
-        return await session.call_tool(tool_name, arguments)
+        result = await session.call_tool(tool_name, arguments)
+        state.session_client.record_result(name, result.model_dump(mode="json"))
+        return result
 
     async with stdio_server() as (read_stream, write_stream):
         await server.run(
@@ -70,6 +89,8 @@ async def _run_proxy(argv: list[str] | None) -> None:
 def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run a local namespaced stdio MCP proxy.")
     parser.add_argument("--namespace", required=True)
+    parser.add_argument("--session-host", required=True)
+    parser.add_argument("--session-port", required=True, type=int)
     parser.add_argument(
         "downstream_command",
         nargs=argparse.REMAINDER,

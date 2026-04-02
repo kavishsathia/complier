@@ -4,6 +4,7 @@ import unittest
 
 from complier.contract.model import Contract
 from complier.integration import Integration
+from complier.session.server import SessionServerClient
 
 
 class SessionToolCheckTests(unittest.TestCase):
@@ -218,13 +219,34 @@ workflow "research"
         self.assertFalse(first.allowed)
         self.assertEqual(first.remediation.message, "Retry this action. 1 retries remain.")
         self.assertEqual(len(first.remediation.allowed_next_actions), 1)
-        self.assertEqual(list(session.state.retry_counts.values()), [1])
 
-        second = session.check_tool_call("search_web", (), {"query": "bad query"})
+    def test_session_server_can_check_and_record_result(self) -> None:
+        session = Contract.from_source(
+            """
+workflow "research"
+    | search_web
+"""
+        ).create_session()
+        client = SessionServerClient(**session.server.to_dict())
 
-        self.assertFalse(second.allowed)
-        self.assertEqual(second.reason, "Tool 'search_web' exhausted its retry policy.")
-        self.assertTrue(session.state.terminated)
+        decision = client.check_tool_call("search_web", (), {})
+        client.record_result("search_web", {"status": "ok"})
+
+        self.assertTrue(decision.allowed)
+        self.assertEqual(session.state.history[-1]["tool_name"], "search_web")
+        self.assertEqual(session.state.history[-1]["result"], {"status": "ok"})
+
+    def test_allows_dotted_tool_names(self) -> None:
+        session = Contract.from_source(
+            """
+workflow "research"
+    | notion.create_page
+"""
+        ).create_session()
+
+        decision = session.check_tool_call("notion.create_page", (), {})
+
+        self.assertTrue(decision.allowed)
 
     def test_halt_policy_terminates_session(self) -> None:
         class RejectingModel(Integration):

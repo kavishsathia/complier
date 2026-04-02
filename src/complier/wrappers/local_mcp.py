@@ -8,6 +8,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Sequence
 
+from complier.session.session import Session
+
 
 @dataclass(slots=True)
 class LocalMCPDetails:
@@ -18,16 +20,21 @@ class LocalMCPDetails:
     env: dict[str, str] | None = None
 
 
-def wrap_local_mcp(namespace: str, command: str | Sequence[str]) -> LocalMCPDetails:
+def wrap_local_mcp(session: Session, namespace: str, command: str | Sequence[str]) -> LocalMCPDetails:
     """Return launch details for a namespaced local stdio MCP wrapper."""
     normalized_namespace = _normalize_namespace(namespace)
     downstream_command = _coerce_command(command)
+    server_details = session.server.to_dict()
     wrapper_command = [
         sys.executable,
         "-m",
         "complier.wrappers.local_stdio_proxy",
         "--namespace",
         normalized_namespace,
+        "--session-host",
+        str(server_details["host"]),
+        "--session-port",
+        str(server_details["port"]),
         "--",
         *downstream_command,
     ]

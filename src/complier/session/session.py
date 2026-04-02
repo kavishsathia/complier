@@ -23,6 +23,7 @@ from complier.memory.model import Memory
 
 from .context import activate_session
 from .decisions import Decision, Remediation
+from .server import SessionServer
 from .state import SessionState
 
 if TYPE_CHECKING:
@@ -38,11 +39,13 @@ class Session:
     model: Integration | None = None
     human: Integration | None = None
     state: SessionState = field(default_factory=SessionState)
+    server: SessionServer = field(init=False)
 
     def __post_init__(self) -> None:
         """Detach session-owned memory from the caller's original instance."""
         if self.memory is not None:
             self.memory = Memory(checks=dict(self.memory.checks))
+        self.server = SessionServer(self)
 
     def activate(self) -> AbstractAsyncContextManager["Session"]:
         """Register this session as active within the current async context."""
@@ -168,6 +171,39 @@ class Session:
         from complier.visualizer import serve_contract
 
         return serve_contract(self.contract, host=host, port=port)
+
+    def handle_server_request(self, request: dict[str, Any]) -> dict[str, Any]:
+        method = request.get("method")
+        params = request.get("params", {})
+
+        try:
+            if method == "check_tool_call":
+                decision = self.check_tool_call(
+                    str(params["tool_name"]),
+                    tuple(params.get("args", [])),
+                    dict(params.get("kwargs", {})),
+                    choice=params.get("choice"),
+                )
+                if decision.allowed:
+                    self.record_allowed_call(
+                        str(params["tool_name"]),
+                        tuple(params.get("args", [])),
+                        dict(params.get("kwargs", {})),
+                    )
+                return {"decision": decision.to_dict()}
+
+            if method == "record_blocked_call":
+                decision = Decision.from_dict(dict(params["decision"]))
+                self.record_blocked_call(str(params["tool_name"]), decision)
+                return {"ok": True}
+
+            if method == "record_result":
+                self.record_result(str(params["tool_name"]), params.get("result"))
+                return {"ok": True}
+        except Exception as exc:
+            return {"error": str(exc)}
+
+        return {"error": f"Unknown session server method: {method}"}
 
     def _get_or_choose_workflow(self) -> str | None:
         if self.state.active_workflow is not None:
