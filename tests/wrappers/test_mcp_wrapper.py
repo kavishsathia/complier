@@ -7,7 +7,12 @@ import mcp.types as types
 
 from complier.contract.model import Contract
 from complier.wrappers.local_mcp import normalize_tool_name, wrap_local_mcp
-from complier.wrappers.local_stdio_proxy import ProxyState, _list_tools, _resolve_downstream_tool_name
+from complier.wrappers.local_stdio_proxy import (
+    ProxyState,
+    _list_tools,
+    _resolve_downstream_tool_name,
+    _with_choice_param,
+)
 
 
 class FakeSession:
@@ -67,6 +72,7 @@ class LocalStdioProxyTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(tools[0].name, "notion.create_page")
         self.assertEqual(tools[0].title, "Create Page")
         self.assertEqual(state.exposed_to_downstream["notion.create_page"], "Create Page")
+        self.assertIn("choice", tools[0].inputSchema["properties"])
 
     async def test_resolve_downstream_tool_name_refreshes_mapping(self) -> None:
         state = ProxyState(namespace="notion")
@@ -85,3 +91,15 @@ class LocalStdioProxyTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(tool_name, "Create Page")
         self.assertEqual(session.list_tools_calls, 1)
+
+    def test_with_choice_param_adds_optional_choice_field(self) -> None:
+        schema = _with_choice_param(
+            {
+                "type": "object",
+                "properties": {"title": {"type": "string"}},
+                "required": ["title"],
+            }
+        )
+
+        self.assertIn("choice", schema["properties"])
+        self.assertEqual(schema["required"], ["title"])

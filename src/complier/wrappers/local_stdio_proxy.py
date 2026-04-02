@@ -60,7 +60,9 @@ async def _run_proxy(argv: list[str] | None) -> None:
     async def call_tool(name: str, arguments: dict[str, Any]) -> types.CallToolResult:
         ctx = server.request_context
         session = ctx.lifespan_context
-        decision = state.session_client.check_tool_call(name, (), arguments or {})
+        forwarded_arguments = dict(arguments or {})
+        choice = forwarded_arguments.pop("choice", None)
+        decision = state.session_client.check_tool_call(name, (), forwarded_arguments, choice=choice)
         if not decision.allowed:
             state.session_client.record_blocked_call(name, decision)
             blocked = BlockedToolResponse(
@@ -74,7 +76,7 @@ async def _run_proxy(argv: list[str] | None) -> None:
                 isError=True,
             )
         tool_name = await _resolve_downstream_tool_name(session, state, name)
-        result = await session.call_tool(tool_name, arguments)
+        result = await session.call_tool(tool_name, forwarded_arguments)
         state.session_client.record_result(name, result.model_dump(mode="json"))
         return result
 
@@ -120,12 +122,7 @@ async def _list_tools(session: ClientSession, state: ProxyState) -> list[types.T
         exposed_name = normalize_tool_name(state.namespace, tool.name)
         state.exposed_to_downstream[exposed_name] = tool.name
         rewritten_tools.append(
-            tool.model_copy(
-                update={
-                    "name": exposed_name,
-                    "title": tool.title or tool.name,
-                }
-            )
+            tool.model_copy(update=_tool_update(exposed_name, tool))
         )
 
     return rewritten_tools
@@ -145,6 +142,25 @@ async def _resolve_downstream_tool_name(
     if original_name is None:
         raise ValueError(f"Unknown wrapped tool: {exposed_name}")
     return original_name
+
+
+def _tool_update(exposed_name: str, tool: types.Tool) -> dict[str, Any]:
+    return {
+        "name": exposed_name,
+        "title": tool.title or tool.name,
+        "inputSchema": _with_choice_param(tool.inputSchema),
+    }
+
+
+def _with_choice_param(input_schema: dict[str, Any]) -> dict[str, Any]:
+    schema = dict(input_schema)
+    properties = dict(schema.get("properties", {}))
+    properties["choice"] = {
+        "type": "string",
+        "description": "Optional branch or unordered-block choice label.",
+    }
+    schema["properties"] = properties
+    return schema
 
 
 if __name__ == "__main__":
