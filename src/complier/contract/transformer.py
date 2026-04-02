@@ -23,6 +23,7 @@ from .ast import (
     ModelCheck,
     NotExpression,
     OrExpression,
+    ContractExpressionWithPolicy,
     Param,
     Program,
     RetryPolicy,
@@ -151,25 +152,29 @@ class ContractTransformer(Transformer[Token, Any]):
         return None
 
     def model_check(self, items: list[Any]) -> ModelCheck:
-        name = items[0]
-        policy = items[1] if len(items) > 1 else None
-        return ModelCheck(name=name, policy=policy)
+        return ModelCheck(name=items[0])
 
     def human_check(self, items: list[Any]) -> HumanCheck:
-        name = items[0]
-        policy = items[1] if len(items) > 1 else None
-        return HumanCheck(name=name, policy=policy)
+        return HumanCheck(name=items[0])
 
     def learned_check(self, items: list[Any]) -> LearnedCheck:
-        name = items[0]
-        policy = items[1] if len(items) > 1 else None
-        return LearnedCheck(name=name, policy=policy)
+        return LearnedCheck(name=items[0])
 
     def check_name(self, items: list[Any]) -> str:
         return items[0]
 
-    def check_suffix(self, items: list[Any]) -> Any:
-        return items[0]
+    def policy_expr(self, items: list[Any]) -> ContractExpressionWithPolicy:
+        expression, policy = items
+        return ContractExpressionWithPolicy(expression=expression, policy=policy)
+
+    def contract_expr(self, items: list[Any]) -> ContractExpressionWithPolicy:
+        expression = items[0]
+        if isinstance(expression, ContractExpressionWithPolicy):
+            return expression
+        return ContractExpressionWithPolicy(
+            expression=expression,
+            policy=RetryPolicy(attempts=3),
+        )
 
     def halt_policy(self, _items: list[Any]) -> str:
         return "halt"

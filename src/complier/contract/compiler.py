@@ -9,6 +9,7 @@ from .ast import (
     AndExpression,
     BranchStep,
     ContractExpression,
+    ContractExpressionWithPolicy,
     ElseArm,
     ForkStep,
     Guarantee,
@@ -64,7 +65,7 @@ class CompileResult:
 class WorkflowCompiler:
     """Compiles workflow AST nodes into runtime graphs."""
 
-    guarantees: dict[str, ContractExpression]
+    guarantees: dict[str, ContractExpressionWithPolicy]
     workflow_name: str
     nodes: dict[str, object] = field(default_factory=dict)
     counter: int = 0
@@ -91,7 +92,7 @@ class WorkflowCompiler:
         )
 
     def _compile_steps(
-        self, steps: list[Step], inherited_guards: list[ContractExpression]
+        self, steps: list[Step], inherited_guards: list[ContractExpressionWithPolicy]
     ) -> CompileResult:
         compiled_steps = [self._compile_step(step, inherited_guards) for step in steps]
 
@@ -105,7 +106,7 @@ class WorkflowCompiler:
         return CompileResult(entry_id=entry_id, exit_ids=list(pending))
 
     def _compile_step(
-        self, step: Step, inherited_guards: list[ContractExpression]
+        self, step: Step, inherited_guards: list[ContractExpressionWithPolicy]
     ) -> CompileResult:
         if isinstance(step, ToolStep):
             node = self._add_node(
@@ -183,7 +184,7 @@ class WorkflowCompiler:
         raise TypeError(f"Unsupported step type: {type(step)!r}")
 
     def _compile_branch(
-        self, step: BranchStep, inherited_guards: list[ContractExpression]
+        self, step: BranchStep, inherited_guards: list[ContractExpressionWithPolicy]
     ) -> CompileResult:
         back = self._add_node(BranchBackNode(id=self._new_id("branch_back")))
         branch = self._add_node(
@@ -210,7 +211,7 @@ class WorkflowCompiler:
         return CompileResult(entry_id=branch.id, exit_ids=[back.id])
 
     def _compile_loop(
-        self, step: LoopStep, inherited_guards: list[ContractExpression]
+        self, step: LoopStep, inherited_guards: list[ContractExpressionWithPolicy]
     ) -> CompileResult:
         back = self._add_node(BranchBackNode(id=self._new_id("loop_back")))
         branch = self._add_node(
@@ -232,7 +233,7 @@ class WorkflowCompiler:
         return CompileResult(entry_id=branch.id, exit_ids=[back.id])
 
     def _compile_unordered(
-        self, step: UnorderedStep, inherited_guards: list[ContractExpression]
+        self, step: UnorderedStep, inherited_guards: list[ContractExpressionWithPolicy]
     ) -> CompileResult:
         back = self._add_node(UnorderedBackNode(id=self._new_id("unordered_back")))
         unordered = self._add_node(
@@ -253,16 +254,25 @@ class WorkflowCompiler:
     def _resolve_param_value(self, value: ParamValue) -> ParamValue:
         if isinstance(value, (str, int, bool)) or value is None:
             return value
-        return self._resolve_expression(value)
+        return self._resolve_expression_with_policy(value)
 
-    def _resolve_guarantee(self, name: str) -> ContractExpression:
+    def _resolve_guarantee(self, name: str) -> ContractExpressionWithPolicy:
         if name not in self.guarantees:
             raise ValueError(f"Unknown guarantee reference: {name}")
-        return self._resolve_expression(self.guarantees[name])
+        return self._resolve_expression_with_policy(self.guarantees[name])
+
+    def _resolve_expression_with_policy(
+        self,
+        expression: ContractExpressionWithPolicy,
+    ) -> ContractExpressionWithPolicy:
+        return ContractExpressionWithPolicy(
+            expression=self._resolve_expression(expression.expression),
+            policy=expression.policy,
+        )
 
     def _resolve_expression(self, expression: ContractExpression) -> ContractExpression:
         if isinstance(expression, GuaranteeRef):
-            return self._resolve_guarantee(expression.name)
+            return self._resolve_guarantee(expression.name).expression
         if isinstance(expression, ModelCheck | HumanCheck | LearnedCheck):
             return expression
         if isinstance(expression, NotExpression):
@@ -323,7 +333,10 @@ class ContractCompiler:
         return Contract(
             name="anonymous",
             workflows=compiled_workflows,
-            guarantees={name: WorkflowCompiler(guarantees, "_resolve")._resolve_expression(expr) for name, expr in guarantees.items()},
+            guarantees={
+                name: WorkflowCompiler(guarantees, "_resolve")._resolve_expression_with_policy(expr)
+                for name, expr in guarantees.items()
+            },
             metadata={
                 "source": parsed.source,
                 "parse_tree": parsed.tree,

@@ -9,7 +9,7 @@ from typing import Any
 from complier.integration import Integration
 from complier.memory.model import Memory
 
-from .ast import ContractExpression
+from .ast import ContractExpressionWithPolicy
 from .runtime import CompiledWorkflow
 
 
@@ -19,7 +19,7 @@ class Contract:
 
     name: str
     workflows: dict[str, CompiledWorkflow] = field(default_factory=dict)
-    guarantees: dict[str, ContractExpression] = field(default_factory=dict)
+    guarantees: dict[str, ContractExpressionWithPolicy] = field(default_factory=dict)
     metadata: dict[str, Any] = field(default_factory=dict)
 
     @classmethod

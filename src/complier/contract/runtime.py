@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from .ast import ContractExpression, ParamValue
+from .ast import ContractExpressionWithPolicy, ParamValue
 
 
 @dataclass(slots=True)
@@ -29,7 +29,7 @@ class RuntimeNode:
 class ExecutableNode(RuntimeNode):
     """Base node for executable steps."""
 
-    guards: list[ContractExpression] = field(default_factory=list)
+    guards: list[ContractExpressionWithPolicy] = field(default_factory=list)
 
 
 @dataclass(slots=True)
@@ -115,4 +115,3 @@ class UnorderedNode(RuntimeNode):
 @dataclass(slots=True)
 class UnorderedBackNode(RuntimeNode):
     """Merge node after unordered cases."""
-

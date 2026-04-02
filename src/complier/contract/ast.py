@@ -18,7 +18,7 @@ class Guarantee:
     """Named reusable contract expression."""
 
     name: str
-    expression: ContractExpression
+    expression: ContractExpressionWithPolicy
 
 
 @dataclass(slots=True)
@@ -160,7 +160,6 @@ class ModelCheck:
     """Square-bracket check."""
 
     name: str
-    policy: Policy | None = None
 
 
 @dataclass(slots=True)
@@ -168,7 +167,6 @@ class HumanCheck:
     """Curly-brace check."""
 
     name: str
-    policy: Policy | None = None
 
 
 @dataclass(slots=True)
@@ -176,7 +174,6 @@ class LearnedCheck:
     """Memory-backed check."""
 
     name: str
-    policy: Policy | None = None
 
 
 @dataclass(slots=True)
@@ -211,5 +208,15 @@ class OrExpression:
 
 ContractAtom: TypeAlias = ModelCheck | HumanCheck | LearnedCheck | GuaranteeRef
 ContractExpression: TypeAlias = ContractAtom | NotExpression | AndExpression | OrExpression
-ParamValue: TypeAlias = str | int | bool | None | ContractExpression
+
+
+@dataclass(slots=True)
+class ContractExpressionWithPolicy:
+    """A contract expression with an attached failure policy."""
+
+    expression: ContractExpression
+    policy: Policy = field(default_factory=lambda: RetryPolicy(attempts=3))
+
+
+ParamValue: TypeAlias = str | int | bool | None | ContractExpressionWithPolicy
 CallType: TypeAlias = str

@@ -62,7 +62,9 @@ param: IDENT "=" param_value
             | NULL            -> null_value
             | contract_expr
 
-?contract_expr: or_expr
+contract_expr: policy_expr
+?policy_expr: or_expr
+            | or_expr ":" check_policy -> policy_expr
 ?or_expr: and_expr
         | or_expr OR and_expr   -> or_expr
 ?and_expr: unary_expr
@@ -73,13 +75,12 @@ param: IDENT "=" param_value
               | human_check
               | learned_check
               | IDENT           -> guarantee_ref
-              | "(" contract_expr ")"
+              | "(" policy_expr ")"
 
-model_check: "[" check_name check_suffix? "]"
-human_check: "{" check_name check_suffix? "}"
-learned_check: "#{" check_name check_suffix? "}"
+model_check: "[" check_name "]"
+human_check: "{" check_name "}"
+learned_check: "#{" check_name "}"
 check_name: IDENT
-check_suffix: ":" check_policy
 check_policy: HALT -> halt_policy
             | SKIP -> skip_policy
             | NUMBER -> retry_policy

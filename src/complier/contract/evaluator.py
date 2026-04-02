@@ -10,6 +10,7 @@ from complier.memory.model import Memory
 from .ast import (
     AndExpression,
     ContractExpression,
+    ContractExpressionWithPolicy,
     GuaranteeRef,
     HumanCheck,
     LearnedCheck,
@@ -31,7 +32,7 @@ class EvaluationResult:
 
 
 def evaluate_contract_expression(
-    expression: ContractExpression,
+    expression: ContractExpressionWithPolicy,
     value: Any,
     *,
     model: "Integration | None" = None,
@@ -40,10 +41,10 @@ def evaluate_contract_expression(
 ) -> EvaluationResult:
     """Evaluate a compiled contract expression against a specific input value."""
     # Reminder: stringify `value` before real check execution to avoid type-specific surprises.
-    model_results, model_reasons = _evaluate_model_checks(expression, value, model)
-    human_results, human_reasons = _evaluate_human_checks(expression, value, human)
+    model_results, model_reasons = _evaluate_model_checks(expression.expression, value, model)
+    human_results, human_reasons = _evaluate_human_checks(expression.expression, value, human)
     learned_results, learned_reasons = _evaluate_learned_checks(
-        expression,
+        expression.expression,
         value,
         model=model,
         human=human,
@@ -51,7 +52,7 @@ def evaluate_contract_expression(
     )
 
     passed = _evaluate_boolean_expression(
-        expression,
+        expression.expression,
         model_results=model_results,
         human_results=human_results,
         learned_results=learned_results,
@@ -63,7 +64,7 @@ def evaluate_contract_expression(
 
 
 def evaluate_constraint(
-    constraint: ContractExpression | Any,
+    constraint: ContractExpressionWithPolicy | Any,
     value: Any,
     *,
     model: "Integration | None" = None,
@@ -71,7 +72,7 @@ def evaluate_constraint(
     memory: Memory | None = None,
 ) -> EvaluationResult:
     """Evaluate a declared param constraint against a specific input value."""
-    if isinstance(constraint, ContractExpression):
+    if isinstance(constraint, ContractExpressionWithPolicy):
         return evaluate_contract_expression(
             constraint,
             value,

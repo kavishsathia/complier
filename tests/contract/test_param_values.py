@@ -3,7 +3,14 @@
 import unittest
 
 from complier.contract.parser import ContractParser
-from complier.contract.ast import AndExpression, ModelCheck, Param, ToolStep
+from complier.contract.ast import (
+    AndExpression,
+    ContractExpressionWithPolicy,
+    ModelCheck,
+    Param,
+    RetryPolicy,
+    ToolStep,
+)
 
 from .helpers import parse_program
 
@@ -31,7 +38,7 @@ workflow "params"
         program = parse_program(
             """
 workflow "checks"
-    | classify gate=([relevant:3] && [concise:halt])
+    | classify gate=(([relevant] && [concise]):halt)
 """
         )
 
@@ -42,11 +49,26 @@ workflow "checks"
         gate = tool.params[0]
         self.assertIsInstance(gate, Param)
         self.assertEqual(gate.name, "gate")
-        self.assertIsInstance(gate.value, AndExpression)
-        self.assertIsInstance(gate.value.left, ModelCheck)
-        self.assertIsInstance(gate.value.right, ModelCheck)
-        self.assertEqual(gate.value.left.name, "relevant")
-        self.assertEqual(gate.value.right.name, "concise")
+        self.assertIsInstance(gate.value, ContractExpressionWithPolicy)
+        self.assertEqual(gate.value.policy, "halt")
+        self.assertIsInstance(gate.value.expression, AndExpression)
+        self.assertIsInstance(gate.value.expression.left, ModelCheck)
+        self.assertIsInstance(gate.value.expression.right, ModelCheck)
+        self.assertEqual(gate.value.expression.left.name, "relevant")
+        self.assertEqual(gate.value.expression.right.name, "concise")
+
+    def test_contract_expressions_default_to_retry_three_policy(self) -> None:
+        program = parse_program(
+            """
+workflow "checks"
+    | classify gate=[relevant]
+"""
+        )
+
+        gate = program.items[0].steps[0].params[0]
+        self.assertIsInstance(gate.value, ContractExpressionWithPolicy)
+        self.assertIsInstance(gate.value.policy, RetryPolicy)
+        self.assertEqual(gate.value.policy.attempts, 3)
 
     def test_public_parser_round_trips_scalar_param_values_without_trailing_newline(self) -> None:
         parsed = ContractParser().parse(

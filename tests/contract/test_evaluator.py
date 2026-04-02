@@ -3,7 +3,13 @@
 import unittest
 
 from complier import Integration
-from complier.contract.ast import AndExpression, LearnedCheck, ModelCheck
+from complier.contract.ast import (
+    AndExpression,
+    ContractExpressionWithPolicy,
+    LearnedCheck,
+    ModelCheck,
+    RetryPolicy,
+)
 from complier.contract.evaluator import EvaluationResult, evaluate_contract_expression
 from complier.memory.model import Memory
 
@@ -20,9 +26,12 @@ class ContractEvaluatorTests(unittest.TestCase):
 
         model = StubModel()
         result = evaluate_contract_expression(
-            AndExpression(
-                left=ModelCheck(name="safe"),
-                right=ModelCheck(name="relevant"),
+            ContractExpressionWithPolicy(
+                expression=AndExpression(
+                    left=ModelCheck(name="safe"),
+                    right=ModelCheck(name="relevant"),
+                ),
+                policy=RetryPolicy(attempts=3),
             ),
             "latest ai agent safety papers",
             model=model,
@@ -55,7 +64,10 @@ class ContractEvaluatorTests(unittest.TestCase):
         model = StubModel()
         memory = Memory(checks={"tone": "Prefer calm, concise answers."})
         result = evaluate_contract_expression(
-            LearnedCheck(name="tone"),
+            ContractExpressionWithPolicy(
+                expression=LearnedCheck(name="tone"),
+                policy=RetryPolicy(attempts=3),
+            ),
             "draft answer",
             model=model,
             human=human,
