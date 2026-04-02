@@ -1071,7 +1071,7 @@ sys.path.insert(0, "/tmp/complier")
           </div>
         </section>
 
-        <section className="grid min-h-0 grid-rows-2">
+        <section className="hidden min-h-0 grid-rows-2 md:grid">
           <div className="border-b border-border">
             <div className="h-full min-h-0 bg-[#050607]">
               <CplEditor value={source} onChange={setSource} />
