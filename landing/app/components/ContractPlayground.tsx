@@ -1,6 +1,7 @@
 "use client";
 
-import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import ELK from "elkjs/lib/elk.bundled.js";
+import { useDeferredValue, useEffect, useRef, useState } from "react";
 
 type GraphNode = {
   id: string;
@@ -49,6 +50,17 @@ type Viewport = {
   scale: number;
 };
 
+type RoutedEdge = GraphEdge & {
+  points: Array<{ x: number; y: number }>;
+};
+
+type LayoutState = {
+  positions: Map<string, { x: number; y: number }>;
+  edges: RoutedEdge[];
+  width: number;
+  height: number;
+};
+
 declare global {
   interface Window {
     loadPyodide?: (options: { indexURL: string }) => Promise<PyodideLike>;
@@ -74,6 +86,9 @@ workflow "research" @always safe
 const DEFAULT_VIEWPORT: Viewport = { x: 72, y: 56, scale: 1 };
 const PYODIDE_VERSION = "0.27.3";
 const PYODIDE_INDEX_URL = `https://cdn.jsdelivr.net/pyodide/v${PYODIDE_VERSION}/full/`;
+const NODE_WIDTH = 224;
+const NODE_HEIGHT = 126;
+const elk = new ELK();
 
 const COMPILE_PYTHON = `
 import json
@@ -147,6 +162,82 @@ function formatValue(value: unknown) {
   return JSON.stringify(value);
 }
 
+function buildEdgePoints(
+  edge: GraphEdge,
+  positions: Map<string, { x: number; y: number }>,
+) {
+  const source = positions.get(edge.source);
+  const target = positions.get(edge.target);
+
+  if (!source || !target) {
+    return [];
+  }
+
+  return [
+    { x: source.x + NODE_WIDTH, y: source.y + NODE_HEIGHT / 2 },
+    { x: target.x, y: target.y + NODE_HEIGHT / 2 },
+  ];
+}
+
+async function computeWorkflowLayout(workflow: WorkflowGraph): Promise<LayoutState> {
+  const layout = await elk.layout({
+    id: workflow.name,
+    layoutOptions: {
+      "elk.algorithm": "layered",
+      "elk.direction": "RIGHT",
+      "elk.edgeRouting": "ORTHOGONAL",
+      "elk.layered.spacing.nodeNodeBetweenLayers": "120",
+      "elk.spacing.nodeNode": "64",
+      "elk.padding": "[top=80,left=96,bottom=80,right=128]",
+      "elk.layered.nodePlacement.strategy": "NETWORK_SIMPLEX",
+      "elk.layered.crossingMinimization.strategy": "LAYER_SWEEP",
+      "elk.layered.considerModelOrder.strategy": "NODES_AND_EDGES",
+    },
+    children: workflow.nodes.map((node) => ({
+      id: node.id,
+      width: NODE_WIDTH,
+      height: NODE_HEIGHT,
+    })),
+    edges: workflow.edges.map((edge) => ({
+      id: edge.id,
+      sources: [edge.source],
+      targets: [edge.target],
+    })),
+  });
+
+  const positions = new Map<string, { x: number; y: number }>();
+  for (const child of layout.children ?? []) {
+    positions.set(child.id, {
+      x: child.x ?? 0,
+      y: child.y ?? 0,
+    });
+  }
+
+  const routedEdges: RoutedEdge[] = workflow.edges.map((edge) => {
+    const routed = (layout.edges ?? []).find((candidate) => candidate.id === edge.id);
+    const section = routed?.sections?.[0];
+    const points = [
+      section?.startPoint,
+      ...(section?.bendPoints ?? []),
+      section?.endPoint,
+    ]
+      .filter((point): point is { x: number; y: number } => Boolean(point))
+      .map((point) => ({ x: point.x, y: point.y }));
+
+    return {
+      ...edge,
+      points: points.length > 1 ? points : buildEdgePoints(edge, positions),
+    };
+  });
+
+  return {
+    positions,
+    edges: routedEdges,
+    width: (layout.width ?? NODE_WIDTH) + 120,
+    height: (layout.height ?? NODE_HEIGHT) + 120,
+  };
+}
+
 function GraphCanvas({
   workflow,
   viewport,
@@ -163,74 +254,26 @@ function GraphCanvas({
     originX: number;
     originY: number;
   } | null>(null);
+  const [layoutState, setLayoutState] = useState<LayoutState | null>(null);
 
-  const { positions, width, height } = useMemo(() => {
-    const nodeWidth = 224;
-    const nodeHeight = 126;
-    const columnGap = 124;
-    const rowGap = 56;
-    const outgoing = new Map<string, string[]>();
+  useEffect(() => {
+    let cancelled = false;
 
-    for (const edge of workflow.edges) {
-      if (edge.kind === "next") {
-        const current = outgoing.get(edge.source) ?? [];
-        current.push(edge.target);
-        outgoing.set(edge.source, current);
+    void computeWorkflowLayout(workflow).then((result) => {
+      if (!cancelled) {
+        setLayoutState(result);
       }
-    }
-
-    const levels = new Map<string, number>([[workflow.startNodeId, 0]]);
-    const queue = [workflow.startNodeId];
-
-    while (queue.length > 0) {
-      const current = queue.shift()!;
-      const currentLevel = levels.get(current) ?? 0;
-      for (const target of outgoing.get(current) ?? []) {
-        if (!levels.has(target)) {
-          levels.set(target, currentLevel + 1);
-          queue.push(target);
-        }
-      }
-    }
-
-    let fallbackLevel = Math.max(...levels.values(), 0) + 1;
-    for (const node of workflow.nodes) {
-      if (!levels.has(node.id)) {
-        levels.set(node.id, fallbackLevel);
-        fallbackLevel += 1;
-      }
-    }
-
-    const grouped = new Map<number, GraphNode[]>();
-    for (const node of workflow.nodes) {
-      const level = levels.get(node.id) ?? 0;
-      const bucket = grouped.get(level) ?? [];
-      bucket.push(node);
-      grouped.set(level, bucket);
-    }
-
-    const positions = new Map<string, { x: number; y: number }>();
-    const orderedLevels = [...grouped.keys()].sort((a, b) => a - b);
-    let maxRows = 1;
-
-    orderedLevels.forEach((level) => {
-      const nodes = grouped.get(level) ?? [];
-      maxRows = Math.max(maxRows, nodes.length);
-      nodes.forEach((node, index) => {
-        positions.set(node.id, {
-          x: level * (nodeWidth + columnGap),
-          y: index * (nodeHeight + rowGap),
-        });
-      });
     });
 
-    const totalWidth =
-      Math.max(orderedLevels.length, 1) * nodeWidth +
-      Math.max(orderedLevels.length - 1, 0) * columnGap;
-    const totalHeight = maxRows * nodeHeight + Math.max(maxRows - 1, 0) * rowGap;
-
-    return { positions, width: totalWidth + 280, height: totalHeight + 240 };
+    return () => {
+      cancelled = true;
+    };
   }, [workflow]);
+
+  const positions = layoutState?.positions ?? new Map<string, { x: number; y: number }>();
+  const width = layoutState?.width ?? 1200;
+  const height = layoutState?.height ?? 800;
+  const routedEdges = layoutState?.edges ?? [];
 
   return (
     <div
@@ -284,22 +327,15 @@ function GraphCanvas({
         }}
       >
         <svg className="absolute inset-0 h-full w-full overflow-visible">
-          {workflow.edges.map((edge) => {
-            const source = positions.get(edge.source);
-            const target = positions.get(edge.target);
-
-            if (!source || !target) {
+          {routedEdges.map((edge) => {
+            if (edge.points.length < 2) {
               return null;
             }
 
-            const x1 = source.x + 224;
-            const y1 = source.y + 63;
-            const x2 = target.x;
-            const y2 = target.y + 63;
-            const controlOffset = Math.max((x2 - x1) / 2, 56);
-            const path = `M ${x1} ${y1} C ${x1 + controlOffset} ${y1}, ${x2 - controlOffset} ${y2}, ${x2} ${y2}`;
-            const labelX = x1 + (x2 - x1) / 2;
-            const labelY = Math.min(y1, y2) - 14;
+            const path = edge.points.reduce((result, point, index) => {
+              return `${result}${index === 0 ? "M" : " L"} ${point.x} ${point.y}`;
+            }, "");
+            const midpoint = edge.points[Math.floor(edge.points.length / 2)];
             const stroke =
               edge.kind === "branch"
                 ? "#fdad5c"
@@ -318,10 +354,10 @@ function GraphCanvas({
                   strokeDasharray={edge.kind === "next" ? undefined : "6 6"}
                   strokeWidth="2"
                 />
-                {edge.label ? (
+                {edge.label && midpoint ? (
                   <text
-                    x={labelX}
-                    y={labelY}
+                    x={midpoint.x}
+                    y={midpoint.y - 12}
                     textAnchor="middle"
                     fill={stroke}
                     fontSize="11"
@@ -386,6 +422,12 @@ function GraphCanvas({
             </div>
           );
         })}
+
+        {layoutState === null ? (
+          <div className="absolute inset-0 flex items-center justify-center text-sm text-muted">
+            Computing layout…
+          </div>
+        ) : null}
       </div>
     </div>
   );
