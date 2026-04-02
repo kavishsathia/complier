@@ -60,7 +60,7 @@ param: IDENT "=" param_value
             | TRUE            -> true_value
             | FALSE           -> false_value
             | NULL            -> null_value
-            | contract_expr
+            | policy_expr      -> contract_expr
 
 contract_expr: policy_expr
 ?policy_expr: or_expr

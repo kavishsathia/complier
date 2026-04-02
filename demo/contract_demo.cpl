@@ -1,6 +1,6 @@
-guarantee safe [no_harmful_content:halt]
-guarantee cited ([sources_attached] && [quotes_verified:2])
-guarantee approved ({editor_signed_off:skip} || #{quality_model:3})
+guarantee safe [no_harmful_content]:halt
+guarantee cited (([sources_attached] && [quotes_verified]):2)
+guarantee approved (({editor_signed_off} || #{quality_model}):skip)
 
 workflow "research" @always safe
     | @human "What topic?"
@@ -8,7 +8,7 @@ workflow "research" @always safe
     | search_web
     | collect_sources
     | extract_quotes
-    | summarize style=([relevant:3] && [concise:halt])
+    | summarize style=([relevant] && [concise]):halt
     | @llm "Classify as technical or general"
     | @branch
         -when "technical"
@@ -30,7 +30,7 @@ workflow "research" @always safe
     | @fork refs @call check_references
     | @fork refs @call verify_sources
     | @join refs
-    | final_review gate=(![needs_revision] && {approved:skip})
+    | final_review gate=(![needs_revision] && {approved}):skip
     | @call send_report
     | email to="user"
 

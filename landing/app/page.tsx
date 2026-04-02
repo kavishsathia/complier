@@ -185,7 +185,7 @@ function Syntax() {
             <code>
               <span className="code-keyword">guarantee</span>
               {" safe "}
-              <span className="code-param">[no_harmful_content:halt]</span>
+              <span className="code-param">[no_harmful_content]:halt</span>
               {"\n\n"}
               <span className="code-keyword">workflow</span>
               <span className="code-string"> &quot;research&quot;</span>
@@ -205,7 +205,7 @@ function Syntax() {
               <span className="code-op">|</span>
               {" summarize "}
               <span className="code-param">
-                style=([relevant:3] && [concise:halt])
+                style=([relevant] && [concise]):halt
               </span>
               {"\n"}
               {"    "}
@@ -260,14 +260,17 @@ function Syntax() {
           <div className="rounded border border-border bg-card p-5">
             <div className="text-base font-medium mb-3">checks</div>
             <div className="text-sm text-secondary leading-loose">
-              <span className="code-param">[model:policy]</span>{" "}
+              <span className="code-param">[model]</span>{" "}
               model-evaluated
               <br />
-              <span className="code-string">{"{human:policy}"}</span>{" "}
+              <span className="code-string">{"{human}"}</span>{" "}
               human-approved
               <br />
-              <span className="code-keyword">#{"{learned:policy}"}</span>{" "}
+              <span className="code-keyword">#{"{learned}"}</span>{" "}
               memory-backed
+              <br />
+              <span className="code-param">(expr):policy</span>{" "}
+              expression-level policy
             </div>
           </div>
         </div>

@@ -38,7 +38,7 @@ workflow "params"
         program = parse_program(
             """
 workflow "checks"
-    | classify gate=(([relevant] && [concise]):halt)
+    | classify gate=([relevant] && [concise]):halt
 """
         )
 

@@ -37,7 +37,7 @@ The entire framework relies on these critical insights that you just read.
 
 - **Compiled runtime graph** — Your DSL compiles down (parse → AST → graph) into a directed node graph. At any point in execution, the graph knows what just happened and what's allowed next.
 
-- **Contract checks** — Guard expressions that gate steps before they run. Model checks (`[check:policy]`), human checks (`{check:policy}`), and learned checks (`#{check:policy}`) can be composed with `&&`, `||`, `!` and configured with policies (`:halt`, `:skip`, `:N` retries).
+- **Contract checks** — Guard expressions that gate steps before they run. Model checks (`[check]`), human checks (`{check}`), and learned checks (`#{check}`) can be composed with `&&`, `||`, `!`, then wrapped with an expression-level policy such as `([check] && !{other}):halt`. If no policy is written, the default is 3 retries.
 
 - **Guarantees** — Reusable contract expressions (`guarantee <name> <expr>`) that can be attached to entire workflows with `@always`, so certain invariants hold on every step.
 
@@ -62,12 +62,12 @@ Requires Python 3.11+. The only runtime dependency is [Lark](https://github.com/
 Define a contract in a `.cpl` file:
 
 ```
-guarantee safe [no_harmful_content:halt]
+guarantee safe [no_harmful_content]:halt
 
 workflow "research" @always safe
     | @human "What topic?"
     | search_web
-    | summarize style=([relevant:3] && [concise:halt])
+    | summarize style=([relevant] && [concise]):halt
     | @branch
         -when "technical"
             | @llm "Write detailed analysis"

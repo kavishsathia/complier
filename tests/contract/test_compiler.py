@@ -69,7 +69,7 @@ workflow "research" @always safe
 guarantee safe [no_harmful_content]:halt
 
 workflow "research"
-    | review gate=((safe && [relevant]):2)
+    | review gate=(safe && [relevant]):2
 """
         )
 
