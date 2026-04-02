@@ -6,16 +6,18 @@ from .memory.model import Memory
 from .session.session import Session
 from .visualizer import contract_to_graph, serve_contract
 from .wrappers.function import FunctionWrapper, wrap_function
-from .wrappers.mcp import MCPWrapper
+from .wrappers.local_mcp import LocalMCPDetails, normalize_tool_name, wrap_local_mcp
 
 __all__ = [
     "Contract",
     "Integration",
+    "LocalMCPDetails",
     "Memory",
     "Session",
     "contract_to_graph",
     "serve_contract",
     "FunctionWrapper",
-    "MCPWrapper",
+    "normalize_tool_name",
     "wrap_function",
+    "wrap_local_mcp",
 ]
