@@ -6,10 +6,20 @@ from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
+from complier.contract.evaluator import evaluate_constraint
+from complier.contract.runtime import (
+    BranchBackNode,
+    BranchNode,
+    JoinNode,
+    StartNode,
+    ToolNode,
+    UnorderedBackNode,
+    UnorderedNode,
+)
 from complier.memory.model import Memory
 
 from .context import activate_session
-from .decisions import Decision
+from .decisions import Decision, Remediation
 from .state import SessionState
 
 if TYPE_CHECKING:
@@ -42,6 +52,44 @@ class Session:
         choice: str | None = None,
     ) -> Decision:
         """Evaluate whether a tool call is allowed in the current state."""
+        if not self.contract.workflows:
+            return Decision(allowed=True)
+
+        workflow_name = self._get_or_choose_workflow()
+        if workflow_name is None:
+            return Decision(
+                allowed=False,
+                reason="No active workflow is available.",
+            )
+
+        workflow = self.contract.workflows[workflow_name]
+        candidate_nodes = self._collect_next_tool_nodes(workflow_name, choice)
+
+        matching_name_nodes = [
+            node
+            for node in candidate_nodes
+            if node.tool_name == tool_name
+        ]
+        if not matching_name_nodes:
+            return Decision(
+                allowed=False,
+                reason=f"Tool '{tool_name}' is not allowed next.",
+                remediation=Remediation(
+                    message="Choose one of the next allowed tool actions.",
+                    allowed_next_actions=sorted({node.tool_name for node in candidate_nodes}),
+                ),
+            )
+
+        valid_node = self._find_valid_tool_node(matching_name_nodes, kwargs)
+        if valid_node is None:
+            return Decision(
+                allowed=False,
+                reason=f"Tool '{tool_name}' did not satisfy the declared param constraints.",
+            )
+
+        self.state.active_workflow = workflow.name
+        self.state.active_step = valid_node.id
+        self.state.completed_steps.append(valid_node.id)
         return Decision(allowed=True)
 
     def record_allowed_call(self, tool_name: str, args: tuple[Any, ...], kwargs: dict[str, Any]) -> None:
@@ -87,3 +135,87 @@ class Session:
         from complier.visualizer import serve_contract
 
         return serve_contract(self.contract, host=host, port=port)
+
+    def _get_or_choose_workflow(self) -> str | None:
+        if self.state.active_workflow is not None:
+            return self.state.active_workflow
+        if len(self.contract.workflows) == 1:
+            return next(iter(self.contract.workflows))
+        return None
+
+    def _collect_next_tool_nodes(
+        self,
+        workflow_name: str,
+        choice: str | None,
+    ) -> list[ToolNode]:
+        workflow = self.contract.workflows[workflow_name]
+        if self.state.active_step is None:
+            frontier = [workflow.start_node_id]
+        else:
+            frontier = [self.state.active_step]
+
+        pending: list[str] = []
+        for node_id in frontier:
+            pending.extend(workflow.nodes[node_id].next_ids)
+
+        seen: set[str] = set()
+        candidates: list[ToolNode] = []
+
+        while pending:
+            node_id = pending.pop(0)
+            if node_id in seen:
+                continue
+            seen.add(node_id)
+
+            node = workflow.nodes[node_id]
+            if isinstance(node, ToolNode):
+                candidates.append(node)
+                continue
+
+            if isinstance(node, (StartNode, BranchBackNode, UnorderedBackNode, JoinNode)):
+                pending.extend(node.next_ids)
+                continue
+
+            if isinstance(node, BranchNode):
+                if choice is not None:
+                    if choice == "else":
+                        if node.else_node_id is not None:
+                            pending.append(node.else_node_id)
+                    elif choice in node.arms:
+                        pending.append(node.arms[choice])
+                else:
+                    pending.extend(node.arms.values())
+                    if node.else_node_id is not None:
+                        pending.append(node.else_node_id)
+                continue
+
+            if isinstance(node, UnorderedNode):
+                if choice is not None:
+                    if choice in node.case_entry_ids:
+                        pending.append(node.case_entry_ids[choice])
+                else:
+                    pending.extend(node.case_entry_ids.values())
+                continue
+
+            pending.extend(node.next_ids)
+
+        return candidates
+
+    def _find_valid_tool_node(
+        self,
+        nodes: list[ToolNode],
+        kwargs: dict[str, Any],
+    ) -> ToolNode | None:
+        for node in nodes:
+            if self._params_match(node, kwargs):
+                return node
+        return None
+
+    def _params_match(self, node: ToolNode, kwargs: dict[str, Any]) -> bool:
+        for name, constraint in node.params.items():
+            if name not in kwargs:
+                return False
+            result = evaluate_constraint(constraint, kwargs[name])
+            if not result.passed:
+                return False
+        return True
