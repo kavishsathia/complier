@@ -85,6 +85,37 @@ class FunctionWrapperTests(unittest.TestCase):
         self.assertEqual(session.history[0][0], "blocked")
         self.assertEqual(session.history[0][1], "delete_everything")
 
+    def test_wrap_function_passes_choice_to_session_but_not_tool(self) -> None:
+        captured = {}
+
+        class ChoiceSession:
+            def check_tool_call(self, tool_name, args, kwargs, choice=None):
+                captured["tool_name"] = tool_name
+                captured["args"] = args
+                captured["kwargs"] = dict(kwargs)
+                captured["choice"] = choice
+                return Decision(allowed=True)
+
+            def record_allowed_call(self, tool_name, args, kwargs):
+                return None
+
+            def record_result(self, tool_name, result):
+                return None
+
+        session = ChoiceSession()
+
+        def search_web(query: str, **kwargs) -> str:
+            captured["tool_kwargs"] = dict(kwargs)
+            return f"results for {query}"
+
+        wrapped = wrap_function(session, search_web)
+        result = wrapped("agent workflows", choice="technical")
+
+        self.assertEqual(result, "results for agent workflows")
+        self.assertEqual(captured["choice"], "technical")
+        self.assertEqual(captured["kwargs"], {})
+        self.assertEqual(captured["tool_kwargs"], {})
+
 class AsyncFunctionWrapperTests(unittest.IsolatedAsyncioTestCase):
     async def test_wrap_function_allows_and_records_async_calls(self) -> None:
         session = Contract(name="demo").create_session()
@@ -130,3 +161,34 @@ class AsyncFunctionWrapperTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.tool_name, "delete_everything")
         self.assertEqual(response.remediation.allowed_next_actions, ["search_web"])
         self.assertEqual(session.history[0][1], "delete_everything")
+
+    async def test_async_wrap_function_passes_choice_to_session_but_not_tool(self) -> None:
+        captured = {}
+
+        class ChoiceSession:
+            def check_tool_call(self, tool_name, args, kwargs, choice=None):
+                captured["tool_name"] = tool_name
+                captured["args"] = args
+                captured["kwargs"] = dict(kwargs)
+                captured["choice"] = choice
+                return Decision(allowed=True)
+
+            def record_allowed_call(self, tool_name, args, kwargs):
+                return None
+
+            def record_result(self, tool_name, result):
+                return None
+
+        session = ChoiceSession()
+
+        async def search_web(query: str, **kwargs) -> str:
+            captured["tool_kwargs"] = dict(kwargs)
+            return f"results for {query}"
+
+        wrapped = wrap_function(session, search_web)
+        result = await wrapped("agent workflows", choice="technical")
+
+        self.assertEqual(result, "results for agent workflows")
+        self.assertEqual(captured["choice"], "technical")
+        self.assertEqual(captured["kwargs"], {})
+        self.assertEqual(captured["tool_kwargs"], {})

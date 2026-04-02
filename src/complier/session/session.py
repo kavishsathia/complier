@@ -34,7 +34,13 @@ class Session:
 
         return wrap_function(self, func)
 
-    def check_tool_call(self, tool_name: str, args: tuple[Any, ...], kwargs: dict[str, Any]) -> Decision:
+    def check_tool_call(
+        self,
+        tool_name: str,
+        args: tuple[Any, ...],
+        kwargs: dict[str, Any],
+        choice: str | None = None,
+    ) -> Decision:
         """Evaluate whether a tool call is allowed in the current state."""
         return Decision(allowed=True)
 

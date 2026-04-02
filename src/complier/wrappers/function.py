@@ -38,7 +38,16 @@ class FunctionWrapper:
     def _wrap_sync(self, func: Callable[..., Any]) -> Callable[..., Any]:
         @wraps(func)
         def wrapped(*args: Any, **kwargs: Any) -> Any:
-            decision = self.session.check_tool_call(func.__name__, args, kwargs)
+            choice = kwargs.pop("choice", None)
+            if choice is None:
+                decision = self.session.check_tool_call(func.__name__, args, kwargs)
+            else:
+                decision = self.session.check_tool_call(
+                    func.__name__,
+                    args,
+                    kwargs,
+                    choice=choice,
+                )
             if not decision.allowed:
                 self.session.record_blocked_call(func.__name__, decision)
                 return BlockedToolResponse(
@@ -57,7 +66,16 @@ class FunctionWrapper:
     def _wrap_async(self, func: Callable[..., Any]) -> Callable[..., Any]:
         @wraps(func)
         async def wrapped(*args: Any, **kwargs: Any) -> Any:
-            decision = self.session.check_tool_call(func.__name__, args, kwargs)
+            choice = kwargs.pop("choice", None)
+            if choice is None:
+                decision = self.session.check_tool_call(func.__name__, args, kwargs)
+            else:
+                decision = self.session.check_tool_call(
+                    func.__name__,
+                    args,
+                    kwargs,
+                    choice=choice,
+                )
             if not decision.allowed:
                 self.session.record_blocked_call(func.__name__, decision)
                 return BlockedToolResponse(
