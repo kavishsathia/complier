@@ -18,5 +18,10 @@ def read_vault_details() -> str:
     return "vault:demo"
 
 
+@server.tool(name="Archive Page", title="Archive Page", description="Archive a page in the demo server.")
+def archive_page(page_id: str) -> str:
+    return f"archived:{page_id}"
+
+
 if __name__ == "__main__":
     server.run("stdio")

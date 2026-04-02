@@ -15,6 +15,11 @@ async def main() -> None:
         """
 workflow "notion"
     | notion.create_page
+    | @branch
+        -when "technical"
+            | notion.read_vaults_details
+        -else
+            | notion.archive_page page_id="page-123"
 """
     ).create_session()
     details = wrap_local_mcp(
@@ -35,13 +40,21 @@ workflow "notion"
             tools = await client_session.list_tools()
             print("tools:", [tool.name for tool in tools.tools])
 
-            allowed = await client_session.call_tool("notion.create_page", {"title": "hello"})
-            print("allowed_is_error:", allowed.isError)
-            print("allowed_result:", allowed.content[0].text)
+            blocked_first = await client_session.call_tool("notion.read_vaults_details", {})
+            print("blocked_first_is_error:", blocked_first.isError)
+            print("blocked_first_result:", blocked_first.structuredContent)
 
-            blocked = await client_session.call_tool("notion.read_vaults_details", {})
-            print("blocked_is_error:", blocked.isError)
-            print("blocked_result:", blocked.structuredContent)
+            create_page = await client_session.call_tool("notion.create_page", {"title": "hello"})
+            print("create_page_is_error:", create_page.isError)
+            print("create_page_result:", create_page.content[0].text)
+
+            read_details = await client_session.call_tool("notion.read_vaults_details", {})
+            print("read_details_is_error:", read_details.isError)
+            print("read_details_result:", read_details.content[0].text)
+
+            archive_page = await client_session.call_tool("notion.archive_page", {"page_id": "page-123"})
+            print("archive_page_is_error:", archive_page.isError)
+            print("archive_page_result:", archive_page.structuredContent)
 
 
 if __name__ == "__main__":
