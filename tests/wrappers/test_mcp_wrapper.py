@@ -1,14 +1,22 @@
-"""Tests for MCP wrapper helpers and stubs."""
+"""Tests for local MCP wrapper helpers."""
 
 import sys
 import unittest
 
-from complier.wrappers.local_stdio_proxy import (
-    ProxyState,
-    _rewrite_client_message,
-    _rewrite_server_message,
-)
+import mcp.types as types
+
 from complier.wrappers.local_mcp import normalize_tool_name, wrap_local_mcp
+from complier.wrappers.local_stdio_proxy import ProxyState, _list_tools, _resolve_downstream_tool_name
+
+
+class FakeSession:
+    def __init__(self, tools: list[types.Tool]) -> None:
+        self._tools = tools
+        self.list_tools_calls = 0
+
+    async def list_tools(self) -> types.ListToolsResult:
+        self.list_tools_calls += 1
+        return types.ListToolsResult(tools=self._tools)
 
 
 class MCPWrapperTests(unittest.TestCase):
@@ -36,46 +44,41 @@ class MCPWrapperTests(unittest.TestCase):
             "notion.read_vaults_details",
         )
 
-    def test_rewrite_server_message_prefixes_tool_names(self) -> None:
+
+class LocalStdioProxyTests(unittest.IsolatedAsyncioTestCase):
+    async def test_list_tools_prefixes_and_preserves_title(self) -> None:
         state = ProxyState(namespace="notion")
-        state.request_methods["1"] = "tools/list"
-        payload = {
-            "jsonrpc": "2.0",
-            "id": 1,
-            "result": {
-                "tools": [
-                    {"name": "Create Page", "description": "Create a new page."},
-                ]
-            },
-        }
-
-        rewritten = _rewrite_server_message(payload, state)
-
-        self.assertEqual(
-            rewritten["result"]["tools"][0]["name"],
-            "notion.create_page",
-        )
-        self.assertEqual(
-            rewritten["result"]["tools"][0]["title"],
-            "Create Page",
-        )
-        self.assertEqual(
-            state.exposed_to_downstream["notion.create_page"],
-            "Create Page",
+        session = FakeSession(
+            [
+                types.Tool(
+                    name="Create Page",
+                    title=None,
+                    description="Create a new page.",
+                    inputSchema={"type": "object", "properties": {}},
+                )
+            ]
         )
 
-    def test_rewrite_client_message_restores_downstream_name(self) -> None:
-        state = ProxyState(
-            namespace="notion",
-            exposed_to_downstream={"notion.create_page": "Create Page"},
+        tools = await _list_tools(session, state)
+
+        self.assertEqual(tools[0].name, "notion.create_page")
+        self.assertEqual(tools[0].title, "Create Page")
+        self.assertEqual(state.exposed_to_downstream["notion.create_page"], "Create Page")
+
+    async def test_resolve_downstream_tool_name_refreshes_mapping(self) -> None:
+        state = ProxyState(namespace="notion")
+        session = FakeSession(
+            [
+                types.Tool(
+                    name="Create Page",
+                    title=None,
+                    description="Create a new page.",
+                    inputSchema={"type": "object", "properties": {}},
+                )
+            ]
         )
-        payload = {
-            "jsonrpc": "2.0",
-            "id": 3,
-            "method": "tools/call",
-            "params": {"name": "notion.create_page", "arguments": {"title": "Hello"}},
-        }
 
-        rewritten = _rewrite_client_message(payload, state)
+        tool_name = await _resolve_downstream_tool_name(session, state, "notion.create_page")
 
-        self.assertEqual(rewritten["params"]["name"], "Create Page")
+        self.assertEqual(tool_name, "Create Page")
+        self.assertEqual(session.list_tools_calls, 1)
