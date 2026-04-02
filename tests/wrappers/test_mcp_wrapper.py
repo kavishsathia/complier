@@ -37,6 +37,7 @@ class MCPWrapperTests(unittest.TestCase):
                 "mcp-notion",
             ],
         )
+        self.assertIn("PYTHONPATH", details.env)
 
     def test_normalize_tool_name_namespaces_human_label(self) -> None:
         self.assertEqual(

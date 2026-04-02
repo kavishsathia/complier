@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 import sys
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Sequence
 
 
@@ -14,6 +15,7 @@ class LocalMCPDetails:
 
     namespace: str
     command: list[str]
+    env: dict[str, str] | None = None
 
 
 def wrap_local_mcp(namespace: str, command: str | Sequence[str]) -> LocalMCPDetails:
@@ -29,9 +31,11 @@ def wrap_local_mcp(namespace: str, command: str | Sequence[str]) -> LocalMCPDeta
         "--",
         *downstream_command,
     ]
+    src_path = Path(__file__).resolve().parents[3] / "src"
     return LocalMCPDetails(
         namespace=normalized_namespace,
         command=wrapper_command,
+        env={"PYTHONPATH": str(src_path)},
     )
 
 

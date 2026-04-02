@@ -30,6 +30,7 @@ classifiers = [
 ]
 dependencies = [
   "lark>=1.2.2",
+  "mcp>=1.27.0",
 ]
 
 [project.optional-dependencies]
