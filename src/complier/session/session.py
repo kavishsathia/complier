@@ -7,9 +7,11 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from complier.contract.evaluator import evaluate_constraint
+from complier.contract.ast import RetryPolicy
 from complier.contract.runtime import (
     BranchBackNode,
     BranchNode,
+    EndNode,
     JoinNode,
     StartNode,
     ToolNode,
@@ -60,6 +62,11 @@ class Session:
         choice: str | None = None,
     ) -> Decision:
         """Evaluate whether a tool call is allowed in the current state."""
+        if self.state.terminated:
+            return Decision(
+                allowed=False,
+                reason="The session has been halted.",
+            )
         if not self.contract.workflows:
             return Decision(allowed=True)
 
@@ -88,11 +95,25 @@ class Session:
                 ),
             )
 
-        valid_node = self._find_valid_tool_node(matching_name_nodes, kwargs)
-        if valid_node is None:
+        if len(matching_name_nodes) > 1:
             return Decision(
                 allowed=False,
-                reason=f"Tool '{tool_name}' did not satisfy the declared param constraints.",
+                reason=f"Tool '{tool_name}' requires a choice before it can run.",
+                remediation=Remediation(
+                    message="Retry this action with a choice to select the intended branch or unordered step.",
+                    allowed_next_actions=[tool_name],
+                ),
+            )
+
+        valid_node = matching_name_nodes[0]
+        evaluation = self._params_match(valid_node, kwargs)
+        if not evaluation.passed:
+            return self._decision_for_failed_constraint(
+                workflow_name,
+                valid_node,
+                tool_name,
+                evaluation,
+                choice,
             )
 
         self.state.active_workflow = workflow.name
@@ -213,20 +234,15 @@ class Session:
 
         return candidates
 
-    def _find_valid_tool_node(
-        self,
-        nodes: list[ToolNode],
-        kwargs: dict[str, Any],
-    ) -> ToolNode | None:
-        for node in nodes:
-            if self._params_match(node, kwargs):
-                return node
-        return None
-
-    def _params_match(self, node: ToolNode, kwargs: dict[str, Any]) -> bool:
+    def _params_match(self, node: ToolNode, kwargs: dict[str, Any]):
         for name, constraint in node.params.items():
             if name not in kwargs:
-                return False
+                from complier.contract.evaluator import EvaluationResult
+
+                return EvaluationResult(
+                    passed=False,
+                    reasons=[f"Missing required param '{name}'."],
+                )
             result = evaluate_constraint(
                 constraint,
                 kwargs[name],
@@ -235,5 +251,127 @@ class Session:
                 memory=self.memory,
             )
             if not result.passed:
-                return False
-        return True
+                return result
+        from complier.contract.evaluator import EvaluationResult
+
+        return EvaluationResult(passed=True)
+
+    def _decision_for_failed_constraint(
+        self,
+        workflow_name: str,
+        node: ToolNode,
+        tool_name: str,
+        evaluation: Any,
+        choice: str | None,
+    ) -> Decision:
+        reasons = [] if evaluation is None else evaluation.reasons
+        policy = None if evaluation is None else evaluation.policy
+
+        if policy == "skip":
+            self._advance_past_node(workflow_name, node.id)
+            return Decision(
+                allowed=False,
+                reason=f"Tool '{tool_name}' was skipped after a failed constraint.",
+                remediation=Remediation(
+                    message="This step was skipped. Continue with one of the next allowed actions.",
+                    allowed_next_actions=self._next_actions_after_node(workflow_name, node.id, choice),
+                    missing_requirements=reasons,
+                ),
+            )
+
+        if policy == "halt":
+            self.state.terminated = True
+            return Decision(
+                allowed=False,
+                reason=f"Tool '{tool_name}' failed a halt policy check.",
+                remediation=Remediation(
+                    message="The session has been halted.",
+                    missing_requirements=reasons,
+                ),
+            )
+
+        if isinstance(policy, RetryPolicy):
+            retry_key = f"{workflow_name}:{node.id}:{tool_name}"
+            attempt = self.state.retry_counts.get(retry_key, 0) + 1
+            self.state.retry_counts[retry_key] = attempt
+            remaining = max(policy.attempts - attempt, 0)
+            if remaining == 0:
+                self.state.terminated = True
+                return Decision(
+                    allowed=False,
+                    reason=f"Tool '{tool_name}' exhausted its retry policy.",
+                    remediation=Remediation(
+                        message="No retries remain. The session has been halted.",
+                        missing_requirements=reasons,
+                    ),
+                )
+            return Decision(
+                allowed=False,
+                reason=f"Tool '{tool_name}' failed a retryable constraint.",
+                remediation=Remediation(
+                    message=f"Retry this action. {remaining} retries remain.",
+                    allowed_next_actions=[tool_name],
+                    missing_requirements=reasons,
+                ),
+            )
+
+        return Decision(
+            allowed=False,
+            reason=f"Tool '{tool_name}' did not satisfy the declared param constraints.",
+            remediation=Remediation(
+                message="Fix the failed constraint and try again.",
+                missing_requirements=reasons,
+            ),
+        )
+
+    def _advance_past_node(self, workflow_name: str, node_id: str) -> None:
+        self.state.active_workflow = workflow_name
+        self.state.active_step = node_id
+        self.state.completed_steps.append(node_id)
+
+    def _next_actions_after_node(
+        self,
+        workflow_name: str,
+        node_id: str,
+        choice: str | None,
+    ) -> list[str]:
+        workflow = self.contract.workflows[workflow_name]
+        pending = list(workflow.nodes[node_id].next_ids)
+        seen: set[str] = set()
+        actions: list[str] = []
+
+        while pending:
+            current_id = pending.pop(0)
+            if current_id in seen:
+                continue
+            seen.add(current_id)
+            current = workflow.nodes[current_id]
+
+            if isinstance(current, ToolNode):
+                actions.append(current.tool_name)
+                continue
+            if isinstance(current, EndNode):
+                continue
+            if isinstance(current, (StartNode, BranchBackNode, UnorderedBackNode, JoinNode)):
+                pending.extend(current.next_ids)
+                continue
+            if isinstance(current, BranchNode):
+                if choice is not None:
+                    if choice == "else" and current.else_node_id is not None:
+                        pending.append(current.else_node_id)
+                    elif choice in current.arms:
+                        pending.append(current.arms[choice])
+                else:
+                    pending.extend(current.arms.values())
+                    if current.else_node_id is not None:
+                        pending.append(current.else_node_id)
+                continue
+            if isinstance(current, UnorderedNode):
+                if choice is not None and choice in current.case_entry_ids:
+                    pending.append(current.case_entry_ids[choice])
+                else:
+                    pending.extend(current.case_entry_ids.values())
+                continue
+            pending.extend(current.next_ids)
+
+        return sorted(set(actions))

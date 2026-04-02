@@ -121,3 +121,102 @@ workflow "research"
 
         self.assertTrue(technical.allowed)
         self.assertTrue(other.allowed)
+
+    def test_ambiguous_same_tool_requires_choice(self) -> None:
+        session = Contract.from_source(
+            """
+workflow "research"
+    | @branch
+        -when "technical"
+            | search_web query="papers"
+        -else
+            | search_web query="overview"
+"""
+        ).create_session()
+
+        decision = session.check_tool_call("search_web", (), {"query": "papers"})
+
+        self.assertFalse(decision.allowed)
+        self.assertEqual(
+            decision.reason,
+            "Tool 'search_web' requires a choice before it can run.",
+        )
+        self.assertEqual(
+            decision.remediation.message,
+            "Retry this action with a choice to select the intended branch or unordered step.",
+        )
+
+    def test_retry_policy_tracks_attempts_and_blocks_until_exhausted(self) -> None:
+        class RejectingModel(Integration):
+            def verify(self, prompt: str, output_schema: dict[str, type]) -> dict[str, object]:
+                return {"safe": False}
+
+        session = Contract.from_source(
+            """
+workflow "research"
+    | search_web query=[safe]:2
+"""
+        ).create_session(model=RejectingModel())
+
+        first = session.check_tool_call("search_web", (), {"query": "bad query"})
+
+        self.assertFalse(first.allowed)
+        self.assertEqual(first.remediation.message, "Retry this action. 1 retries remain.")
+        self.assertEqual(len(first.remediation.allowed_next_actions), 1)
+        self.assertEqual(list(session.state.retry_counts.values()), [1])
+
+        second = session.check_tool_call("search_web", (), {"query": "bad query"})
+
+        self.assertFalse(second.allowed)
+        self.assertEqual(second.reason, "Tool 'search_web' exhausted its retry policy.")
+        self.assertTrue(session.state.terminated)
+
+    def test_halt_policy_terminates_session(self) -> None:
+        class RejectingModel(Integration):
+            def verify(self, prompt: str, output_schema: dict[str, type]) -> dict[str, object]:
+                return {"safe": False}
+
+        session = Contract.from_source(
+            """
+workflow "research"
+    | search_web query=[safe]:halt
+"""
+        ).create_session(model=RejectingModel())
+
+        decision = session.check_tool_call("search_web", (), {"query": "bad query"})
+
+        self.assertFalse(decision.allowed)
+        self.assertEqual(decision.reason, "Tool 'search_web' failed a halt policy check.")
+        self.assertTrue(session.state.terminated)
+
+    def test_skip_policy_advances_past_node_and_uses_branch_choice(self) -> None:
+        class RejectingModel(Integration):
+            def verify(self, prompt: str, output_schema: dict[str, type]) -> dict[str, object]:
+                return {"safe": False}
+
+        session = Contract.from_source(
+            """
+workflow "research"
+    | @branch
+        -when "technical"
+            | search_web query=[safe]:skip
+            | finalize_technical
+        -else
+            | search_web query="overview"
+            | finalize_overview
+"""
+        ).create_session(model=RejectingModel())
+
+        decision = session.check_tool_call(
+            "search_web",
+            (),
+            {"query": "bad query"},
+            choice="technical",
+        )
+
+        self.assertFalse(decision.allowed)
+        self.assertEqual(
+            decision.reason,
+            "Tool 'search_web' was skipped after a failed constraint.",
+        )
+        self.assertEqual(decision.remediation.allowed_next_actions, ["finalize_technical"])

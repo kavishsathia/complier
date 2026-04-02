@@ -17,6 +17,7 @@ from .ast import (
     ModelCheck,
     NotExpression,
     OrExpression,
+    Policy,
 )
 
 if TYPE_CHECKING:
@@ -29,6 +30,7 @@ class EvaluationResult:
 
     passed: bool
     reasons: list[str] = field(default_factory=list)
+    policy: Policy | None = None
 
 
 def evaluate_contract_expression(
@@ -60,6 +62,7 @@ def evaluate_contract_expression(
     return EvaluationResult(
         passed=passed,
         reasons=[*model_reasons, *human_reasons, *learned_reasons],
+        policy=None if passed else expression.policy,
     )
 
 
