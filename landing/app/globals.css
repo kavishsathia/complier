@@ -78,8 +78,18 @@ pre code {
 }
 
 .code-keyword { color: #2dd4bf; }
+.code-name { color: #f0f0f0; }
 .code-string { color: #93e0fb; }
 .code-comment { color: #707070; }
 .code-decorator { color: #fdad5c; }
 .code-param { color: #b9a1fa; }
 .code-op { color: #a0a0a0; }
+
+.scrollbar-none {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
