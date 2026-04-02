@@ -4,12 +4,15 @@ import json
 import io
 import os
 import unittest
+from dataclasses import dataclass, field
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 from complier.contract.model import Contract
+from complier.contract.runtime import RuntimeNode
 from complier.visualizer import contract_to_graph
+from complier.visualizer.graph import _serialize_node, _to_json_value
 from complier.visualizer.server import VisualizerServer, serve_contract
 
 
@@ -59,6 +62,26 @@ workflow "research"
 
         httpd.shutdown.assert_called_once_with()
         thread.join.assert_called_once_with(timeout=1.0)
+
+    def test_serialize_node_rejects_non_dataclass_nodes(self) -> None:
+        with self.assertRaises(TypeError):
+            _serialize_node(object())  # type: ignore[arg-type]
+
+    def test_to_json_value_serializes_dataclasses_and_falls_back_to_repr(self) -> None:
+        @dataclass
+        class Inner:
+            value: int
+
+        @dataclass
+        class Outer(RuntimeNode):
+            payload: Inner | object = field(default_factory=lambda: Inner(value=3))
+
+        node = Outer(id="node-1")
+        serialized = _serialize_node(node)
+
+        self.assertEqual(serialized["data"]["payload"]["kind"], "Inner")
+        self.assertEqual(serialized["data"]["payload"]["data"]["value"], 3)
+        self.assertEqual(_to_json_value(object()).startswith("<object object"), True)
 
 
 class VisualizerServerIntegrationTests(unittest.TestCase):

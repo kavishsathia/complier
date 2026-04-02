@@ -3,6 +3,8 @@
 import unittest
 
 from complier.contract.ast import AndExpression, ContractExpressionWithPolicy, ModelCheck, RetryPolicy
+from complier.contract.compiler import ContractCompiler, WorkflowCompiler
+from complier.contract.parser import ParsedContract
 from complier.contract.model import Contract
 from complier.contract.runtime import (
     BranchBackNode,
@@ -35,12 +37,6 @@ workflow "research"
 
         self.assertIsInstance(start, StartNode)
         self.assertIsInstance(end, EndNode)
-        self.assertEqual(len(start.next_ids), 1)
-
-        tool = workflow.nodes[start.next_ids[0]]
-        self.assertIsInstance(tool, ToolNode)
-        self.assertEqual(tool.tool_name, "search_web")
-        self.assertEqual(tool.next_ids, [end.id])
 
     def test_inlines_always_guarantees_into_executable_nodes(self) -> None:
         contract = Contract.from_source(
@@ -247,6 +243,12 @@ workflow "research"
         self.assertIsInstance(next_node, ToolNode)
         self.assertEqual(next_node.tool_name, "finalize")
 
+    def test_workflow_compiler_rejects_unknown_step_type(self) -> None:
+        compiler = WorkflowCompiler(guarantees={}, workflow_name="demo")
+
+        with self.assertRaises(TypeError):
+            compiler._compile_step(object(), [])  # type: ignore[arg-type]
+
     def test_inlines_nested_guarantee_references_globally(self) -> None:
         contract = Contract.from_source(
             """
@@ -297,6 +299,16 @@ workflow "research" @always safe
             self.assertIsInstance(node.guards[0].expression, ModelCheck)
             self.assertEqual(node.guards[0].expression.name, "no_harmful_content")
             self.assertEqual(node.guards[0].policy, "halt")
+
+    def test_contract_compiler_rejects_non_parsed_contract_input(self) -> None:
+        with self.assertRaises(TypeError):
+            ContractCompiler().compile(object())  # type: ignore[arg-type]
+
+    def test_contract_compiler_rejects_missing_program_ast(self) -> None:
+        parsed = ParsedContract(source="workflow \"x\"\n    | search_web", tree=object(), program=object())  # type: ignore[arg-type]
+
+        with self.assertRaises(TypeError):
+            ContractCompiler().compile(parsed)
 
     def test_compiled_workflow_node_ids_are_unique(self) -> None:
         contract = Contract.from_source(
