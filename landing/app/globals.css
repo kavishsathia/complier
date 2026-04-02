@@ -1,0 +1,85 @@
+@import "tailwindcss";
+
+:root {
+  --bg-primary: #0a0a0a;
+  --bg-secondary: #111111;
+  --bg-card: #161616;
+  --border: #222222;
+  --text-primary: #f0f0f0;
+  --text-secondary: #a0a0a0;
+  --text-muted: #707070;
+  --accent: #2dd4bf;
+}
+
+@theme inline {
+  --color-background: var(--bg-primary);
+  --color-foreground: var(--text-primary);
+  --color-accent: var(--accent);
+  --color-card: var(--bg-card);
+  --color-border: var(--border);
+  --color-muted: var(--text-muted);
+  --color-secondary: var(--text-secondary);
+  --color-bg-secondary: var(--bg-secondary);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-mono);
+}
+
+body {
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: var(--font-mono), monospace;
+}
+
+::selection {
+  background: var(--accent);
+  color: #0a0a0a;
+}
+
+@keyframes fade-in-up {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes pulse-slow {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 1; }
+}
+
+.animate-fade-in-up {
+  animation: fade-in-up 0.6s ease-out both;
+}
+
+.animate-fade-in-up-delay-1 {
+  animation: fade-in-up 0.6s ease-out 0.15s both;
+}
+
+.animate-fade-in-up-delay-2 {
+  animation: fade-in-up 0.6s ease-out 0.3s both;
+}
+
+.animate-fade-in-up-delay-3 {
+  animation: fade-in-up 0.6s ease-out 0.45s both;
+}
+
+.animate-pulse-slow {
+  animation: pulse-slow 3s ease-in-out infinite;
+}
+
+pre code {
+  font-family: var(--font-mono), monospace;
+  font-size: 0.9rem;
+  line-height: 1.65;
+}
+
+.code-keyword { color: #2dd4bf; }
+.code-string { color: #93e0fb; }
+.code-comment { color: #707070; }
+.code-decorator { color: #fdad5c; }
+.code-param { color: #b9a1fa; }
+.code-op { color: #a0a0a0; }
