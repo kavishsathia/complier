@@ -22,7 +22,7 @@ function Hero() {
 
       <div className="animate-fade-in-up-delay-2 flex gap-3 mt-8">
         <a
-          href="https://github.com/kavishsathia/complier"
+          href="/docs"
           className="px-5 py-2.5 bg-accent text-[#0a0a0a] text-sm font-medium rounded hover:brightness-110 transition-all"
         >
           get started
