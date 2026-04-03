@@ -26,8 +26,8 @@ async def _run(argv: list[str] | None) -> None:
     async def list_tools() -> list[types.Tool]:
         return [
             types.Tool(
-                name="Create Page",
-                title="Create Page",
+                name="Create Notion Page",
+                title="Create Notion Page",
                 description="Create a page and echo the auth header.",
                 inputSchema={
                     "type": "object",
@@ -48,7 +48,7 @@ async def _run(argv: list[str] | None) -> None:
         request = server.request_context.request
         auth_header = None if request is None else request.headers.get("authorization")
 
-        if name == "Create Page":
+        if name == "Create Notion Page":
             return {
                 "tool": name,
                 "title": arguments.get("title"),

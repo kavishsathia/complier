@@ -14,7 +14,7 @@ from mcp.client.stdio import StdioServerParameters, stdio_client
 from mcp.server import NotificationOptions, Server
 from mcp.server.stdio import stdio_server
 
-from .local_mcp import normalize_tool_name
+from .local_mcp import normalize_tool_name, public_tool_name
 from complier.session.decisions import BlockedToolResponse
 from complier.session.server import SessionServerClient
 
@@ -62,9 +62,16 @@ async def _run_proxy(argv: list[str] | None) -> None:
         session = ctx.lifespan_context
         forwarded_arguments = dict(arguments or {})
         choice = forwarded_arguments.pop("choice", None)
-        decision = state.session_client.check_tool_call(name, (), forwarded_arguments, choice=choice)
+        downstream_tool_name = await _resolve_downstream_tool_name(session, state, name)
+        internal_tool_name = normalize_tool_name(state.namespace, downstream_tool_name)
+        decision = state.session_client.check_tool_call(
+            internal_tool_name,
+            (),
+            forwarded_arguments,
+            choice=choice,
+        )
         if not decision.allowed:
-            state.session_client.record_blocked_call(name, decision)
+            state.session_client.record_blocked_call(internal_tool_name, decision)
             blocked = BlockedToolResponse(
                 tool_name=name,
                 reason=decision.reason,
@@ -75,9 +82,8 @@ async def _run_proxy(argv: list[str] | None) -> None:
                 structuredContent=blocked.to_dict(),
                 isError=True,
             )
-        tool_name = await _resolve_downstream_tool_name(session, state, name)
-        result = await session.call_tool(tool_name, forwarded_arguments)
-        state.session_client.record_result(name, result.model_dump(mode="json"))
+        result = await session.call_tool(downstream_tool_name, forwarded_arguments)
+        state.session_client.record_result(internal_tool_name, result.model_dump(mode="json"))
         return result
 
     async with stdio_server() as (read_stream, write_stream):
@@ -119,7 +125,7 @@ async def _list_tools(session: ClientSession, state: ProxyState) -> list[types.T
     state.exposed_to_downstream.clear()
 
     for tool in result.tools:
-        exposed_name = normalize_tool_name(state.namespace, tool.name)
+        exposed_name = public_tool_name(tool.name)
         state.exposed_to_downstream[exposed_name] = tool.name
         rewritten_tools.append(
             tool.model_copy(update=_tool_update(exposed_name, tool))

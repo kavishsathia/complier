@@ -24,7 +24,7 @@ async def main() -> None:
     contract_session = Contract.from_source(
         """
 workflow "notion"
-    | notion.create_page
+    | notion.create_notion_page
 """
     ).create_session()
 
@@ -61,11 +61,11 @@ workflow "notion"
                     tools = await client_session.list_tools()
                     print("notion_tools:", [tool.name for tool in tools.tools])
 
-                    allowed = await client_session.call_tool("notion.create_page", {"title": "hello"})
+                    allowed = await client_session.call_tool("create_notion_page", {"title": "hello"})
                     print("allowed_is_error:", allowed.isError)
                     print("allowed_result:", allowed.structuredContent)
 
-                    blocked = await client_session.call_tool("notion.read_vaults_details", {})
+                    blocked = await client_session.call_tool("read_vaults_details", {})
                     print("blocked_is_error:", blocked.isError)
                     print("blocked_result:", blocked.structuredContent)
 

@@ -24,7 +24,7 @@ from complier.session.decisions import BlockedToolResponse
 from complier.session.server import SessionServerClient
 
 from .local_stdio_proxy import _resolve_downstream_tool_name, _tool_update, ProxyState
-from .local_mcp import normalize_tool_name
+from .local_mcp import normalize_tool_name, public_tool_name
 
 
 @dataclass(slots=True)
@@ -58,7 +58,7 @@ async def _run_proxy(argv: list[str] | None) -> None:
         rewritten_tools: list[types.Tool] = []
         tool_map: dict[str, str] = {}
         for tool in result.tools:
-            exposed_name = normalize_tool_name(namespace, tool.name)
+            exposed_name = public_tool_name(tool.name)
             tool_map[exposed_name] = tool.name
             rewritten_tools.append(tool.model_copy(update=_tool_update(exposed_name, tool)))
         registry.tool_maps[namespace] = tool_map
@@ -70,28 +70,33 @@ async def _run_proxy(argv: list[str] | None) -> None:
         downstream_url = _downstream_url(registry, namespace)
         forwarded_arguments = dict(arguments or {})
         choice = forwarded_arguments.pop("choice", None)
-
-        decision = registry.session_client.check_tool_call(name, (), forwarded_arguments, choice=choice)
-        if not decision.allowed:
-            registry.session_client.record_blocked_call(name, decision)
-            blocked = BlockedToolResponse(
-                tool_name=name,
-                reason=decision.reason,
-                remediation=decision.remediation,
-            )
-            return types.CallToolResult(
-                content=[types.TextContent(type="text", text=str(blocked.to_dict()))],
-                structuredContent=blocked.to_dict(),
-                isError=True,
-            )
-
         state = ProxyState(namespace=namespace, exposed_to_downstream=registry.tool_maps.get(namespace, {}))
         auth_header = _authorization_header(server.request_context.request)
+
         async with _downstream_session(downstream_url, auth_header) as session:
-            tool_name = await _resolve_downstream_tool_name(session, state, name)
-            result = await session.call_tool(tool_name, forwarded_arguments)
+            downstream_tool_name = await _resolve_downstream_tool_name(session, state, name)
+            internal_tool_name = normalize_tool_name(namespace, downstream_tool_name)
+            decision = registry.session_client.check_tool_call(
+                internal_tool_name,
+                (),
+                forwarded_arguments,
+                choice=choice,
+            )
+            if not decision.allowed:
+                registry.session_client.record_blocked_call(internal_tool_name, decision)
+                blocked = BlockedToolResponse(
+                    tool_name=name,
+                    reason=decision.reason,
+                    remediation=decision.remediation,
+                )
+                return types.CallToolResult(
+                    content=[types.TextContent(type="text", text=str(blocked.to_dict()))],
+                    structuredContent=blocked.to_dict(),
+                    isError=True,
+                )
+            result = await session.call_tool(downstream_tool_name, forwarded_arguments)
         registry.tool_maps[namespace] = state.exposed_to_downstream
-        registry.session_client.record_result(name, result.model_dump(mode="json"))
+        registry.session_client.record_result(internal_tool_name, result.model_dump(mode="json"))
         return result
 
     manager = StreamableHTTPSessionManager(app=server)

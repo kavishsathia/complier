@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 import mcp.types as types
 
 from complier.contract.model import Contract
-from complier.wrappers.local_mcp import normalize_tool_name, wrap_local_mcp
+from complier.wrappers.local_mcp import normalize_tool_name, public_tool_name, wrap_local_mcp
 from complier.wrappers.remote_mcp import wrap_remote_mcp
 from complier.wrappers.local_stdio_proxy import (
     ProxyState,
@@ -54,7 +54,13 @@ class MCPWrapperTests(unittest.TestCase):
             "notion.read_vaults_details",
         )
 
-    def test_wrap_remote_mcp_returns_wrapper_url_and_command(self) -> None:
+    def test_public_tool_name_omits_namespace(self) -> None:
+        self.assertEqual(
+            public_tool_name("Read Vault's Details"),
+            "read_vaults_details",
+        )
+
+    def test_wrap_remote_mcp_returns_wrapper_url(self) -> None:
         session = Contract(name="demo").create_session()
         with (
             patch("complier.wrappers.remote_mcp.subprocess.Popen") as popen,
@@ -95,9 +101,9 @@ class LocalStdioProxyTests(unittest.IsolatedAsyncioTestCase):
 
         tools = await _list_tools(session, state)
 
-        self.assertEqual(tools[0].name, "notion.create_page")
+        self.assertEqual(tools[0].name, "create_page")
         self.assertEqual(tools[0].title, "Create Page")
-        self.assertEqual(state.exposed_to_downstream["notion.create_page"], "Create Page")
+        self.assertEqual(state.exposed_to_downstream["create_page"], "Create Page")
         self.assertIn("choice", tools[0].inputSchema["properties"])
 
     async def test_resolve_downstream_tool_name_refreshes_mapping(self) -> None:
@@ -113,7 +119,7 @@ class LocalStdioProxyTests(unittest.IsolatedAsyncioTestCase):
             ]
         )
 
-        tool_name = await _resolve_downstream_tool_name(session, state, "notion.create_page")
+        tool_name = await _resolve_downstream_tool_name(session, state, "create_page")
 
         self.assertEqual(tool_name, "Create Page")
         self.assertEqual(session.list_tools_calls, 1)

@@ -67,11 +67,19 @@ def _normalize_namespace(namespace: str) -> str:
 
 
 def normalize_tool_name(namespace: str, tool_name: str) -> str:
-    """Return the wrapper-exposed tool name for a downstream MCP tool."""
+    """Return the internal wrapper identity for a downstream MCP tool."""
     normalized_tool_name = _normalize_machine_name(tool_name)
     if not normalized_tool_name:
         raise ValueError("Tool name must contain at least one letter or digit.")
     return f"{_normalize_namespace(namespace)}.{normalized_tool_name}"
+
+
+def public_tool_name(tool_name: str) -> str:
+    """Return the tool name exposed to the agent."""
+    normalized_tool_name = _normalize_machine_name(tool_name)
+    if not normalized_tool_name:
+        raise ValueError("Tool name must contain at least one letter or digit.")
+    return normalized_tool_name
 
 
 def _normalize_machine_name(value: str) -> str:

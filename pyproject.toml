@@ -40,6 +40,10 @@ dev = [
   "pytest>=8.0",
   "ruff>=0.11",
 ]
+demo = [
+  "openai-agents>=0.13.4",
+  "python-dotenv>=1.0",
+]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/complier"]
