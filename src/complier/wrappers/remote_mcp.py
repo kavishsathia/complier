@@ -10,6 +10,8 @@ from dataclasses import dataclass
 from pathlib import Path
 import time
 
+import httpx
+
 from complier.session.session import Session
 
 
@@ -29,23 +31,28 @@ def wrap_remote_mcp(
     host: str = "127.0.0.1",
     port: int = 8766,
 ) -> RemoteMCPDetails:
-    """Start and return connection details for a namespaced remote HTTP MCP wrapper."""
+    """Register and return connection details for a namespaced remote HTTP MCP wrapper."""
     from .local_mcp import _normalize_namespace
 
     normalized_namespace = _normalize_namespace(namespace)
+    base_url = _ensure_remote_wrapper_host(session, host=host, port=port)
+    _register_remote_namespace(base_url, normalized_namespace, url)
+    return RemoteMCPDetails(namespace=normalized_namespace, url=f"{base_url}/mcp/{normalized_namespace}/")
+
+
+def _ensure_remote_wrapper_host(session: Session, *, host: str, port: int) -> str:
+    if session._remote_wrapper_base_url is not None:
+        return session._remote_wrapper_base_url
+
     server_details = session.server.to_dict()
     wrapper_command = [
         sys.executable,
         "-m",
         "complier.wrappers.remote_http_proxy",
-        "--namespace",
-        normalized_namespace,
         "--session-host",
         str(server_details["host"]),
         "--session-port",
         str(server_details["port"]),
-        "--downstream-url",
-        url,
         "--host",
         host,
         "--port",
@@ -57,7 +64,17 @@ def wrap_remote_mcp(
     process = subprocess.Popen(wrapper_command, env=env)
     session.register_managed_process(process)
     _wait_for_port(host, port)
-    return RemoteMCPDetails(namespace=normalized_namespace, url=f"http://{host}:{port}/mcp/")
+    session._remote_wrapper_base_url = f"http://{host}:{port}"
+    return session._remote_wrapper_base_url
+
+
+def _register_remote_namespace(base_url: str, namespace: str, downstream_url: str) -> None:
+    response = httpx.post(
+        f"{base_url}/setup",
+        json={"namespace": namespace, "downstream_url": downstream_url},
+        timeout=5.0,
+    )
+    response.raise_for_status()
 
 
 def _wait_for_port(host: str, port: int, timeout: float = 5.0) -> None:

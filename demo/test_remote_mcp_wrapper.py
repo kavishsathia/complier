@@ -36,9 +36,15 @@ workflow "notion"
             str(DOWNSTREAM_PORT),
         ]
     )
-    details = wrap_remote_mcp(
+    notion = wrap_remote_mcp(
         contract_session,
         "notion",
+        f"http://127.0.0.1:{DOWNSTREAM_PORT}/mcp/",
+        port=WRAPPER_PORT,
+    )
+    mirror = wrap_remote_mcp(
+        contract_session,
+        "mirror",
         f"http://127.0.0.1:{DOWNSTREAM_PORT}/mcp/",
         port=WRAPPER_PORT,
     )
@@ -47,13 +53,13 @@ workflow "notion"
         _wait_for_port(DOWNSTREAM_PORT)
 
         async with httpx.AsyncClient(headers={"Authorization": "Bearer demo-token"}) as http_client:
-            async with streamable_http_client(details.url, http_client=http_client) as transport:
+            async with streamable_http_client(notion.url, http_client=http_client) as transport:
                 read_stream, write_stream, _get_session_id = transport
                 async with ClientSession(read_stream, write_stream) as client_session:
                     await client_session.initialize()
 
                     tools = await client_session.list_tools()
-                    print("tools:", [tool.name for tool in tools.tools])
+                    print("notion_tools:", [tool.name for tool in tools.tools])
 
                     allowed = await client_session.call_tool("notion.create_page", {"title": "hello"})
                     print("allowed_is_error:", allowed.isError)
@@ -62,6 +68,14 @@ workflow "notion"
                     blocked = await client_session.call_tool("notion.read_vaults_details", {})
                     print("blocked_is_error:", blocked.isError)
                     print("blocked_result:", blocked.structuredContent)
+
+            async with streamable_http_client(mirror.url, http_client=http_client) as transport:
+                read_stream, write_stream, _get_session_id = transport
+                async with ClientSession(read_stream, write_stream) as client_session:
+                    await client_session.initialize()
+
+                    tools = await client_session.list_tools()
+                    print("mirror_tools:", [tool.name for tool in tools.tools])
     finally:
         contract_session.close()
         _stop_process(downstream)

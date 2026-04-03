@@ -59,9 +59,12 @@ class MCPWrapperTests(unittest.TestCase):
         with (
             patch("complier.wrappers.remote_mcp.subprocess.Popen") as popen,
             patch("complier.wrappers.remote_mcp._wait_for_port"),
+            patch("complier.wrappers.remote_mcp.httpx.post") as post,
         ):
             process = MagicMock()
             popen.return_value = process
+            response = MagicMock()
+            post.return_value = response
             details = wrap_remote_mcp(
                 session,
                 "Notion",
@@ -71,8 +74,9 @@ class MCPWrapperTests(unittest.TestCase):
             session.close()
 
         self.assertEqual(details.namespace, "notion")
-        self.assertEqual(details.url, "http://127.0.0.1:9876/mcp/")
+        self.assertEqual(details.url, "http://127.0.0.1:9876/mcp/notion/")
         popen.assert_called_once()
+        post.assert_called_once()
 
 
 class LocalStdioProxyTests(unittest.IsolatedAsyncioTestCase):

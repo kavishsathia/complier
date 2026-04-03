@@ -42,6 +42,7 @@ class Session:
     state: SessionState = field(default_factory=SessionState)
     server: SessionServer = field(init=False)
     _managed_processes: list[subprocess.Popen[str]] = field(init=False, default_factory=list, repr=False)
+    _remote_wrapper_base_url: str | None = field(init=False, default=None, repr=False)
 
     def __post_init__(self) -> None:
         """Detach session-owned memory from the caller's original instance."""
@@ -186,6 +187,7 @@ class Session:
                 process.kill()
                 process.wait(timeout=3)
         self._managed_processes.clear()
+        self._remote_wrapper_base_url = None
         self.server.close()
 
     def handle_server_request(self, request: dict[str, Any]) -> dict[str, Any]:
