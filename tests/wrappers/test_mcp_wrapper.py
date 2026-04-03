@@ -7,6 +7,7 @@ import mcp.types as types
 
 from complier.contract.model import Contract
 from complier.wrappers.local_mcp import normalize_tool_name, wrap_local_mcp
+from complier.wrappers.remote_mcp import wrap_remote_mcp
 from complier.wrappers.local_stdio_proxy import (
     ProxyState,
     _list_tools,
@@ -51,6 +52,21 @@ class MCPWrapperTests(unittest.TestCase):
             normalize_tool_name("Notion", "Read Vault's Details"),
             "notion.read_vaults_details",
         )
+
+    def test_wrap_remote_mcp_returns_wrapper_url_and_command(self) -> None:
+        session = Contract(name="demo").create_session()
+        details = wrap_remote_mcp(
+            session,
+            "Notion",
+            "https://downstream.example.com/mcp",
+            port=9876,
+        )
+
+        self.assertEqual(details.namespace, "notion")
+        self.assertEqual(details.url, "http://127.0.0.1:9876/mcp")
+        self.assertEqual(details.command[:5], [sys.executable, "-m", "complier.wrappers.remote_http_proxy", "--namespace", "notion"])
+        self.assertIn("--downstream-url", details.command)
+        self.assertIn("https://downstream.example.com/mcp", details.command)
 
 
 class LocalStdioProxyTests(unittest.IsolatedAsyncioTestCase):
