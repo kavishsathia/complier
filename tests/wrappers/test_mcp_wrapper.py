@@ -2,6 +2,7 @@
 
 import sys
 import unittest
+from unittest.mock import MagicMock, patch
 
 import mcp.types as types
 
@@ -55,18 +56,23 @@ class MCPWrapperTests(unittest.TestCase):
 
     def test_wrap_remote_mcp_returns_wrapper_url_and_command(self) -> None:
         session = Contract(name="demo").create_session()
-        details = wrap_remote_mcp(
-            session,
-            "Notion",
-            "https://downstream.example.com/mcp",
-            port=9876,
-        )
+        with (
+            patch("complier.wrappers.remote_mcp.subprocess.Popen") as popen,
+            patch("complier.wrappers.remote_mcp._wait_for_port"),
+        ):
+            process = MagicMock()
+            popen.return_value = process
+            details = wrap_remote_mcp(
+                session,
+                "Notion",
+                "https://downstream.example.com/mcp",
+                port=9876,
+            )
+            session.close()
 
         self.assertEqual(details.namespace, "notion")
-        self.assertEqual(details.url, "http://127.0.0.1:9876/mcp")
-        self.assertEqual(details.command[:5], [sys.executable, "-m", "complier.wrappers.remote_http_proxy", "--namespace", "notion"])
-        self.assertIn("--downstream-url", details.command)
-        self.assertIn("https://downstream.example.com/mcp", details.command)
+        self.assertEqual(details.url, "http://127.0.0.1:9876/mcp/")
+        popen.assert_called_once()
 
 
 class LocalStdioProxyTests(unittest.IsolatedAsyncioTestCase):

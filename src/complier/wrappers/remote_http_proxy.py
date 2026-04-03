@@ -15,7 +15,7 @@ from mcp.client.streamable_http import streamable_http_client
 from mcp.server import NotificationOptions, Server
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from starlette.applications import Starlette
-from starlette.routing import Route
+from starlette.routing import Mount
 
 from complier.session.decisions import BlockedToolResponse
 from complier.session.server import SessionServerClient
@@ -84,10 +84,10 @@ async def _run_proxy(argv: list[str] | None) -> None:
         await manager.handle_request(scope, receive, send)
 
     app = Starlette(
-        routes=[Route("/mcp", endpoint=mcp_app)],
+        routes=[Mount("/mcp", app=mcp_app)],
         lifespan=lambda app: manager.run(),
     )
-    config = uvicorn.Config(app, host=args.host, port=args.port, log_level="info")
+    config = uvicorn.Config(app, host=args.host, port=args.port, log_level="warning")
     await uvicorn.Server(config).serve()
 
 

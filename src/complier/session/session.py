@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass, field
+import subprocess
 from typing import TYPE_CHECKING, Any
 
 from complier.contract.evaluator import evaluate_constraint
@@ -40,6 +41,7 @@ class Session:
     human: Integration | None = None
     state: SessionState = field(default_factory=SessionState)
     server: SessionServer = field(init=False)
+    _managed_processes: list[subprocess.Popen[str]] = field(init=False, default_factory=list, repr=False)
 
     def __post_init__(self) -> None:
         """Detach session-owned memory from the caller's original instance."""
@@ -171,6 +173,20 @@ class Session:
         from complier.visualizer import serve_contract
 
         return serve_contract(self.contract, host=host, port=port)
+
+    def register_managed_process(self, process: subprocess.Popen[str]) -> None:
+        self._managed_processes.append(process)
+
+    def close(self) -> None:
+        for process in reversed(self._managed_processes):
+            process.terminate()
+            try:
+                process.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=3)
+        self._managed_processes.clear()
+        self.server.close()
 
     def handle_server_request(self, request: dict[str, Any]) -> dict[str, Any]:
         method = request.get("method")
