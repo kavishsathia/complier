@@ -6,7 +6,7 @@ import NodePalette from "./components/NodePalette.tsx";
 import ConfigPanel from "./components/ConfigPanel.tsx";
 import RunOutput from "./components/RunOutput.tsx";
 import Settings from "./components/Settings.tsx";
-import ChatPanel from "./components/ChatPanel.tsx";
+// import ChatPanel from "./components/ChatPanel.tsx";
 import { graphToCpl } from "./lib/graph-to-cpl.ts";
 import * as bridge from "./lib/bridge.ts";
 import type { StudioNodeData } from "./types.ts";
@@ -173,8 +173,6 @@ export default function App() {
           <RunOutput output={runOutput} onClose={() => setRunOutput(null)} />
         )}
       </div>
-
-      <ChatPanel ollamaUrl={ollamaUrl} ollamaModel={ollamaModel} />
 
       {/* Settings */}
       {settingsOpen && (

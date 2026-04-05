@@ -52,7 +52,7 @@ select {
 
 .studio {
   display: grid;
-  grid-template-columns: 220px minmax(0, 1fr) 320px;
+  grid-template-columns: 220px minmax(0, 1fr);
   height: 100vh;
   background: var(--bg);
 }
