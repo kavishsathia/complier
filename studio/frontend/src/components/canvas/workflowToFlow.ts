@@ -1,5 +1,5 @@
 import type { Node, Edge } from "@xyflow/react";
-import type { WorkflowStep, BranchStep, LoopStep, NestedStepTarget } from "../../types.ts";
+import type { WorkflowStep, BranchStep, LoopStep, UnorderedStep, NestedStepTarget } from "../../types.ts";
 import { NODE_WIDTH, NODE_HEIGHT } from "./constants.ts";
 
 export interface ScopeInfo {
@@ -129,6 +129,58 @@ function convertLoop(step: LoopStep, scopeParentId?: string): ConversionResult {
   return { nodes, edges };
 }
 
+function convertUnordered(step: UnorderedStep, scopeParentId?: string): ConversionResult {
+  const nodes: Node[] = [];
+  const edges: Edge[] = [];
+
+  // Group node
+  nodes.push({
+    id: step.id,
+    type: "unorderedGroup",
+    position: { x: 0, y: 0 },
+    data: { step },
+    ...(scopeParentId ? { parentId: scopeParentId } : {}),
+    style: { width: NODE_WIDTH, height: NODE_HEIGHT },
+  });
+
+  // Header node inside group
+  const headerId = `${step.id}__header`;
+  nodes.push({
+    id: headerId,
+    type: "unorderedHeader",
+    position: { x: 0, y: 0 },
+    data: { step },
+    parentId: step.id,
+    style: { width: NODE_WIDTH, height: NODE_HEIGHT },
+  });
+
+  // Each case as a sub-group
+  for (const c of step.cases) {
+    nodes.push({
+      id: c.id,
+      type: "unorderedCaseGroup",
+      position: { x: 0, y: 0 },
+      data: { label: c.label },
+      parentId: step.id,
+      style: { width: NODE_WIDTH, height: NODE_HEIGHT },
+    });
+
+    edges.push({
+      id: `e-${headerId}-${c.id}`,
+      source: headerId,
+      target: c.id,
+      type: "smoothstep",
+    });
+
+    const caseScope = makeScopeInfo(step.id, { kind: "unordered-case" as const, caseId: c.id });
+    const caseResult = convertSteps(c.steps, c.id, caseScope);
+    nodes.push(...caseResult.nodes);
+    edges.push(...caseResult.edges);
+  }
+
+  return { nodes, edges };
+}
+
 function convertSteps(
   steps: WorkflowStep[],
   reactFlowParentId: string | undefined,
@@ -144,6 +196,10 @@ function convertSteps(
       edges.push(...result.edges);
     } else if (step.kind === "loop") {
       const result = convertLoop(step, reactFlowParentId);
+      nodes.push(...result.nodes);
+      edges.push(...result.edges);
+    } else if (step.kind === "unordered") {
+      const result = convertUnordered(step, reactFlowParentId);
       nodes.push(...result.nodes);
       edges.push(...result.edges);
     } else {

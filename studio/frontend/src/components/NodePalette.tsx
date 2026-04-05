@@ -4,6 +4,7 @@ const NODE_KINDS: { kind: StepKind; label: string }[] = [
   { kind: "tool", label: "Tool" },
   { kind: "branch", label: "Branch" },
   { kind: "loop", label: "Loop" },
+  { kind: "unordered", label: "Unordered" },
   { kind: "fork", label: "Fork" },
   { kind: "join", label: "Join" },
 ];

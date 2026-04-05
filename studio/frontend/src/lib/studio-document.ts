@@ -38,6 +38,10 @@ function walkSteps(steps: WorkflowStep[], visitor: (step: WorkflowStep) => void)
       walkSteps(step.elseSteps, visitor);
     } else if (step.kind === "loop") {
       walkSteps(step.body, visitor);
+    } else if (step.kind === "unordered") {
+      for (const c of step.cases) {
+        walkSteps(c.steps, visitor);
+      }
     }
   }
 }
@@ -60,6 +64,12 @@ export function createStep(kind: StepKind): WorkflowStep {
       return { id, kind: "fork", forkId: "", workflowName: "" };
     case "join":
       return { id, kind: "join", forkId: "" };
+    case "unordered":
+      return {
+        id,
+        kind: "unordered",
+        cases: [{ id: `${id}-case-1`, label: "", steps: [] }],
+      };
   }
 }
 
@@ -120,6 +130,12 @@ export function findStep(steps: WorkflowStep[], stepId: string): WorkflowStep | 
       const found = findStep(step.body, stepId);
       if (found) return found;
     }
+    if (step.kind === "unordered") {
+      for (const c of step.cases) {
+        const found = findStep(c.steps, stepId);
+        if (found) return found;
+      }
+    }
   }
   return null;
 }
@@ -147,6 +163,16 @@ function mapSteps(
       return {
         ...step,
         body: mapSteps(step.body, stepId, updater),
+      };
+    }
+
+    if (step.kind === "unordered") {
+      return {
+        ...step,
+        cases: step.cases.map((c) => ({
+          ...c,
+          steps: mapSteps(c.steps, stepId, updater),
+        })),
       };
     }
 
@@ -204,6 +230,15 @@ export function appendNestedStep(
       };
     }
 
+    if (step.kind === "unordered" && target.kind === "unordered-case") {
+      return {
+        ...step,
+        cases: step.cases.map((c) =>
+          c.id === target.caseId ? { ...c, steps: [...c.steps, child] } : c
+        ),
+      };
+    }
+
     return step;
   });
 }
@@ -221,6 +256,20 @@ export function addBranchArm(workflow: WorkflowDocument, branchId: string): Work
           condition: "",
           steps: [],
         },
+      ],
+    };
+  });
+}
+
+export function addUnorderedCase(workflow: WorkflowDocument, unorderedId: string): WorkflowDocument {
+  return updateStep(workflow, unorderedId, (step) => {
+    if (step.kind !== "unordered") return step;
+    const nextIndex = step.cases.length + 1;
+    return {
+      ...step,
+      cases: [
+        ...step.cases,
+        { id: `${step.id}-case-${nextIndex}`, label: "", steps: [] },
       ],
     };
   });
@@ -246,6 +295,15 @@ function filterSteps(steps: WorkflowStep[], stepId: string): WorkflowStep[] {
       }
       if (step.kind === "loop") {
         return { ...step, body: filterSteps(step.body, stepId) };
+      }
+      if (step.kind === "unordered") {
+        return {
+          ...step,
+          cases: step.cases.map((c) => ({
+            ...c,
+            steps: filterSteps(c.steps, stepId),
+          })),
+        };
       }
       return step;
     });
@@ -292,6 +350,16 @@ export function insertStepAt(
     }
     if (step.kind === "loop" && target.kind === "loop-body") {
       return { ...step, body: spliceArray(step.body, index, child) };
+    }
+    if (step.kind === "unordered" && target.kind === "unordered-case") {
+      return {
+        ...step,
+        cases: step.cases.map((c) =>
+          c.id === target.caseId
+            ? { ...c, steps: spliceArray(c.steps, index, child) }
+            : c
+        ),
+      };
     }
     return step;
   });

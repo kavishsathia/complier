@@ -7,6 +7,7 @@ import Settings from "./components/Settings.tsx";
 import { graphToCpl } from "./lib/graph-to-cpl.ts";
 import {
   addBranchArm,
+  addUnorderedCase,
   createStudioDocument,
   deleteStep,
   getPrimaryWorkflow,
@@ -136,6 +137,13 @@ export default function App() {
     }));
   }
 
+  function handleAddUnorderedCase(unorderedId: string) {
+    setDocument((current) => ({
+      ...current,
+      workflows: [addUnorderedCase(getPrimaryWorkflow(current), unorderedId)],
+    }));
+  }
+
   return (
     <div className="studio">
       <Sidebar
@@ -164,6 +172,7 @@ export default function App() {
           onInsertStep={handleInsertStep}
           onStepChange={handleStepChange}
           onAddBranchArm={handleAddBranchArm}
+          onAddUnorderedCase={handleAddUnorderedCase}
         />
 
         {selectedStep && (

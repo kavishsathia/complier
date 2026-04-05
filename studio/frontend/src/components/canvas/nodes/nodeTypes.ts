@@ -5,6 +5,9 @@ import BranchGroupNode from "./BranchGroupNode.tsx";
 import BranchArmGroupNode from "./BranchArmGroupNode.tsx";
 import BranchHeaderNode from "./BranchHeaderNode.tsx";
 import LoopGroupNode from "./LoopGroupNode.tsx";
+import UnorderedGroupNode from "./UnorderedGroupNode.tsx";
+import UnorderedHeaderNode from "./UnorderedHeaderNode.tsx";
+import UnorderedCaseGroupNode from "./UnorderedCaseGroupNode.tsx";
 import AddNode from "./AddNode.tsx";
 
 export const nodeTypes = {
@@ -15,5 +18,8 @@ export const nodeTypes = {
   branchArmGroup: BranchArmGroupNode,
   branchHeader: BranchHeaderNode,
   loopGroup: LoopGroupNode,
+  unorderedGroup: UnorderedGroupNode,
+  unorderedHeader: UnorderedHeaderNode,
+  unorderedCaseGroup: UnorderedCaseGroupNode,
   addNode: AddNode,
 } as const;

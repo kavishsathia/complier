@@ -22,7 +22,7 @@ import { edgeTypes } from "./canvas/edges/edgeTypes.ts";
 import type { AddEdgeMeta, AddNodeMeta, ScopeInfo } from "./canvas/workflowToFlow.ts";
 import NodePalette from "./NodePalette.tsx";
 
-const GROUP_TYPES = new Set(["branchGroup", "branchArmGroup", "loopGroup"]);
+const GROUP_TYPES = new Set(["branchGroup", "branchArmGroup", "loopGroup", "unorderedGroup", "unorderedCaseGroup"]);
 
 interface CanvasProps {
   workflow: WorkflowBlockDocument;
@@ -37,6 +37,7 @@ interface CanvasProps {
   ) => void;
   onStepChange: (step: WorkflowStep) => void;
   onAddBranchArm: (branchId: string) => void;
+  onAddUnorderedCase: (unorderedId: string) => void;
 }
 
 interface PaletteState {
@@ -54,6 +55,7 @@ function CanvasInner({
   onInsertStep,
   onStepChange,
   onAddBranchArm,
+  onAddUnorderedCase,
 }: CanvasProps) {
   const { nodes: layoutNodes, edges: layoutEdges } = useWorkflowGraph(
     workflow.steps,
@@ -156,9 +158,62 @@ function CanvasInner({
           },
         };
       }
+      if (n.type === "unorderedHeader") {
+        const step = (n.data as Record<string, unknown>)?.step as WorkflowStep | undefined;
+        return {
+          ...n,
+          data: {
+            ...n.data,
+            onAddCase: step ? () => onAddUnorderedCase(step.id) : undefined,
+          },
+        };
+      }
+      if (n.type === "unorderedCaseGroup") {
+        const data = n.data as Record<string, unknown>;
+        const caseId = n.id;
+        return {
+          ...n,
+          data: {
+            ...data,
+            onLabelChange: (newLabel: string) => {
+              const findAndUpdate = (steps: WorkflowStep[]): WorkflowStep | null => {
+                for (const s of steps) {
+                  if (s.kind === "unordered") {
+                    const caseIdx = s.cases.findIndex((c) => c.id === caseId);
+                    if (caseIdx >= 0) {
+                      const newCases = [...s.cases];
+                      newCases[caseIdx] = { ...newCases[caseIdx], label: newLabel };
+                      onStepChange({ ...s, cases: newCases });
+                      return s;
+                    }
+                    for (const c of s.cases) {
+                      const found = findAndUpdate(c.steps);
+                      if (found) return found;
+                    }
+                  }
+                  if (s.kind === "branch") {
+                    for (const arm of s.arms) {
+                      const found = findAndUpdate(arm.steps);
+                      if (found) return found;
+                    }
+                    const found = findAndUpdate(s.elseSteps);
+                    if (found) return found;
+                  }
+                  if (s.kind === "loop") {
+                    const found = findAndUpdate(s.body);
+                    if (found) return found;
+                  }
+                }
+                return null;
+              };
+              findAndUpdate(workflow.steps);
+            },
+          },
+        };
+      }
       return n;
     });
-  }, [layoutNodes, openPalette, onAddBranchArm, onStepChange, workflow.steps]);
+  }, [layoutNodes, openPalette, onAddBranchArm, onAddUnorderedCase, onStepChange, workflow.steps]);
 
   const wiredEdges = useMemo(() => {
     return layoutEdges.map((e) => {

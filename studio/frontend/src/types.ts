@@ -61,12 +61,24 @@ export interface JoinStep extends BaseStep {
   forkId: string;
 }
 
+export interface UnorderedCase {
+  id: string;
+  label: string;
+  steps: WorkflowStep[];
+}
+
+export interface UnorderedStep extends BaseStep {
+  kind: "unordered";
+  cases: UnorderedCase[];
+}
+
 export type WorkflowStep =
   | ToolStep
   | BranchStep
   | LoopStep
   | ForkStep
-  | JoinStep;
+  | JoinStep
+  | UnorderedStep;
 
 export type StepKind = WorkflowStep["kind"];
 
@@ -80,4 +92,5 @@ export interface WorkflowMeta {
 export type NestedStepTarget =
   | { kind: "branch-arm"; armId: string }
   | { kind: "branch-else" }
-  | { kind: "loop-body" };
+  | { kind: "loop-body" }
+  | { kind: "unordered-case"; caseId: string };

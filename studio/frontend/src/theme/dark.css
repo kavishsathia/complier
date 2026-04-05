@@ -395,6 +395,11 @@ select {
   background: rgba(167, 139, 250, 0.03);
 }
 
+.rf-group--unordered {
+  border-color: rgba(185, 161, 250, 0.3);
+  background: rgba(185, 161, 250, 0.03);
+}
+
 .rf-group-label {
   position: absolute;
   top: 8px;

@@ -1,4 +1,4 @@
-import type { BranchArm, WorkflowDocument, WorkflowStep } from "../types.ts";
+import type { BranchArm, UnorderedCase, WorkflowDocument, WorkflowStep } from "../types.ts";
 
 function emitTool(step: Extract<WorkflowStep, { kind: "tool" }>, indent: number): string[] {
   return [`${"    ".repeat(indent)}| ${step.toolName || "unnamed_tool"}`];
@@ -45,6 +45,25 @@ function emitJoin(step: Extract<WorkflowStep, { kind: "join" }>, indent: number)
   return [`${"    ".repeat(indent)}| @join ${step.forkId || "f1"}`];
 }
 
+function emitUnorderedCase(c: UnorderedCase, indent: number): string[] {
+  if (c.steps.length === 0) return [];
+  const lines = [`${"    ".repeat(indent)}-step "${c.label}"`];
+  lines.push(...emitSteps(c.steps, indent + 1));
+  return lines;
+}
+
+function emitUnordered(step: Extract<WorkflowStep, { kind: "unordered" }>, indent: number): string[] {
+  const caseLines: string[][] = step.cases.map((c) => emitUnorderedCase(c, indent + 1));
+  const hasAnyCase = caseLines.some((l) => l.length > 0);
+  if (!hasAnyCase) return [];
+
+  const lines = [`${"    ".repeat(indent)}| @unordered`];
+  for (const cl of caseLines) {
+    lines.push(...cl);
+  }
+  return lines;
+}
+
 function emitStep(step: WorkflowStep, indent: number): string[] {
   switch (step.kind) {
     case "tool":
@@ -57,6 +76,8 @@ function emitStep(step: WorkflowStep, indent: number): string[] {
       return emitFork(step, indent);
     case "join":
       return emitJoin(step, indent);
+    case "unordered":
+      return emitUnordered(step, indent);
   }
 }
 
