@@ -15,6 +15,7 @@ interface ChatMessage {
 interface PyWebViewAPI {
   ping(): Promise<string>;
   validate_cpl(source: string): Promise<{ valid: boolean; error?: string }>;
+  parse_cpl(source: string): Promise<{ ok: boolean; ast?: unknown; error?: string }>;
   list_ollama_models(url: string): Promise<string[]>;
   list_workflows(): Promise<WorkflowMeta[]>;
   save_workflow(name: string, graph_json: string): Promise<{ ok: boolean }>;
@@ -46,6 +47,14 @@ export async function validateCpl(
 ): Promise<{ valid: boolean; error?: string }> {
   return (
     (await api()?.validate_cpl(source)) ?? { valid: false, error: "No bridge" }
+  );
+}
+
+export async function parseCpl(
+  source: string
+): Promise<{ ok: boolean; ast?: unknown; error?: string }> {
+  return (
+    (await api()?.parse_cpl(source)) ?? { ok: false, error: "No bridge" }
   );
 }
 

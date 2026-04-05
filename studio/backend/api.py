@@ -48,6 +48,24 @@ class StudioAPI:
         except Exception as exc:
             return {"valid": False, "error": str(exc)}
 
+    def parse_cpl(self, cpl_source: str) -> dict:
+        """Parse CPL source and return the AST as JSON."""
+        from dataclasses import asdict, is_dataclass
+        from complier.contract import ContractParser
+
+        class _Enc(json.JSONEncoder):
+            def default(self, obj: object) -> object:
+                if is_dataclass(obj) and not isinstance(obj, type):
+                    return asdict(obj)
+                return super().default(obj)
+
+        try:
+            parsed = ContractParser().parse(cpl_source)
+            ast_dict = json.loads(json.dumps(parsed.program, cls=_Enc))
+            return {"ok": True, "ast": ast_dict}
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+
     # ------------------------------------------------------------------
     # Ollama
     # ------------------------------------------------------------------

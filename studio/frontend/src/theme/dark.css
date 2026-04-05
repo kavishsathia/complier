@@ -257,6 +257,77 @@ select {
   color: #fff;
 }
 
+/* ── Mode toggle ── */
+
+.mode-toggle {
+  display: flex;
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 6px;
+  padding: 2px;
+  margin-right: auto;
+}
+
+.mode-btn {
+  padding: 4px 12px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: default;
+  transition: background 100ms ease, color 100ms ease;
+}
+
+.mode-btn:hover {
+  color: var(--text);
+}
+
+.mode-btn--active {
+  background: var(--surface-solid);
+  color: var(--text);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+/* ── Code editor ── */
+
+.code-editor {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+  background: var(--bg);
+}
+
+.code-editor-textarea {
+  flex: 1;
+  resize: none;
+  padding: 60px 24px 24px;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--text);
+  font-family: "SF Mono", "Menlo", "Consolas", monospace;
+  font-size: 13px;
+  line-height: 1.6;
+  tab-size: 4;
+  white-space: pre;
+  overflow: auto;
+}
+
+.code-editor-textarea::placeholder {
+  color: var(--text-tertiary);
+}
+
+.code-editor-textarea::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.code-editor-textarea::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 3px;
+}
+
 /* ── Structured workflow canvas ── */
 
 .workflow-canvas {

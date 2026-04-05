@@ -4,7 +4,9 @@ import Sidebar from "./components/Sidebar.tsx";
 import ConfigPanel from "./components/ConfigPanel.tsx";
 import RunOutput from "./components/RunOutput.tsx";
 import Settings from "./components/Settings.tsx";
+import CodeEditor from "./components/CodeEditor.tsx";
 import { graphToCpl } from "./lib/graph-to-cpl.ts";
+import { cplAstToDocument } from "./lib/cpl-ast-to-steps.ts";
 import {
   addBranchArm,
   addUnorderedCase,
@@ -20,7 +22,7 @@ import {
 import * as bridge from "./lib/bridge.ts";
 import type { NestedStepTarget, StepKind, StudioDocument, WorkflowStep } from "./types.ts";
 
-const GROUP_TYPES = new Set(["branchGroup", "branchArmGroup", "loopGroup"]);
+type EditorMode = "flow" | "code";
 
 export default function App() {
   const [document, setDocument] = useState<StudioDocument>(() => createStudioDocument());
@@ -31,16 +33,14 @@ export default function App() {
   const [sidebarRefresh, setSidebarRefresh] = useState(0);
   const [ollamaUrl, setOllamaUrl] = useState("http://localhost:11434");
   const [ollamaModel, setOllamaModel] = useState("gemma4");
+  const [mode, setMode] = useState<EditorMode>("flow");
+  const [cplSource, setCplSource] = useState("");
   const workflow = getPrimaryWorkflow(document);
 
-  // Resolve selectedStepId to an actual step for ConfigPanel.
-  // Header nodes (e.g. "step-5__header") map to their parent step.
   function resolveStepForConfig(nodeId: string | null): WorkflowStep | null {
     if (!nodeId) return null;
-    // Direct match
     const direct = getSelectedStep(document, nodeId);
     if (direct) return direct;
-    // Header node
     if (nodeId.includes("__header")) {
       const parentId = nodeId.split("__header")[0];
       return getSelectedStep(document, parentId);
@@ -52,15 +52,56 @@ export default function App() {
 
   function handleSelectNode(id: string | null, isGroup: boolean) {
     if (isGroup) {
-      // Groups don't open ConfigPanel
       setSelectedStepId(null);
     } else {
       setSelectedStepId(id);
     }
   }
 
-  async function handleRun() {
+  // -- Mode switching --
+
+  function switchToCode() {
     const cpl = graphToCpl(workflow);
+    setCplSource(cpl);
+    setMode("code");
+    setSelectedStepId(null);
+  }
+
+  async function switchToFlow() {
+    const trimmed = cplSource.trim();
+    if (!trimmed) {
+      setDocument(createStudioDocument());
+      setMode("flow");
+      return;
+    }
+
+    const result = await bridge.parseCpl(trimmed);
+    if (!result.ok || !result.ast) {
+      setRunOutput("CPL parse error:\n" + (result.error ?? "Unknown error"));
+      return;
+    }
+
+    const newDoc = cplAstToDocument(result.ast as { items: Record<string, unknown>[] });
+    syncDocumentCounters(newDoc);
+    setDocument(newDoc);
+    setMode("flow");
+    setSelectedStepId(null);
+    setRunOutput(null);
+  }
+
+  function handleModeToggle(newMode: EditorMode) {
+    if (newMode === mode) return;
+    if (newMode === "code") {
+      switchToCode();
+    } else {
+      switchToFlow();
+    }
+  }
+
+  // -- Existing handlers --
+
+  async function handleRun() {
+    const cpl = mode === "code" ? cplSource : graphToCpl(workflow);
     if (!cpl) {
       setRunOutput("No steps to compile.");
       return;
@@ -75,6 +116,23 @@ export default function App() {
   }
 
   async function handleSave() {
+    if (mode === "code") {
+      // Parse code back to document before saving
+      const trimmed = cplSource.trim();
+      if (trimmed) {
+        const result = await bridge.parseCpl(trimmed);
+        if (result.ok && result.ast) {
+          const newDoc = cplAstToDocument(result.ast as { items: Record<string, unknown>[] });
+          syncDocumentCounters(newDoc);
+          setDocument(newDoc);
+          const wf = getPrimaryWorkflow(newDoc);
+          await bridge.saveWorkflow(wf.name, JSON.stringify(newDoc));
+          setActiveWorkflow(wf.name);
+          setSidebarRefresh((n) => n + 1);
+          return;
+        }
+      }
+    }
     await bridge.saveWorkflow(workflow.name, JSON.stringify(document));
     setActiveWorkflow(workflow.name);
     setSidebarRefresh((n) => n + 1);
@@ -94,6 +152,9 @@ export default function App() {
     setActiveWorkflow(getPrimaryWorkflow(data).name);
     setSelectedStepId(null);
     setRunOutput(null);
+    if (mode === "code") {
+      setCplSource(graphToCpl(getPrimaryWorkflow(data)));
+    }
   }
 
   function handleNew() {
@@ -101,6 +162,9 @@ export default function App() {
     setActiveWorkflow(null);
     setSelectedStepId(null);
     setRunOutput(null);
+    if (mode === "code") {
+      setCplSource("");
+    }
   }
 
   function handleInsertStep(
@@ -156,6 +220,20 @@ export default function App() {
 
       <div className="studio-main">
         <div className="toolbar">
+          <div className="mode-toggle">
+            <button
+              className={`mode-btn${mode === "flow" ? " mode-btn--active" : ""}`}
+              onClick={() => handleModeToggle("flow")}
+            >
+              Flow
+            </button>
+            <button
+              className={`mode-btn${mode === "code" ? " mode-btn--active" : ""}`}
+              onClick={() => handleModeToggle("code")}
+            >
+              Code
+            </button>
+          </div>
           <button className="run-btn" onClick={handleSave}>
             Save
           </button>
@@ -164,18 +242,22 @@ export default function App() {
           </button>
         </div>
 
-        <Canvas
-          workflow={workflow}
-          selectedStepId={selectedStepId}
-          onSelectNode={handleSelectNode}
-          onDeleteStep={handleDeleteStep}
-          onInsertStep={handleInsertStep}
-          onStepChange={handleStepChange}
-          onAddBranchArm={handleAddBranchArm}
-          onAddUnorderedCase={handleAddUnorderedCase}
-        />
+        {mode === "flow" ? (
+          <Canvas
+            workflow={workflow}
+            selectedStepId={selectedStepId}
+            onSelectNode={handleSelectNode}
+            onDeleteStep={handleDeleteStep}
+            onInsertStep={handleInsertStep}
+            onStepChange={handleStepChange}
+            onAddBranchArm={handleAddBranchArm}
+            onAddUnorderedCase={handleAddUnorderedCase}
+          />
+        ) : (
+          <CodeEditor value={cplSource} onChange={setCplSource} />
+        )}
 
-        {selectedStep && (
+        {mode === "flow" && selectedStep && (
           <ConfigPanel
             step={selectedStep}
             onChange={handleStepChange}
