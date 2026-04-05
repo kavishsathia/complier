@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { EditorView, keymap } from "@codemirror/view";
+import { EditorView, keymap, type KeyBinding } from "@codemirror/view";
 import { EditorState } from "@codemirror/state";
 import { StreamLanguage, syntaxHighlighting, HighlightStyle } from "@codemirror/language";
 import { tags } from "@lezer/highlight";
@@ -104,7 +104,15 @@ export default function CodeEditor({ value, onChange }: CodeEditorProps) {
             }
           }),
           EditorView.lineWrapping,
-          keymap.of([]),
+          keymap.of([
+            {
+              key: "Tab",
+              run: (view) => {
+                view.dispatch(view.state.replaceSelection("    "));
+                return true;
+              },
+            },
+          ] as KeyBinding[]),
         ],
       }),
       parent: containerRef.current,
