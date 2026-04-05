@@ -1,35 +1,15 @@
-import type { NestedStepTarget, StepKind, WorkflowStep } from "../types.ts";
+import type { WorkflowStep } from "../types.ts";
 
 interface ConfigPanelProps {
   step: WorkflowStep;
   onChange: (step: WorkflowStep) => void;
-  onAddNestedStep: (containerId: string, target: NestedStepTarget, kind: StepKind) => void;
   onAddBranchArm: (branchId: string) => void;
   onClose: () => void;
-}
-
-const STEP_KINDS: StepKind[] = ["tool", "branch", "loop", "fork", "join"];
-
-function AddStepButtons({
-  onAdd,
-}: {
-  onAdd: (kind: StepKind) => void;
-}) {
-  return (
-    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8 }}>
-      {STEP_KINDS.map((kind) => (
-        <button key={kind} className="settings-btn" onClick={() => onAdd(kind)}>
-          + {kind}
-        </button>
-      ))}
-    </div>
-  );
 }
 
 export default function ConfigPanel({
   step,
   onChange,
-  onAddNestedStep,
   onAddBranchArm,
   onClose,
 }: ConfigPanelProps) {
@@ -53,16 +33,14 @@ export default function ConfigPanel({
       </div>
       <div className="config-section">
         {step.kind === "tool" && (
-          <>
-            <label>
-              <span className="config-label">Tool Name</span>
-              <input
-                className="config-input"
-                value={step.toolName}
-                onChange={(e) => update({ toolName: e.target.value })}
-              />
-            </label>
-          </>
+          <label>
+            <span className="config-label">Tool Name</span>
+            <input
+              className="config-input"
+              value={step.toolName}
+              onChange={(e) => update({ toolName: e.target.value })}
+            />
+          </label>
         )}
         {step.kind === "branch" && (
           <>
@@ -89,11 +67,6 @@ export default function ConfigPanel({
                 <p style={{ fontSize: 13, color: "var(--text-muted)" }}>
                   {arm.steps.length} step{arm.steps.length === 1 ? "" : "s"} in this arm.
                 </p>
-                <AddStepButtons
-                  onAdd={(kind) =>
-                    onAddNestedStep(step.id, { kind: "branch-arm", armId: arm.id }, kind)
-                  }
-                />
               </div>
             ))}
             <div style={{ marginTop: 16 }}>
@@ -101,9 +74,6 @@ export default function ConfigPanel({
               <p style={{ fontSize: 13, color: "var(--text-muted)" }}>
                 {step.elseSteps.length} step{step.elseSteps.length === 1 ? "" : "s"} in the else branch.
               </p>
-              <AddStepButtons
-                onAdd={(kind) => onAddNestedStep(step.id, { kind: "branch-else" }, kind)}
-              />
             </div>
           </>
         )}
@@ -120,9 +90,6 @@ export default function ConfigPanel({
             <p style={{ fontSize: 13, color: "var(--text-muted)", marginTop: 12 }}>
               {step.body.length} step{step.body.length === 1 ? "" : "s"} in the loop body.
             </p>
-            <AddStepButtons
-              onAdd={(kind) => onAddNestedStep(step.id, { kind: "loop-body" }, kind)}
-            />
           </>
         )}
         {step.kind === "fork" && (

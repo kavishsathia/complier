@@ -3,9 +3,9 @@ import type { StepKind } from "../types.ts";
 const NODE_KINDS: { kind: StepKind; label: string }[] = [
   { kind: "tool", label: "Tool" },
   { kind: "branch", label: "Branch" },
-  { kind: "join", label: "Join" },
   { kind: "loop", label: "Loop" },
   { kind: "fork", label: "Fork" },
+  { kind: "join", label: "Join" },
 ];
 
 interface NodePaletteProps {
@@ -15,25 +15,19 @@ interface NodePaletteProps {
 
 export default function NodePalette({ onAdd, onClose }: NodePaletteProps) {
   return (
-    <>
-      <div
-        style={{ position: "fixed", inset: 0, zIndex: 19 }}
-        onClick={onClose}
-      />
-      <div className="node-palette">
-        {NODE_KINDS.map(({ kind, label }) => (
-          <button
-            key={kind}
-            className="palette-item"
-            onClick={() => {
-              onAdd(kind);
-              onClose();
-            }}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
-    </>
+    <div className="node-palette">
+      {NODE_KINDS.map(({ kind, label }) => (
+        <button
+          key={kind}
+          className="palette-item"
+          onClick={() => {
+            onAdd(kind);
+            onClose();
+          }}
+        >
+          {label}
+        </button>
+      ))}
+    </div>
   );
 }

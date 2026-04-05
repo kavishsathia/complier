@@ -230,6 +230,73 @@ export function replaceStep(workflow: WorkflowDocument, updated: WorkflowStep): 
   return updateStep(workflow, updated.id, () => updated);
 }
 
+function filterSteps(steps: WorkflowStep[], stepId: string): WorkflowStep[] {
+  return steps
+    .filter((s) => s.id !== stepId)
+    .map((step) => {
+      if (step.kind === "branch") {
+        return {
+          ...step,
+          arms: step.arms.map((arm) => ({
+            ...arm,
+            steps: filterSteps(arm.steps, stepId),
+          })),
+          elseSteps: filterSteps(step.elseSteps, stepId),
+        };
+      }
+      if (step.kind === "loop") {
+        return { ...step, body: filterSteps(step.body, stepId) };
+      }
+      return step;
+    });
+}
+
+export function deleteStep(workflow: WorkflowDocument, stepId: string): WorkflowDocument {
+  return { ...workflow, steps: filterSteps(workflow.steps, stepId) };
+}
+
+function spliceArray<T>(arr: T[], index: number, item: T): T[] {
+  const copy = [...arr];
+  copy.splice(index, 0, item);
+  return copy;
+}
+
+export function insertStepAt(
+  workflow: WorkflowDocument,
+  parentStepId: string | null,
+  target: NestedStepTarget | null,
+  index: number,
+  kind: StepKind
+): WorkflowDocument {
+  const child = createStep(kind);
+
+  // Root level insertion
+  if (parentStepId === null || target === null) {
+    return { ...workflow, steps: spliceArray(workflow.steps, index, child) };
+  }
+
+  // Nested insertion
+  return updateStep(workflow, parentStepId, (step) => {
+    if (step.kind === "branch" && target.kind === "branch-arm") {
+      return {
+        ...step,
+        arms: step.arms.map((arm) =>
+          arm.id === target.armId
+            ? { ...arm, steps: spliceArray(arm.steps, index, child) }
+            : arm
+        ),
+      };
+    }
+    if (step.kind === "branch" && target.kind === "branch-else") {
+      return { ...step, elseSteps: spliceArray(step.elseSteps, index, child) };
+    }
+    if (step.kind === "loop" && target.kind === "loop-body") {
+      return { ...step, body: spliceArray(step.body, index, child) };
+    }
+    return step;
+  });
+}
+
 export function isStudioDocument(value: unknown): value is StudioDocument {
   if (!value || typeof value !== "object") return false;
   const candidate = value as Partial<StudioDocument>;

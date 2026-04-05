@@ -227,46 +227,10 @@ select {
   background: #22b8a5;
 }
 
-/* ── Add node button ── */
-
-.add-btn {
-  position: absolute;
-  bottom: 16px;
-  right: 16px;
-  z-index: 10;
-  width: 36px;
-  height: 36px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: none;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.1);
-  backdrop-filter: blur(20px);
-  color: var(--text-secondary);
-  font-size: 20px;
-  font-weight: 300;
-  cursor: default;
-  transition: background 100ms ease, color 100ms ease;
-}
-
-.add-btn:hover {
-  background: rgba(255, 255, 255, 0.15);
-  color: var(--text);
-}
-
-.add-btn:active {
-  background: rgba(255, 255, 255, 0.08);
-}
-
-/* ── Node palette (dropdown from + button) ── */
+/* ── Node palette ── */
 
 .node-palette {
-  position: absolute;
-  bottom: 60px;
-  right: 16px;
-  z-index: 20;
-  min-width: 160px;
+  min-width: 140px;
   padding: 4px;
   background: var(--surface-solid);
   border: 1px solid var(--border-strong);
@@ -296,17 +260,152 @@ select {
 /* ── Structured workflow canvas ── */
 
 .workflow-canvas {
-  flex: 1;
-  overflow: auto;
-  padding: 84px 24px 24px;
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  background: var(--bg);
+}
+
+/* ── React Flow overrides ── */
+
+.react-flow__background {
   background:
     radial-gradient(circle at top left, rgba(45, 212, 191, 0.08), transparent 28%),
     linear-gradient(180deg, rgba(255, 255, 255, 0.015), transparent 24%),
     var(--bg);
 }
 
-.workflow-blank {
-  height: calc(100vh - 108px);
+.react-flow__controls {
+  bottom: 16px;
+  left: 16px;
+}
+
+.react-flow__controls button {
+  background: var(--surface-solid);
+  border: 1px solid var(--border-strong);
+  color: var(--text-secondary);
+  width: 28px;
+  height: 28px;
+}
+
+.react-flow__controls button:hover {
+  background: var(--surface-raised);
+  color: var(--text);
+}
+
+.react-flow__controls button svg {
+  fill: currentColor;
+}
+
+.react-flow__edge-path {
+  stroke: rgba(255, 255, 255, 0.35);
+  stroke-width: 1.5;
+}
+
+.react-flow__edge.selected .react-flow__edge-path {
+  stroke: var(--accent);
+}
+
+.react-flow__handle {
+  width: 8px;
+  height: 8px;
+  background: var(--border-strong);
+  border: none;
+}
+
+/* ── Custom nodes ── */
+
+.rf-node {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  padding: 0 12px;
+  background: var(--surface-raised);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  font-size: 12px;
+  color: var(--text);
+  cursor: pointer;
+  transition: border-color 120ms ease, box-shadow 120ms ease;
+}
+
+.rf-node--selected {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent), 0 0 12px rgba(45, 212, 191, 0.15);
+}
+
+.rf-node--header {
+  background: var(--surface-solid);
+  border-style: dashed;
+  font-size: 11px;
+  color: var(--text-secondary);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.rf-node--tool {
+  border-left: 3px solid var(--accent);
+}
+
+.rf-node--fork {
+  border-left: 3px solid #a78bfa;
+}
+
+.rf-node--join {
+  border-left: 3px solid #f59e0b;
+}
+
+.rf-node-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── Group nodes ── */
+
+.rf-group {
+  width: 100%;
+  height: 100%;
+  background: transparent;
+  border: 1.5px dashed var(--border-strong);
+  border-radius: 12px;
+  position: relative;
+}
+
+.rf-group--selected {
+  border-color: var(--accent);
+}
+
+.rf-group--branch {
+  border-color: rgba(45, 212, 191, 0.3);
+  background: rgba(45, 212, 191, 0.03);
+}
+
+.rf-group--arm {
+  border-color: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.02);
+  border-style: dotted;
+}
+
+.rf-group--loop {
+  border-color: rgba(167, 139, 250, 0.3);
+  background: rgba(167, 139, 250, 0.03);
+}
+
+.rf-group-label {
+  position: absolute;
+  top: 8px;
+  left: 12px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-tertiary);
+  pointer-events: auto;
+  z-index: 5;
 }
 
 /* ── Config panel (right) ── */
@@ -670,4 +769,150 @@ select {
 
 .chat-send:not(:disabled):hover {
   background: #3ee0cb;
+}
+
+/* ── Inline edit ── */
+
+.inline-edit {
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.inline-edit-text {
+  border-bottom: 1px dotted var(--text-tertiary);
+  color: var(--text-secondary);
+  font-size: inherit;
+  text-transform: none;
+  letter-spacing: normal;
+  font-weight: 400;
+}
+
+.inline-edit-pencil {
+  font-size: 10px;
+  color: var(--text-tertiary);
+  opacity: 0;
+  transition: opacity 100ms ease;
+}
+
+.inline-edit:hover .inline-edit-pencil {
+  opacity: 1;
+}
+
+.inline-edit-input {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--accent);
+  border-radius: 3px;
+  color: var(--text);
+  font-size: inherit;
+  padding: 1px 4px;
+  outline: none;
+  min-width: 40px;
+  max-width: 120px;
+  text-transform: none;
+  letter-spacing: normal;
+  font-weight: 400;
+}
+
+/* ── Branch header + button ── */
+
+.rf-node--branch-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.rf-header-add-btn {
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border-strong);
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-tertiary);
+  font-size: 14px;
+  font-weight: 300;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: border-color 100ms ease, color 100ms ease, background 100ms ease;
+}
+
+.rf-header-add-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: rgba(45, 212, 191, 0.08);
+}
+
+/* ── Add-on-edge button ── */
+
+.add-edge-button-wrapper {
+  z-index: 5;
+}
+
+.add-edge-button {
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border-strong);
+  border-radius: 50%;
+  background: var(--surface-solid);
+  color: var(--text-tertiary);
+  font-size: 14px;
+  font-weight: 300;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 120ms ease, background 100ms ease, color 100ms ease;
+}
+
+.react-flow__edge:hover .add-edge-button,
+.add-edge-button:hover {
+  opacity: 1;
+}
+
+.add-edge-button:hover {
+  background: var(--accent);
+  color: #0d1117;
+  border-color: var(--accent);
+}
+
+/* ── Add node (tail of sequence) ── */
+
+.rf-add-node {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1.5px dashed var(--border-strong);
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-tertiary);
+  font-size: 16px;
+  font-weight: 300;
+  cursor: pointer;
+  transition: border-color 120ms ease, color 120ms ease, background 120ms ease;
+}
+
+.rf-add-node:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: rgba(45, 212, 191, 0.08);
+}
+
+/* ── Canvas palette overlay ── */
+
+.canvas-palette-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+}
+
+.canvas-palette {
+  position: fixed;
+  z-index: 51;
 }

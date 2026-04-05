@@ -1,18 +1,17 @@
 import { useState } from "react";
 import Canvas from "./components/Canvas.tsx";
 import Sidebar from "./components/Sidebar.tsx";
-import NodePalette from "./components/NodePalette.tsx";
 import ConfigPanel from "./components/ConfigPanel.tsx";
 import RunOutput from "./components/RunOutput.tsx";
 import Settings from "./components/Settings.tsx";
 import { graphToCpl } from "./lib/graph-to-cpl.ts";
 import {
   addBranchArm,
-  appendNestedStep,
-  appendRootStep,
   createStudioDocument,
+  deleteStep,
   getPrimaryWorkflow,
   getSelectedStep,
+  insertStepAt,
   isStudioDocument,
   replaceStep,
   syncDocumentCounters,
@@ -20,10 +19,11 @@ import {
 import * as bridge from "./lib/bridge.ts";
 import type { NestedStepTarget, StepKind, StudioDocument, WorkflowStep } from "./types.ts";
 
+const GROUP_TYPES = new Set(["branchGroup", "branchArmGroup", "loopGroup"]);
+
 export default function App() {
   const [document, setDocument] = useState<StudioDocument>(() => createStudioDocument());
   const [selectedStepId, setSelectedStepId] = useState<string | null>(null);
-  const [paletteOpen, setPaletteOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [runOutput, setRunOutput] = useState<string | null>(null);
   const [activeWorkflow, setActiveWorkflow] = useState<string | null>(null);
@@ -31,7 +31,32 @@ export default function App() {
   const [ollamaUrl, setOllamaUrl] = useState("http://localhost:11434");
   const [ollamaModel, setOllamaModel] = useState("gemma4");
   const workflow = getPrimaryWorkflow(document);
-  const selectedStep = getSelectedStep(document, selectedStepId);
+
+  // Resolve selectedStepId to an actual step for ConfigPanel.
+  // Header nodes (e.g. "step-5__header") map to their parent step.
+  function resolveStepForConfig(nodeId: string | null): WorkflowStep | null {
+    if (!nodeId) return null;
+    // Direct match
+    const direct = getSelectedStep(document, nodeId);
+    if (direct) return direct;
+    // Header node
+    if (nodeId.includes("__header")) {
+      const parentId = nodeId.split("__header")[0];
+      return getSelectedStep(document, parentId);
+    }
+    return null;
+  }
+
+  const selectedStep = resolveStepForConfig(selectedStepId);
+
+  function handleSelectNode(id: string | null, isGroup: boolean) {
+    if (isGroup) {
+      // Groups don't open ConfigPanel
+      setSelectedStepId(null);
+    } else {
+      setSelectedStepId(id);
+    }
+  }
 
   async function handleRun() {
     const cpl = graphToCpl(workflow);
@@ -77,10 +102,15 @@ export default function App() {
     setRunOutput(null);
   }
 
-  function handleAddRootStep(kind: StepKind) {
+  function handleInsertStep(
+    parentStepId: string | null,
+    target: NestedStepTarget | null,
+    index: number,
+    kind: StepKind
+  ) {
     setDocument((current) => ({
       ...current,
-      workflows: [appendRootStep(getPrimaryWorkflow(current), kind)],
+      workflows: [insertStepAt(getPrimaryWorkflow(current), parentStepId, target, index, kind)],
     }));
   }
 
@@ -91,11 +121,12 @@ export default function App() {
     }));
   }
 
-  function handleAddNestedStep(containerId: string, target: NestedStepTarget, kind: StepKind) {
+  function handleDeleteStep(stepId: string) {
     setDocument((current) => ({
       ...current,
-      workflows: [appendNestedStep(getPrimaryWorkflow(current), containerId, target, kind)],
+      workflows: [deleteStep(getPrimaryWorkflow(current), stepId)],
     }));
+    if (selectedStepId === stepId) setSelectedStepId(null);
   }
 
   function handleAddBranchArm(branchId: string) {
@@ -128,25 +159,17 @@ export default function App() {
         <Canvas
           workflow={workflow}
           selectedStepId={selectedStepId}
-          onSelectStep={setSelectedStepId}
+          onSelectNode={handleSelectNode}
+          onDeleteStep={handleDeleteStep}
+          onInsertStep={handleInsertStep}
+          onStepChange={handleStepChange}
+          onAddBranchArm={handleAddBranchArm}
         />
-
-        <button className="add-btn" onClick={() => setPaletteOpen(!paletteOpen)}>
-          +
-        </button>
-
-        {paletteOpen && (
-          <NodePalette
-            onAdd={handleAddRootStep}
-            onClose={() => setPaletteOpen(false)}
-          />
-        )}
 
         {selectedStep && (
           <ConfigPanel
             step={selectedStep}
             onChange={handleStepChange}
-            onAddNestedStep={handleAddNestedStep}
             onAddBranchArm={handleAddBranchArm}
             onClose={() => setSelectedStepId(null)}
           />
