@@ -35,6 +35,8 @@ def main() -> None:
         width=1440,
         height=900,
         min_size=(1024, 680),
+        transparent=True,
+        vibrancy=True,
     )
     webview.start(debug=dev)
 

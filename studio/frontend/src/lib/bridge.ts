@@ -7,6 +7,11 @@
 
 import type { WorkflowMeta } from "../types.ts";
 
+interface ChatMessage {
+  role: string;
+  content: string;
+}
+
 interface PyWebViewAPI {
   ping(): Promise<string>;
   validate_cpl(source: string): Promise<{ valid: boolean; error?: string }>;
@@ -15,6 +20,11 @@ interface PyWebViewAPI {
   save_workflow(name: string, graph_json: string): Promise<{ ok: boolean }>;
   load_workflow(name: string): Promise<Record<string, unknown> | null>;
   delete_workflow(name: string): Promise<{ ok: boolean }>;
+  chat(
+    ollama_url: string,
+    model: string,
+    messages_json: string
+  ): Promise<string>;
 }
 
 declare global {
@@ -64,4 +74,15 @@ export async function loadWorkflow(
 export async function deleteWorkflow(name: string): Promise<boolean> {
   const res = await api()?.delete_workflow(name);
   return res?.ok ?? false;
+}
+
+export async function chat(
+  ollamaUrl: string,
+  model: string,
+  messages: { role: string; content: string }[]
+): Promise<string> {
+  return (
+    (await api()?.chat(ollamaUrl, model, JSON.stringify(messages))) ??
+    "No bridge"
+  );
 }
