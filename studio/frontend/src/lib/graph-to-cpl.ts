@@ -5,15 +5,20 @@ function emitTool(step: Extract<WorkflowStep, { kind: "tool" }>, indent: number)
 }
 
 function emitBranchArm(arm: BranchArm, indent: number): string[] {
+  if (arm.steps.length === 0) return [];
   const lines = [`${"    ".repeat(indent)}-when "${arm.condition}"`];
   lines.push(...emitSteps(arm.steps, indent + 1));
   return lines;
 }
 
 function emitBranch(step: Extract<WorkflowStep, { kind: "branch" }>, indent: number): string[] {
+  const armLines: string[][] = step.arms.map((arm) => emitBranchArm(arm, indent + 1));
+  const hasAnyArm = armLines.some((l) => l.length > 0) || step.elseSteps.length > 0;
+  if (!hasAnyArm) return [];
+
   const lines = [`${"    ".repeat(indent)}| @branch`];
-  for (const arm of step.arms) {
-    lines.push(...emitBranchArm(arm, indent + 1));
+  for (const al of armLines) {
+    lines.push(...al);
   }
   if (step.elseSteps.length > 0) {
     lines.push(`${"    ".repeat(indent + 1)}-else`);
@@ -23,6 +28,7 @@ function emitBranch(step: Extract<WorkflowStep, { kind: "branch" }>, indent: num
 }
 
 function emitLoop(step: Extract<WorkflowStep, { kind: "loop" }>, indent: number): string[] {
+  if (step.body.length === 0) return [];
   const lines = [`${"    ".repeat(indent)}| @loop`];
   lines.push(...emitSteps(step.body, indent + 1));
   lines.push(`${"    ".repeat(indent + 1)}-until "${step.until || "done"}"`);
