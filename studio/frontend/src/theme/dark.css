@@ -293,39 +293,8 @@ select {
 
 .code-editor {
   flex: 1;
-  display: flex;
   overflow: hidden;
   background: var(--bg);
-}
-
-.code-editor-textarea {
-  flex: 1;
-  resize: none;
-  padding: 60px 24px 24px;
-  background: transparent;
-  border: none;
-  outline: none;
-  color: var(--text);
-  font-family: "SF Mono", "Menlo", "Consolas", monospace;
-  font-size: 13px;
-  line-height: 1.6;
-  tab-size: 4;
-  white-space: pre;
-  overflow: auto;
-}
-
-.code-editor-textarea::placeholder {
-  color: var(--text-tertiary);
-}
-
-.code-editor-textarea::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-}
-
-.code-editor-textarea::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.1);
-  border-radius: 3px;
 }
 
 /* ── Structured workflow canvas ── */
