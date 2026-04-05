@@ -1,127 +1,70 @@
-/**
- * Compiles a React Flow graph (nodes + edges) into CPL source text.
- *
- * The algorithm:
- * 1. Find root nodes (no incoming edges).
- * 2. Walk forward through edges, emitting CPL steps.
- * 3. Branch nodes → @branch with -when/-else arms.
- * 4. Loop nodes → @loop with body and -until.
- * 5. Fork nodes → @fork id @call workflow.
- * 6. Join nodes → @join id.
- */
+import type { BranchArm, WorkflowDocument, WorkflowStep } from "../types.ts";
 
-import type { Node, Edge } from "@xyflow/react";
-import type { StudioNodeData } from "../types.ts";
-
-interface GraphInput {
-  name: string;
-  nodes: Node[];
-  edges: Edge[];
+function emitTool(step: Extract<WorkflowStep, { kind: "tool" }>, indent: number): string[] {
+  return [`${"    ".repeat(indent)}| ${step.toolName || "unnamed_tool"}`];
 }
 
-export function graphToCpl({ name, nodes, edges }: GraphInput): string {
-  if (nodes.length === 0) return "";
+function emitBranchArm(arm: BranchArm, indent: number): string[] {
+  const lines = [`${"    ".repeat(indent)}-when "${arm.condition}"`];
+  lines.push(...emitSteps(arm.steps, indent + 1));
+  return lines;
+}
 
-  const outgoing = new Map<string, Edge[]>();
-  const incoming = new Map<string, Edge[]>();
-  for (const e of edges) {
-    if (!outgoing.has(e.source)) outgoing.set(e.source, []);
-    outgoing.get(e.source)!.push(e);
-    if (!incoming.has(e.target)) incoming.set(e.target, []);
-    incoming.get(e.target)!.push(e);
+function emitBranch(step: Extract<WorkflowStep, { kind: "branch" }>, indent: number): string[] {
+  const lines = [`${"    ".repeat(indent)}| @branch`];
+  for (const arm of step.arms) {
+    lines.push(...emitBranchArm(arm, indent + 1));
   }
-
-  const nodeMap = new Map<string, Node>();
-  for (const n of nodes) nodeMap.set(n.id, n);
-
-  // Find root nodes (no incoming edges)
-  const roots = nodes.filter((n) => !incoming.has(n.id) || incoming.get(n.id)!.length === 0);
-  if (roots.length === 0) return `// Error: no root node found (all nodes have incoming edges)\n`;
-
-  const lines: string[] = [`workflow "${name}"`];
-  const visited = new Set<string>();
-
-  function emit(nodeId: string, indent: number) {
-    if (visited.has(nodeId)) return;
-    visited.add(nodeId);
-
-    const node = nodeMap.get(nodeId);
-    if (!node) return;
-
-    const data = node.data as unknown as StudioNodeData;
-    const pad = "    ".repeat(indent);
-
-    switch (data.kind) {
-      case "tool":
-        lines.push(`${pad}| ${data.toolName || "unnamed_tool"}`);
-        break;
-      case "branch": {
-        lines.push(`${pad}| @branch`);
-        const outs = outgoing.get(nodeId) || [];
-        for (const arm of data.arms) {
-          const armEdge = outs.find((e) => e.label === arm.condition);
-          lines.push(`${pad}    -when "${arm.condition}"`);
-          if (armEdge) emitChain(armEdge.target, indent + 2);
-        }
-        if (data.hasElse) {
-          const elseEdge = outs.find((e) => e.label === "else");
-          lines.push(`${pad}    -else`);
-          if (elseEdge) emitChain(elseEdge.target, indent + 2);
-        }
-        // After branch, continue from the join node if any
-        // Find the join node connected after branch arms
-        const joinEdges = outs.filter(
-          (e) =>
-            !data.arms.some((a: { condition: string }) => e.label === a.condition) &&
-            e.label !== "else"
-        );
-        for (const je of joinEdges) {
-          emit(je.target, indent);
-        }
-        return; // don't follow default outgoing
-      }
-      case "loop":
-        lines.push(`${pad}| @loop`);
-        {
-          const outs = outgoing.get(nodeId) || [];
-          for (const out of outs) emitChain(out.target, indent + 1);
-          lines.push(`${pad}    -until "${data.until || "done"}"`);
-        }
-        return;
-      case "fork":
-        lines.push(
-          `${pad}| @fork ${data.forkId || "f1"} @call ${data.workflowName || "sub"}`
-        );
-        break;
-      case "join":
-        lines.push(`${pad}| @join ${(node.data as unknown as { forkId?: string }).forkId || "f1"}`);
-        break;
-    }
-
-    // Follow outgoing edges
-    const outs = outgoing.get(nodeId) || [];
-    for (const out of outs) {
-      emit(out.target, indent);
-    }
+  if (step.elseSteps.length > 0) {
+    lines.push(`${"    ".repeat(indent + 1)}-else`);
+    lines.push(...emitSteps(step.elseSteps, indent + 2));
   }
+  return lines;
+}
 
-  function emitChain(nodeId: string, indent: number) {
-    let current: string | null = nodeId;
-    while (current && !visited.has(current)) {
-      const node = nodeMap.get(current);
-      if (!node) break;
-      const data = node.data as unknown as StudioNodeData;
-      // If we hit a join node, stop — the branch handler will continue
-      if (data.kind === "join") break;
-      emit(current, indent);
-      const chainOuts: Edge[] = outgoing.get(current) || [];
-      current = chainOuts.length === 1 ? chainOuts[0].target : null;
-    }
+function emitLoop(step: Extract<WorkflowStep, { kind: "loop" }>, indent: number): string[] {
+  const lines = [`${"    ".repeat(indent)}| @loop`];
+  lines.push(...emitSteps(step.body, indent + 1));
+  lines.push(`${"    ".repeat(indent + 1)}-until "${step.until || "done"}"`);
+  return lines;
+}
+
+function emitFork(step: Extract<WorkflowStep, { kind: "fork" }>, indent: number): string[] {
+  return [
+    `${"    ".repeat(indent)}| @fork ${step.forkId || "f1"} @call ${step.workflowName || "sub"}`,
+  ];
+}
+
+function emitJoin(step: Extract<WorkflowStep, { kind: "join" }>, indent: number): string[] {
+  return [`${"    ".repeat(indent)}| @join ${step.forkId || "f1"}`];
+}
+
+function emitStep(step: WorkflowStep, indent: number): string[] {
+  switch (step.kind) {
+    case "tool":
+      return emitTool(step, indent);
+    case "branch":
+      return emitBranch(step, indent);
+    case "loop":
+      return emitLoop(step, indent);
+    case "fork":
+      return emitFork(step, indent);
+    case "join":
+      return emitJoin(step, indent);
   }
+}
 
-  for (const root of roots) {
-    emit(root.id, 1);
+function emitSteps(steps: WorkflowStep[], indent: number): string[] {
+  const lines: string[] = [];
+  for (const step of steps) {
+    lines.push(...emitStep(step, indent));
   }
+  return lines;
+}
 
+export function graphToCpl(workflow: WorkflowDocument): string {
+  if (workflow.steps.length === 0) return "";
+  const lines = [`workflow "${workflow.name}"`];
+  lines.push(...emitSteps(workflow.steps, 1));
   return lines.join("\n") + "\n";
 }

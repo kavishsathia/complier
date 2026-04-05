@@ -1,80 +1,42 @@
-import { useState, useCallback } from "react";
-import { useNodesState, useEdgesState, type Node, type Edge } from "@xyflow/react";
+import { useState } from "react";
 import Canvas from "./components/Canvas.tsx";
 import Sidebar from "./components/Sidebar.tsx";
 import NodePalette from "./components/NodePalette.tsx";
 import ConfigPanel from "./components/ConfigPanel.tsx";
 import RunOutput from "./components/RunOutput.tsx";
 import Settings from "./components/Settings.tsx";
-// import ChatPanel from "./components/ChatPanel.tsx";
 import { graphToCpl } from "./lib/graph-to-cpl.ts";
+import {
+  addBranchArm,
+  appendNestedStep,
+  appendRootStep,
+  createStudioDocument,
+  getPrimaryWorkflow,
+  getSelectedStep,
+  isStudioDocument,
+  replaceStep,
+  syncDocumentCounters,
+} from "./lib/studio-document.ts";
 import * as bridge from "./lib/bridge.ts";
-import type { StudioNodeData } from "./types.ts";
-
-let nodeIdCounter = 0;
-function nextId() {
-  return `node-${++nodeIdCounter}`;
-}
-
-function defaultData(kind: StudioNodeData["kind"]): StudioNodeData {
-  switch (kind) {
-    case "tool":
-      return { kind: "tool", toolName: "", params: {} };
-    case "branch":
-      return { kind: "branch", arms: [{ condition: "" }], hasElse: false };
-    case "join":
-      return { kind: "join" };
-    case "loop":
-      return { kind: "loop", until: "" };
-    case "fork":
-      return { kind: "fork", forkId: "", workflowName: "" };
-  }
-}
+import type { NestedStepTarget, StepKind, StudioDocument, WorkflowStep } from "./types.ts";
 
 export default function App() {
-  const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
-  const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
-  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const [document, setDocument] = useState<StudioDocument>(() => createStudioDocument());
+  const [selectedStepId, setSelectedStepId] = useState<string | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [runOutput, setRunOutput] = useState<string | null>(null);
-  const [workflowName, setWorkflowName] = useState("Untitled");
   const [activeWorkflow, setActiveWorkflow] = useState<string | null>(null);
   const [sidebarRefresh, setSidebarRefresh] = useState(0);
   const [ollamaUrl, setOllamaUrl] = useState("http://localhost:11434");
   const [ollamaModel, setOllamaModel] = useState("gemma4");
-  const selectedNode = nodes.find((n) => n.id === selectedNodeId) ?? null;
+  const workflow = getPrimaryWorkflow(document);
+  const selectedStep = getSelectedStep(document, selectedStepId);
 
-  const handleAddNode = useCallback(
-    (kind: StudioNodeData["kind"]) => {
-      const id = nextId();
-      const offset = nodes.length * 40;
-      const position = { x: 300 + offset, y: 200 + offset };
-
-      const newNode: Node = {
-        id,
-        type: kind,
-        position,
-        data: defaultData(kind),
-      };
-      setNodes((nds) => [...nds, newNode]);
-    },
-    [nodes.length, setNodes]
-  );
-
-  const handleStudioNodeDataChange = useCallback(
-    (id: string, data: StudioNodeData) => {
-      setNodes((nds) =>
-        nds.map((n) => (n.id === id ? { ...n, data: data as any } : n))
-      );
-    },
-    [setNodes]
-  );
-
-  const handleRun = useCallback(async () => {
-    const cpl = graphToCpl({ name: workflowName, nodes, edges });
+  async function handleRun() {
+    const cpl = graphToCpl(workflow);
     if (!cpl) {
-      setRunOutput("No nodes to compile.");
+      setRunOutput("No steps to compile.");
       return;
     }
     setRunOutput("Compiling...\n\n" + cpl);
@@ -84,37 +46,64 @@ export default function App() {
     } else {
       setRunOutput("Compilation error:\n" + (result.error ?? "Unknown error") + "\n\nGenerated CPL:\n" + cpl);
     }
-  }, [workflowName, nodes, edges]);
+  }
 
-  const handleSave = useCallback(async () => {
-    const graph = { name: workflowName, nodes, edges };
-    await bridge.saveWorkflow(workflowName, JSON.stringify(graph));
-    setActiveWorkflow(workflowName);
+  async function handleSave() {
+    await bridge.saveWorkflow(workflow.name, JSON.stringify(document));
+    setActiveWorkflow(workflow.name);
     setSidebarRefresh((n) => n + 1);
-  }, [workflowName, nodes, edges]);
+  }
 
-  const handleLoad = useCallback(
-    async (name: string) => {
-      const data = await bridge.loadWorkflow(name);
-      if (!data) return;
-      setWorkflowName((data.name as string) ?? name);
-      setNodes((data.nodes as Node[]) ?? []);
-      setEdges((data.edges as Edge[]) ?? []);
-      setActiveWorkflow(name);
-      setSelectedNodeId(null);
-    },
-    [setNodes, setEdges]
-  );
-
-  const handleNew = useCallback(() => {
-    setWorkflowName("Untitled");
-    setNodes([]);
-    setEdges([]);
-    setActiveWorkflow(null);
-    setSelectedNodeId(null);
+  async function handleLoad(name: string) {
+    const data = await bridge.loadWorkflow(name);
+    if (!data) return;
+    if (!isStudioDocument(data)) {
+      setRunOutput(
+        `Workflow "${name}" uses the older canvas-only save format and cannot be loaded into the new typed document model yet.`
+      );
+      return;
+    }
+    syncDocumentCounters(data);
+    setDocument(data);
+    setActiveWorkflow(getPrimaryWorkflow(data).name);
+    setSelectedStepId(null);
     setRunOutput(null);
-    nodeIdCounter = 0;
-  }, [setNodes, setEdges]);
+  }
+
+  function handleNew() {
+    setDocument(createStudioDocument());
+    setActiveWorkflow(null);
+    setSelectedStepId(null);
+    setRunOutput(null);
+  }
+
+  function handleAddRootStep(kind: StepKind) {
+    setDocument((current) => ({
+      ...current,
+      workflows: [appendRootStep(getPrimaryWorkflow(current), kind)],
+    }));
+  }
+
+  function handleStepChange(step: WorkflowStep) {
+    setDocument((current) => ({
+      ...current,
+      workflows: [replaceStep(getPrimaryWorkflow(current), step)],
+    }));
+  }
+
+  function handleAddNestedStep(containerId: string, target: NestedStepTarget, kind: StepKind) {
+    setDocument((current) => ({
+      ...current,
+      workflows: [appendNestedStep(getPrimaryWorkflow(current), containerId, target, kind)],
+    }));
+  }
+
+  function handleAddBranchArm(branchId: string) {
+    setDocument((current) => ({
+      ...current,
+      workflows: [addBranchArm(getPrimaryWorkflow(current), branchId)],
+    }));
+  }
 
   return (
     <div className="studio">
@@ -127,7 +116,6 @@ export default function App() {
       />
 
       <div className="studio-main">
-        {/* Toolbar */}
         <div className="toolbar">
           <button className="run-btn" onClick={handleSave}>
             Save
@@ -137,44 +125,38 @@ export default function App() {
           </button>
         </div>
 
-        {/* Canvas */}
         <Canvas
-          nodes={nodes}
-          edges={edges}
-          onNodesChange={onNodesChange}
-          onEdgesChange={onEdgesChange}
-          setEdges={setEdges}
-          onNodeClick={setSelectedNodeId}
+          workflow={workflow}
+          selectedStepId={selectedStepId}
+          onSelectStep={setSelectedStepId}
         />
 
-        {/* + Add node button */}
         <button className="add-btn" onClick={() => setPaletteOpen(!paletteOpen)}>
           +
         </button>
 
         {paletteOpen && (
           <NodePalette
-            onAdd={handleAddNode}
+            onAdd={handleAddRootStep}
             onClose={() => setPaletteOpen(false)}
           />
         )}
 
-        {/* Config panel */}
-        {selectedNode && (
+        {selectedStep && (
           <ConfigPanel
-            node={selectedNode}
-            onChange={handleStudioNodeDataChange}
-            onClose={() => setSelectedNodeId(null)}
+            step={selectedStep}
+            onChange={handleStepChange}
+            onAddNestedStep={handleAddNestedStep}
+            onAddBranchArm={handleAddBranchArm}
+            onClose={() => setSelectedStepId(null)}
           />
         )}
 
-        {/* Run output */}
         {runOutput !== null && (
           <RunOutput output={runOutput} onClose={() => setRunOutput(null)} />
         )}
       </div>
 
-      {/* Settings */}
       {settingsOpen && (
         <Settings
           ollamaUrl={ollamaUrl}

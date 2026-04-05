@@ -293,110 +293,20 @@ select {
   color: #fff;
 }
 
-/* ── Custom flow nodes ── */
+/* ── Structured workflow canvas ── */
 
-.studio-node {
-  min-width: 180px;
-  background: var(--surface-solid);
-  border: 1px solid var(--border-strong);
-  border-radius: 8px;
-  padding: 12px 14px;
-  display: grid;
-  gap: 4px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
-  transition: box-shadow 100ms ease, border-color 100ms ease;
+.workflow-canvas {
+  flex: 1;
+  overflow: auto;
+  padding: 84px 24px 24px;
+  background:
+    radial-gradient(circle at top left, rgba(45, 212, 191, 0.08), transparent 28%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.015), transparent 24%),
+    var(--bg);
 }
 
-.studio-node-selected {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 1px var(--accent), 0 4px 16px rgba(45, 212, 191, 0.2);
-}
-
-.studio-node-kind {
-  font-size: 10px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--text-tertiary);
-}
-
-.studio-node-title {
-  font-size: 13px;
-  font-weight: 500;
-  line-height: 1.35;
-}
-
-/* ── React Flow overrides ── */
-
-.react-flow {
-  background: var(--bg) !important;
-}
-
-.react-flow__handle {
-  width: 8px;
-  height: 8px;
-  background: var(--text-tertiary);
-  border: 2px solid var(--surface-solid);
-  border-radius: 50%;
-  transition: background 100ms ease;
-}
-
-.react-flow__handle:hover {
-  background: var(--accent);
-}
-
-.react-flow__edge-path {
-  stroke: rgba(255, 255, 255, 0.15);
-  stroke-width: 1.5;
-}
-
-.react-flow__edge.selected .react-flow__edge-path {
-  stroke: var(--accent);
-}
-
-.react-flow__edge-text {
-  fill: var(--text-tertiary);
-  font-size: 11px;
-}
-
-.react-flow__edge-textbg {
-  fill: var(--bg);
-  fill-opacity: 0.9;
-}
-
-.react-flow__controls {
-  border: 1px solid var(--border) !important;
-  border-radius: 6px !important;
-  background: var(--surface-solid) !important;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3) !important;
-}
-
-.react-flow__controls-button {
-  background: transparent !important;
-  border-color: var(--border) !important;
-  fill: var(--text-tertiary) !important;
-  width: 26px !important;
-  height: 26px !important;
-}
-
-.react-flow__controls-button:hover {
-  background: rgba(255, 255, 255, 0.06) !important;
-  fill: var(--text) !important;
-}
-
-.react-flow__minimap {
-  border: 1px solid var(--border) !important;
-  border-radius: 6px !important;
-  background: var(--surface-solid) !important;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3) !important;
-}
-
-.react-flow__background pattern line {
-  stroke: rgba(255, 255, 255, 0.03) !important;
-}
-
-.react-flow__attribution {
-  display: none;
+.workflow-blank {
+  height: calc(100vh - 108px);
 }
 
 /* ── Config panel (right) ── */

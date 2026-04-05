@@ -1,47 +1,83 @@
-// ── Node data types (discriminated union on `kind`) ──
+export interface GuaranteeDocument {
+  id: string;
+  name: string;
+  expression: string;
+}
 
-export interface ToolNodeData {
+export interface WorkflowDocument {
+  id: string;
+  name: string;
+  always: string[];
+  steps: WorkflowStep[];
+}
+
+export interface WorkflowBlockDocument extends WorkflowDocument {
+  blocks: WorkflowStep[];
+}
+
+export interface StudioDocument {
+  version: 2;
+  workflows: WorkflowDocument[];
+  guarantees: GuaranteeDocument[];
+}
+
+interface BaseStep {
+  id: string;
+  [key: string]: unknown;
+}
+
+export interface ToolStep extends BaseStep {
   kind: "tool";
   toolName: string;
   params: Record<string, string>;
-  [key: string]: unknown;
 }
 
-export interface BranchNodeData {
+export interface BranchArm {
+  id: string;
+  condition: string;
+  steps: WorkflowStep[];
+}
+
+export interface BranchStep extends BaseStep {
   kind: "branch";
-  arms: { condition: string }[];
-  hasElse: boolean;
-  [key: string]: unknown;
+  arms: BranchArm[];
+  elseSteps: WorkflowStep[];
 }
 
-export interface JoinNodeData {
-  kind: "join";
-  [key: string]: unknown;
-}
-
-export interface LoopNodeData {
+export interface LoopStep extends BaseStep {
   kind: "loop";
   until: string;
-  [key: string]: unknown;
+  body: WorkflowStep[];
 }
 
-export interface ForkNodeData {
+export interface ForkStep extends BaseStep {
   kind: "fork";
   forkId: string;
   workflowName: string;
-  [key: string]: unknown;
 }
 
-export type StudioNodeData =
-  | ToolNodeData
-  | BranchNodeData
-  | JoinNodeData
-  | LoopNodeData
-  | ForkNodeData;
+export interface JoinStep extends BaseStep {
+  kind: "join";
+  forkId: string;
+}
 
-// ── Persisted workflow ──
+export type WorkflowStep =
+  | ToolStep
+  | BranchStep
+  | LoopStep
+  | ForkStep
+  | JoinStep;
+
+export type StepKind = WorkflowStep["kind"];
+
+export type StudioNodeData = WorkflowStep;
 
 export interface WorkflowMeta {
   name: string;
   file: string;
 }
+
+export type NestedStepTarget =
+  | { kind: "branch-arm"; armId: string }
+  | { kind: "branch-else" }
+  | { kind: "loop-body" };

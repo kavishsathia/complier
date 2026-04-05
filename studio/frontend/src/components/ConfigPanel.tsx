@@ -1,24 +1,47 @@
-import type { Node } from "@xyflow/react";
-import type { StudioNodeData } from "../types.ts";
+import type { NestedStepTarget, StepKind, WorkflowStep } from "../types.ts";
 
 interface ConfigPanelProps {
-  node: Node;
-  onChange: (id: string, data: StudioNodeData) => void;
+  step: WorkflowStep;
+  onChange: (step: WorkflowStep) => void;
+  onAddNestedStep: (containerId: string, target: NestedStepTarget, kind: StepKind) => void;
+  onAddBranchArm: (branchId: string) => void;
   onClose: () => void;
 }
 
-export default function ConfigPanel({ node, onChange, onClose }: ConfigPanelProps) {
-  const data = node.data as unknown as StudioNodeData;
+const STEP_KINDS: StepKind[] = ["tool", "branch", "loop", "fork", "join"];
 
-  function update(patch: Partial<StudioNodeData>) {
-    onChange(node.id, { ...data, ...patch } as StudioNodeData);
+function AddStepButtons({
+  onAdd,
+}: {
+  onAdd: (kind: StepKind) => void;
+}) {
+  return (
+    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8 }}>
+      {STEP_KINDS.map((kind) => (
+        <button key={kind} className="settings-btn" onClick={() => onAdd(kind)}>
+          + {kind}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+export default function ConfigPanel({
+  step,
+  onChange,
+  onAddNestedStep,
+  onAddBranchArm,
+  onClose,
+}: ConfigPanelProps) {
+  function update(patch: Partial<WorkflowStep>) {
+    onChange({ ...step, ...patch } as WorkflowStep);
   }
 
   return (
     <div className="config-panel">
       <div className="config-header">
         <h2 className="config-header-title">
-          {data.kind.charAt(0).toUpperCase() + data.kind.slice(1)} Node
+          {step.kind.charAt(0).toUpperCase() + step.kind.slice(1)} Step
         </h2>
         <button
           className="run-panel-close"
@@ -29,69 +52,86 @@ export default function ConfigPanel({ node, onChange, onClose }: ConfigPanelProp
         </button>
       </div>
       <div className="config-section">
-        {data.kind === "tool" && (
+        {step.kind === "tool" && (
           <>
             <label>
               <span className="config-label">Tool Name</span>
               <input
                 className="config-input"
-                value={data.toolName}
+                value={step.toolName}
                 onChange={(e) => update({ toolName: e.target.value })}
               />
             </label>
           </>
         )}
-        {data.kind === "branch" && (
+        {step.kind === "branch" && (
           <>
-            {data.arms.map((arm, i) => (
-              <label key={i}>
-                <span className="config-label">When {i + 1}</span>
-                <input
-                  className="config-input"
-                  value={arm.condition}
-                  onChange={(e) => {
-                    const arms = [...data.arms];
-                    arms[i] = { condition: e.target.value };
-                    update({ arms });
-                  }}
-                />
-              </label>
-            ))}
             <button
               className="settings-btn"
-              onClick={() =>
-                update({ arms: [...data.arms, { condition: "" }] })
-              }
+              onClick={() => onAddBranchArm(step.id)}
             >
               + Add arm
             </button>
-            <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <input
-                type="checkbox"
-                checked={data.hasElse}
-                onChange={(e) => update({ hasElse: e.target.checked })}
+            {step.arms.map((arm, i) => (
+              <div key={arm.id} style={{ marginTop: 16 }}>
+                <label>
+                  <span className="config-label">When {i + 1}</span>
+                  <input
+                    className="config-input"
+                    value={arm.condition}
+                    onChange={(e) => {
+                      const arms = [...step.arms];
+                      arms[i] = { ...arm, condition: e.target.value };
+                      update({ arms });
+                    }}
+                  />
+                </label>
+                <p style={{ fontSize: 13, color: "var(--text-muted)" }}>
+                  {arm.steps.length} step{arm.steps.length === 1 ? "" : "s"} in this arm.
+                </p>
+                <AddStepButtons
+                  onAdd={(kind) =>
+                    onAddNestedStep(step.id, { kind: "branch-arm", armId: arm.id }, kind)
+                  }
+                />
+              </div>
+            ))}
+            <div style={{ marginTop: 16 }}>
+              <span className="config-label">Else</span>
+              <p style={{ fontSize: 13, color: "var(--text-muted)" }}>
+                {step.elseSteps.length} step{step.elseSteps.length === 1 ? "" : "s"} in the else branch.
+              </p>
+              <AddStepButtons
+                onAdd={(kind) => onAddNestedStep(step.id, { kind: "branch-else" }, kind)}
               />
-              <span style={{ fontSize: 13 }}>Else arm</span>
-            </label>
+            </div>
           </>
         )}
-        {data.kind === "loop" && (
-          <label>
-            <span className="config-label">Until</span>
-            <input
-              className="config-input"
-              value={data.until}
-              onChange={(e) => update({ until: e.target.value })}
+        {step.kind === "loop" && (
+          <>
+            <label>
+              <span className="config-label">Until</span>
+              <input
+                className="config-input"
+                value={step.until}
+                onChange={(e) => update({ until: e.target.value })}
+              />
+            </label>
+            <p style={{ fontSize: 13, color: "var(--text-muted)", marginTop: 12 }}>
+              {step.body.length} step{step.body.length === 1 ? "" : "s"} in the loop body.
+            </p>
+            <AddStepButtons
+              onAdd={(kind) => onAddNestedStep(step.id, { kind: "loop-body" }, kind)}
             />
-          </label>
+          </>
         )}
-        {data.kind === "fork" && (
+        {step.kind === "fork" && (
           <>
             <label>
               <span className="config-label">Fork ID</span>
               <input
                 className="config-input"
-                value={data.forkId}
+                value={step.forkId}
                 onChange={(e) => update({ forkId: e.target.value })}
               />
             </label>
@@ -99,16 +139,21 @@ export default function ConfigPanel({ node, onChange, onClose }: ConfigPanelProp
               <span className="config-label">Workflow Name</span>
               <input
                 className="config-input"
-                value={data.workflowName}
+                value={step.workflowName}
                 onChange={(e) => update({ workflowName: e.target.value })}
               />
             </label>
           </>
         )}
-        {data.kind === "join" && (
-          <p style={{ fontSize: 13, color: "var(--text-muted)" }}>
-            Join merges branching paths back together.
-          </p>
+        {step.kind === "join" && (
+          <label>
+            <span className="config-label">Join Fork ID</span>
+            <input
+              className="config-input"
+              value={step.forkId}
+              onChange={(e) => update({ forkId: e.target.value })}
+            />
+          </label>
         )}
       </div>
     </div>

@@ -1,6 +1,6 @@
-import type { StudioNodeData } from "../types.ts";
+import type { StepKind } from "../types.ts";
 
-const NODE_KINDS: { kind: StudioNodeData["kind"]; label: string }[] = [
+const NODE_KINDS: { kind: StepKind; label: string }[] = [
   { kind: "tool", label: "Tool" },
   { kind: "branch", label: "Branch" },
   { kind: "join", label: "Join" },
@@ -9,7 +9,7 @@ const NODE_KINDS: { kind: StudioNodeData["kind"]; label: string }[] = [
 ];
 
 interface NodePaletteProps {
-  onAdd: (kind: StudioNodeData["kind"]) => void;
+  onAdd: (kind: StepKind) => void;
   onClose: () => void;
 }
 
