@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import type { MCPServerConfig } from "../types.ts";
+import type { MCPServerConfig, MCPToolInfo } from "../types.ts";
 import * as bridge from "../lib/bridge.ts";
 
 interface SettingsProps {
@@ -11,7 +11,7 @@ interface SettingsProps {
 interface ServerStatus {
   loading: boolean;
   ok?: boolean;
-  tools?: string[];
+  tools?: MCPToolInfo[];
   error?: string;
   authenticated?: boolean;
 }
@@ -38,7 +38,7 @@ export default function Settings({
     ok: boolean;
     message?: string;
     error?: string;
-    tools?: string[];
+    tools?: MCPToolInfo[];
   } | null>(null);
   const [testing, setTesting] = useState(false);
 
@@ -138,13 +138,15 @@ export default function Settings({
       (newType === "local" && newCommand.trim()));
 
   return (
-    <div className="settings-overlay" onClick={onClose}>
-      <div
-        className="settings-dialog settings-dialog--wide"
-        onClick={(e) => e.stopPropagation()}
-      >
+    <div className="settings-page">
+      <div className="settings-header">
+        <button className="settings-back-btn" onClick={onClose}>
+          &larr; Back
+        </button>
         <h2 className="settings-title">MCP Servers</h2>
+      </div>
 
+      <div className="settings-content">
         <div className="mcp-server-list">
           {mcpServers.length === 0 && !adding && (
             <div className="mcp-empty">
@@ -185,7 +187,7 @@ export default function Settings({
                 {displayTools && displayTools.length > 0 && !status?.loading && (
                   <div className="mcp-server-tools">
                     {displayTools.map((t) => (
-                      <span key={t} className="mcp-tool-chip">{t}</span>
+                      <span key={t.name} className="mcp-tool-chip" title={t.description}>{t.name}</span>
                     ))}
                   </div>
                 )}
@@ -298,7 +300,7 @@ export default function Settings({
                 {testResult.ok && testResult.tools && testResult.tools.length > 0 && (
                   <div className="mcp-test-tools">
                     {testResult.tools.map((t) => (
-                      <span key={t} className="mcp-tool-chip">{t}</span>
+                      <span key={t.name} className="mcp-tool-chip" title={t.description}>{t.name}</span>
                     ))}
                   </div>
                 )}

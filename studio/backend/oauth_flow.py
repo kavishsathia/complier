@@ -53,7 +53,7 @@ async def test_remote_with_oauth(
     )
 
     client = httpx.AsyncClient(auth=auth)
-    names: list[str] = []
+    tools: list[dict] = []
 
     async with anyio.create_task_group() as tg:
         tg.start_soon(callback_server.run)
@@ -64,15 +64,22 @@ async def test_remote_with_oauth(
                     async with ClientSession(read, write) as session:
                         await session.initialize()
                         result = await session.list_tools()
-                        names = [t.name for t in result.tools]
+                        tools = [
+                            {
+                                "name": t.name,
+                                "description": t.description or "",
+                                "inputSchema": t.inputSchema,
+                            }
+                            for t in result.tools
+                        ]
         finally:
             tg.cancel_scope.cancel()
 
     has_tokens = await storage.get_tokens() is not None
     return {
         "ok": True,
-        "tools": names,
-        "message": f"Connected — {len(names)} tool(s) found",
+        "tools": tools,
+        "message": f"Connected — {len(tools)} tool(s) found",
         "authenticated": has_tokens,
     }
 

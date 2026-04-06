@@ -201,11 +201,18 @@ class StudioAPI:
                     async with ClientSession(read, write) as session:
                         await session.initialize()
                         result = await session.list_tools()
-                        names = [t.name for t in result.tools]
+                        tools = [
+                            {
+                                "name": t.name,
+                                "description": t.description or "",
+                                "inputSchema": t.inputSchema,
+                            }
+                            for t in result.tools
+                        ]
                         return {
                             "ok": True,
-                            "tools": names,
-                            "message": f"Connected — {len(names)} tool(s) found",
+                            "tools": tools,
+                            "message": f"Connected — {len(tools)} tool(s) found",
                         }
 
             try:

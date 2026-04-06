@@ -297,69 +297,69 @@ export default function App() {
         refreshKey={sidebarRefresh}
       />
 
-      <div className="studio-main">
-        <div className="workflow-title">
-          <InlineEdit
-            value={workflow.name}
-            placeholder="Untitled"
-            onChange={handleRename}
-          />
-        </div>
-        <div className="toolbar">
-          <div className="mode-toggle">
-            <button
-              className={`mode-btn${mode === "flow" ? " mode-btn--active" : ""}`}
-              onClick={() => handleModeToggle("flow")}
-            >
-              Flow
-            </button>
-            <button
-              className={`mode-btn${mode === "code" ? " mode-btn--active" : ""}`}
-              onClick={() => handleModeToggle("code")}
-            >
-              Code
-            </button>
-          </div>
-          <button className="run-btn run-btn-primary" onClick={handleRun}>
-            Run
-          </button>
-        </div>
-
-        {mode === "flow" ? (
-          <Canvas
-            workflow={workflow}
-            selectedStepId={selectedStepId}
-            onSelectNode={handleSelectNode}
-            onDeleteStep={handleDeleteStep}
-            onInsertStep={handleInsertStep}
-            onStepChange={handleStepChange}
-            onAddBranchArm={handleAddBranchArm}
-            onAddUnorderedCase={handleAddUnorderedCase}
-          />
-        ) : (
-          <CodeEditor value={cplSource} onChange={setCplSource} />
-        )}
-
-        {mode === "flow" && selectedStep && (
-          <ConfigPanel
-            step={selectedStep}
-            onChange={handleStepChange}
-            onAddBranchArm={handleAddBranchArm}
-            onClose={() => setSelectedStepId(null)}
-          />
-        )}
-
-        {runOutput !== null && (
-          <RunOutput output={runOutput} onClose={() => setRunOutput(null)} />
-        )}
-      </div>
-
-      {settingsOpen && (
+      {settingsOpen ? (
         <Settings
           mcpServers={mcpServers}
           onMcpServersChange={setMcpServers}
           onClose={() => setSettingsOpen(false)}
         />
+      ) : (
+        <div className="studio-main">
+          <div className="workflow-title">
+            <InlineEdit
+              value={workflow.name}
+              placeholder="Untitled"
+              onChange={handleRename}
+            />
+          </div>
+          <div className="toolbar">
+            <div className="mode-toggle">
+              <button
+                className={`mode-btn${mode === "flow" ? " mode-btn--active" : ""}`}
+                onClick={() => handleModeToggle("flow")}
+              >
+                Flow
+              </button>
+              <button
+                className={`mode-btn${mode === "code" ? " mode-btn--active" : ""}`}
+                onClick={() => handleModeToggle("code")}
+              >
+                Code
+              </button>
+            </div>
+            <button className="run-btn run-btn-primary" onClick={handleRun}>
+              Run
+            </button>
+          </div>
+
+          {mode === "flow" ? (
+            <Canvas
+              workflow={workflow}
+              selectedStepId={selectedStepId}
+              onSelectNode={handleSelectNode}
+              onDeleteStep={handleDeleteStep}
+              onInsertStep={handleInsertStep}
+              onStepChange={handleStepChange}
+              onAddBranchArm={handleAddBranchArm}
+              onAddUnorderedCase={handleAddUnorderedCase}
+            />
+          ) : (
+            <CodeEditor value={cplSource} onChange={setCplSource} />
+          )}
+
+          {mode === "flow" && selectedStep && (
+            <ConfigPanel
+              step={selectedStep}
+              onChange={handleStepChange}
+              onAddBranchArm={handleAddBranchArm}
+              onClose={() => setSelectedStepId(null)}
+            />
+          )}
+
+          {runOutput !== null && (
+            <RunOutput output={runOutput} onClose={() => setRunOutput(null)} />
+          )}
+        </div>
       )}
     </div>
   );

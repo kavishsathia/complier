@@ -5,7 +5,7 @@
  * sensible defaults so the UI can still be developed standalone.
  */
 
-import type { MCPServerConfig, WorkflowMeta } from "../types.ts";
+import type { MCPServerConfig, MCPToolInfo, WorkflowMeta } from "../types.ts";
 
 interface ChatMessage {
   role: string;
@@ -24,7 +24,7 @@ interface PyWebViewAPI {
   list_mcp_servers(): Promise<MCPServerConfig[]>;
   save_mcp_server(config_json: string): Promise<{ ok: boolean }>;
   delete_mcp_server(config_id: string): Promise<{ ok: boolean }>;
-  test_mcp_server(config_json: string): Promise<{ ok: boolean; error?: string; message?: string; tools?: string[]; authenticated?: boolean }>;
+  test_mcp_server(config_json: string): Promise<{ ok: boolean; error?: string; message?: string; tools?: MCPToolInfo[]; authenticated?: boolean }>;
   clear_mcp_tokens(config_id: string): Promise<{ ok: boolean }>;
   chat(
     ollama_url: string,
@@ -106,7 +106,7 @@ export async function deleteMcpServer(id: string): Promise<boolean> {
 
 export async function testMcpServer(
   config: MCPServerConfig
-): Promise<{ ok: boolean; error?: string; message?: string; tools?: string[]; authenticated?: boolean }> {
+): Promise<{ ok: boolean; error?: string; message?: string; tools?: MCPToolInfo[]; authenticated?: boolean }> {
   return (
     (await api()?.test_mcp_server(JSON.stringify(config))) ?? {
       ok: false,

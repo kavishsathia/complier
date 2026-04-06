@@ -95,6 +95,12 @@ export type NestedStepTarget =
   | { kind: "loop-body" }
   | { kind: "unordered-case"; caseId: string };
 
+export interface MCPToolInfo {
+  name: string;
+  description?: string;
+  inputSchema?: Record<string, unknown>;
+}
+
 export interface MCPServerConfig {
   id: string;
   name: string;
@@ -103,5 +109,5 @@ export interface MCPServerConfig {
   command?: string;
   enabled: boolean;
   authenticated?: boolean;
-  tools?: string[];
+  tools?: MCPToolInfo[];
 }
