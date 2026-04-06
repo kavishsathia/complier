@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import Canvas from "./components/Canvas.tsx";
 import Sidebar from "./components/Sidebar.tsx";
 import ConfigPanel from "./components/ConfigPanel.tsx";
@@ -42,6 +42,21 @@ export default function App() {
     bridge.listMcpServers().then(setMcpServers);
   }, []);
   const workflow = getPrimaryWorkflow(document);
+  const userHasInteracted = useRef(false);
+
+  // Auto-save whenever the document changes (skip initial mount)
+  useEffect(() => {
+    if (!userHasInteracted.current) return;
+    const name = document.workflows[0]?.name;
+    if (!name) return;
+    const timeout = setTimeout(() => {
+      bridge.saveWorkflow(name, JSON.stringify(document)).then(() => {
+        setActiveWorkflow(name);
+        setSidebarRefresh((n) => n + 1);
+      });
+    }, 500);
+    return () => clearTimeout(timeout);
+  }, [document]);
 
   function resolveStepForConfig(nodeId: string | null): WorkflowStep | null {
     if (!nodeId) return null;
@@ -164,6 +179,7 @@ export default function App() {
   }
 
   async function handleNew() {
+    markInteracted();
     // Auto-save current workflow
     await bridge.saveWorkflow(workflow.name, JSON.stringify(document));
 
@@ -183,21 +199,32 @@ export default function App() {
   }
 
   async function handleRename(newName: string) {
+    markInteracted();
     const oldName = workflow.name;
+    if (oldName === newName) return;
+
+    // Check if name already exists
+    const existing = await bridge.listWorkflows();
+    if (existing.some((w) => w.name === newName)) {
+      setRunOutput(`A workflow named "${newName}" already exists.`);
+      return;
+    }
+
     setDocument((current) => ({
       ...current,
       workflows: current.workflows.map((w, i) =>
         i === 0 ? { ...w, name: newName } : w
       ),
     }));
-    // Delete the old workflow file, save under new name
-    if (oldName !== newName) {
-      await bridge.deleteWorkflow(oldName);
-      const updated = { ...document, workflows: document.workflows.map((w, i) => i === 0 ? { ...w, name: newName } : w) };
-      await bridge.saveWorkflow(newName, JSON.stringify(updated));
-      setActiveWorkflow(newName);
-      setSidebarRefresh((n) => n + 1);
-    }
+    await bridge.deleteWorkflow(oldName);
+    const updated = { ...document, workflows: document.workflows.map((w, i) => i === 0 ? { ...w, name: newName } : w) };
+    await bridge.saveWorkflow(newName, JSON.stringify(updated));
+    setActiveWorkflow(newName);
+    setSidebarRefresh((n) => n + 1);
+  }
+
+  function markInteracted() {
+    userHasInteracted.current = true;
   }
 
   function handleInsertStep(
@@ -206,6 +233,7 @@ export default function App() {
     index: number,
     kind: StepKind
   ) {
+    markInteracted();
     setDocument((current) => ({
       ...current,
       workflows: [insertStepAt(getPrimaryWorkflow(current), parentStepId, target, index, kind)],
@@ -213,6 +241,7 @@ export default function App() {
   }
 
   function handleStepChange(step: WorkflowStep) {
+    markInteracted();
     setDocument((current) => ({
       ...current,
       workflows: [replaceStep(getPrimaryWorkflow(current), step)],
@@ -220,6 +249,7 @@ export default function App() {
   }
 
   function handleDeleteStep(stepId: string) {
+    markInteracted();
     setDocument((current) => ({
       ...current,
       workflows: [deleteStep(getPrimaryWorkflow(current), stepId)],
