@@ -77,7 +77,7 @@ Guarantees define reusable checks that can be referenced by workflows.
 Example:
 
 ```text
-guarantee safe [no_harmful_content:halt]
+guarantee safe [no_harmful_content]:halt
 ```
 
 The current syntax supports checks such as:
@@ -108,7 +108,7 @@ Example:
 workflow "research" @always safe
     | @human "What topic?"
     | search_web
-    | @llm "Summarize" ([relevant:3] && [concise:halt])
+    | @llm "Summarize" ([relevant]:3 && [concise]:halt)
 ```
 
 A workflow consists of:

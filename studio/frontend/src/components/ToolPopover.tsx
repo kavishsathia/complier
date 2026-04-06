@@ -120,7 +120,7 @@ export default function ToolPopover({
                 className="param-check-input"
                 value={typeof step.params[paramName] === "string" ? step.params[paramName] : ""}
                 onChange={(e) => handleParamChange(paramName, e.target.value)}
-                placeholder="e.g. [relevant:3] && {concise:halt}"
+                placeholder="e.g. [relevant]:skip"
               />
             </div>
           ))}
