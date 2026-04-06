@@ -42,25 +42,32 @@ export default function Settings({
   } | null>(null);
   const [testing, setTesting] = useState(false);
 
-  // Probe each enabled server on mount
-  useEffect(() => {
-    for (const s of mcpServers) {
-      if (!s.enabled) continue;
-      setServerStatus((prev) => ({ ...prev, [s.id]: { loading: true } }));
-      bridge.testMcpServer(s).then((result) => {
-        setServerStatus((prev) => ({
-          ...prev,
-          [s.id]: {
-            loading: false,
-            ok: result.ok,
-            tools: result.tools,
-            error: result.error,
-            authenticated: result.authenticated,
-          },
-        }));
-      });
+  async function handleRefreshServer(id: string) {
+    const server = mcpServers.find((s) => s.id === id);
+    if (!server) return;
+    setServerStatus((prev) => ({ ...prev, [id]: { loading: true } }));
+    const result = await bridge.testMcpServer(server);
+    setServerStatus((prev) => ({
+      ...prev,
+      [id]: {
+        loading: false,
+        ok: result.ok,
+        tools: result.tools,
+        error: result.error,
+        authenticated: result.authenticated,
+      },
+    }));
+    if (result.ok && result.tools) {
+      const updated = mcpServers.map((s) =>
+        s.id === id
+          ? { ...s, tools: result.tools, authenticated: result.authenticated }
+          : s
+      );
+      const changed = updated.find((s) => s.id === id);
+      if (changed) await bridge.saveMcpServer(changed);
+      onMcpServersChange(updated);
     }
-  }, [mcpServers]);
+  }
 
   function resetForm() {
     setNewName("");
@@ -96,6 +103,7 @@ export default function Settings({
       url: newType === "remote" ? newUrl : undefined,
       command: newType === "local" ? newCommand : undefined,
       enabled: true,
+      tools: testResult?.ok ? testResult.tools : undefined,
     };
     await bridge.saveMcpServer(config);
     onMcpServersChange([...mcpServers, config]);
@@ -146,6 +154,9 @@ export default function Settings({
           )}
           {mcpServers.map((s) => {
             const status = serverStatus[s.id];
+            const displayTools = status?.tools ?? s.tools;
+            const toolCount = displayTools?.length ?? 0;
+            const isAuthenticated = status?.authenticated ?? s.authenticated;
             return (
               <div key={s.id} className="mcp-server-item">
                 <div className="mcp-server-info">
@@ -153,12 +164,12 @@ export default function Settings({
                   <span className={`mcp-badge mcp-badge--${s.type}`}>
                     {s.type}
                   </span>
-                  {status && !status.loading && status.ok && status.tools && (
+                  {toolCount > 0 && !status?.loading && (
                     <span className="mcp-tool-count">
-                      {status.tools.length} tool{status.tools.length !== 1 ? "s" : ""}
+                      {toolCount} tool{toolCount !== 1 ? "s" : ""}
                     </span>
                   )}
-                  {status && !status.loading && status.ok && status.authenticated && (
+                  {isAuthenticated && !status?.loading && (
                     <span className="mcp-badge mcp-badge--auth">authenticated</span>
                   )}
                   {status && !status.loading && !status.ok && (
@@ -171,9 +182,9 @@ export default function Settings({
                 <div className="mcp-server-detail">
                   {s.type === "remote" ? s.url : s.command}
                 </div>
-                {status && !status.loading && status.ok && status.tools && status.tools.length > 0 && (
+                {displayTools && displayTools.length > 0 && !status?.loading && (
                   <div className="mcp-server-tools">
-                    {status.tools.map((t) => (
+                    {displayTools.map((t) => (
                       <span key={t} className="mcp-tool-chip">{t}</span>
                     ))}
                   </div>
@@ -182,7 +193,15 @@ export default function Settings({
                   <div className="mcp-server-error">{status.error}</div>
                 )}
                 <div className="mcp-server-actions">
-                  {status && !status.loading && status.authenticated && (
+                  <button
+                    className="mcp-refresh-btn"
+                    onClick={() => handleRefreshServer(s.id)}
+                    disabled={status?.loading}
+                    title="Refresh tools"
+                  >
+                    {status?.loading ? "..." : "\u21BB"}
+                  </button>
+                  {isAuthenticated && !status?.loading && (
                     <button
                       className="mcp-disconnect-btn"
                       onClick={() => handleDisconnectServer(s.id)}

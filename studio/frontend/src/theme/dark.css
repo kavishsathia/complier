@@ -812,6 +812,30 @@ select {
   color: #34d399;
 }
 
+.mcp-refresh-btn {
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-tertiary);
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.mcp-refresh-btn:hover {
+  background: rgba(45, 212, 191, 0.12);
+  color: var(--accent);
+}
+
+.mcp-refresh-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
 .mcp-disconnect-btn {
   padding: 2px 8px;
   border: 1px solid rgba(251, 191, 36, 0.25);
