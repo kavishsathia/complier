@@ -130,7 +130,8 @@ select {
 }
 
 .sidebar-item {
-  display: block;
+  display: flex;
+  align-items: center;
   width: 100%;
   padding: 6px 10px;
   border: none;
@@ -142,6 +143,39 @@ select {
   cursor: default;
   color: var(--text);
   transition: background 60ms ease;
+}
+
+.sidebar-item-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sidebar-item-delete {
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--text-tertiary);
+  font-size: 14px;
+  cursor: default;
+  opacity: 0;
+  transition: opacity 100ms ease, background 100ms ease, color 100ms ease;
+}
+
+.sidebar-item:hover .sidebar-item-delete {
+  opacity: 1;
+}
+
+.sidebar-item-delete:hover {
+  background: rgba(255, 69, 58, 0.15);
+  color: var(--danger);
 }
 
 .sidebar-item:hover {

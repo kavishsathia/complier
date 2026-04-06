@@ -178,6 +178,21 @@ export default function App() {
     }
   }
 
+  async function handleDeleteWorkflow(name: string) {
+    await bridge.deleteWorkflow(name);
+    // If deleting the active workflow, reset to a new document
+    if (name === workflow.name) {
+      const newDoc = createStudioDocument();
+      setDocument(newDoc);
+      setActiveWorkflow(null);
+      setSelectedStepId(null);
+      setRunOutput(null);
+      if (mode === "code") setCplSource("");
+      userHasInteracted.current = false;
+    }
+    setSidebarRefresh((n) => n + 1);
+  }
+
   async function handleNew() {
     markInteracted();
     // Auto-save current workflow
@@ -276,6 +291,7 @@ export default function App() {
       <Sidebar
         activeWorkflow={activeWorkflow}
         onSelect={handleLoad}
+        onDelete={handleDeleteWorkflow}
         onNew={handleNew}
         onOpenSettings={() => setSettingsOpen(true)}
         refreshKey={sidebarRefresh}
@@ -304,9 +320,6 @@ export default function App() {
               Code
             </button>
           </div>
-          <button className="run-btn" onClick={handleSave}>
-            Save
-          </button>
           <button className="run-btn run-btn-primary" onClick={handleRun}>
             Run
           </button>

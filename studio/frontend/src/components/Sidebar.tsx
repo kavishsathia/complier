@@ -5,6 +5,7 @@ import * as bridge from "../lib/bridge.ts";
 interface SidebarProps {
   activeWorkflow: string | null;
   onSelect: (name: string) => void;
+  onDelete: (name: string) => void;
   onNew: () => void;
   onOpenSettings: () => void;
   refreshKey: number;
@@ -13,6 +14,7 @@ interface SidebarProps {
 export default function Sidebar({
   activeWorkflow,
   onSelect,
+  onDelete,
   onNew,
   onOpenSettings,
   refreshKey,
@@ -45,15 +47,25 @@ export default function Sidebar({
           <div className="sidebar-empty">No workflows</div>
         )}
         {filtered.map((w) => (
-          <button
+          <div
             key={w.name}
             className={`sidebar-item${
               w.name === activeWorkflow ? " sidebar-item-active" : ""
             }`}
             onClick={() => onSelect(w.name)}
           >
-            {w.name}
-          </button>
+            <span className="sidebar-item-name">{w.name}</span>
+            <button
+              className="sidebar-item-delete"
+              onClick={(e) => {
+                e.stopPropagation();
+                onDelete(w.name);
+              }}
+              title="Delete workflow"
+            >
+              &times;
+            </button>
+          </div>
         ))}
       </div>
       <div className="sidebar-footer">
