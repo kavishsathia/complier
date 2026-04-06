@@ -5,6 +5,7 @@ import ConfigPanel from "./components/ConfigPanel.tsx";
 import RunOutput from "./components/RunOutput.tsx";
 import Settings from "./components/Settings.tsx";
 import CodeEditor from "./components/CodeEditor.tsx";
+import InlineEdit from "./components/canvas/nodes/InlineEdit.tsx";
 import { graphToCpl } from "./lib/graph-to-cpl.ts";
 import { cplAstToDocument } from "./lib/cpl-ast-to-steps.ts";
 import {
@@ -162,13 +163,40 @@ export default function App() {
     }
   }
 
-  function handleNew() {
-    setDocument(createStudioDocument());
-    setActiveWorkflow(null);
+  async function handleNew() {
+    // Auto-save current workflow
+    await bridge.saveWorkflow(workflow.name, JSON.stringify(document));
+
+    // Create and save a new workflow with a unique name
+    const timestamp = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    const newDoc = createStudioDocument(`Untitled ${timestamp}`);
+    setDocument(newDoc);
+    const newWf = getPrimaryWorkflow(newDoc);
+    await bridge.saveWorkflow(newWf.name, JSON.stringify(newDoc));
+    setActiveWorkflow(newWf.name);
+    setSidebarRefresh((n) => n + 1);
     setSelectedStepId(null);
     setRunOutput(null);
     if (mode === "code") {
       setCplSource("");
+    }
+  }
+
+  async function handleRename(newName: string) {
+    const oldName = workflow.name;
+    setDocument((current) => ({
+      ...current,
+      workflows: current.workflows.map((w, i) =>
+        i === 0 ? { ...w, name: newName } : w
+      ),
+    }));
+    // Delete the old workflow file, save under new name
+    if (oldName !== newName) {
+      await bridge.deleteWorkflow(oldName);
+      const updated = { ...document, workflows: document.workflows.map((w, i) => i === 0 ? { ...w, name: newName } : w) };
+      await bridge.saveWorkflow(newName, JSON.stringify(updated));
+      setActiveWorkflow(newName);
+      setSidebarRefresh((n) => n + 1);
     }
   }
 
@@ -224,6 +252,13 @@ export default function App() {
       />
 
       <div className="studio-main">
+        <div className="workflow-title">
+          <InlineEdit
+            value={workflow.name}
+            placeholder="Untitled"
+            onChange={handleRename}
+          />
+        </div>
         <div className="toolbar">
           <div className="mode-toggle">
             <button
