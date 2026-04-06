@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Canvas from "./components/Canvas.tsx";
 import Sidebar from "./components/Sidebar.tsx";
 import ConfigPanel from "./components/ConfigPanel.tsx";
@@ -20,7 +20,7 @@ import {
   syncDocumentCounters,
 } from "./lib/studio-document.ts";
 import * as bridge from "./lib/bridge.ts";
-import type { NestedStepTarget, StepKind, StudioDocument, WorkflowStep } from "./types.ts";
+import type { MCPServerConfig, NestedStepTarget, StepKind, StudioDocument, WorkflowStep } from "./types.ts";
 
 type EditorMode = "flow" | "code";
 
@@ -35,6 +35,11 @@ export default function App() {
   const [ollamaModel, setOllamaModel] = useState("gemma4");
   const [mode, setMode] = useState<EditorMode>("flow");
   const [cplSource, setCplSource] = useState("");
+  const [mcpServers, setMcpServers] = useState<MCPServerConfig[]>([]);
+
+  useEffect(() => {
+    bridge.listMcpServers().then(setMcpServers);
+  }, []);
   const workflow = getPrimaryWorkflow(document);
 
   function resolveStepForConfig(nodeId: string | null): WorkflowStep | null {
@@ -273,13 +278,8 @@ export default function App() {
 
       {settingsOpen && (
         <Settings
-          ollamaUrl={ollamaUrl}
-          ollamaModel={ollamaModel}
-          onSave={(url, model) => {
-            setOllamaUrl(url);
-            setOllamaModel(model);
-            setSettingsOpen(false);
-          }}
+          mcpServers={mcpServers}
+          onMcpServersChange={setMcpServers}
           onClose={() => setSettingsOpen(false)}
         />
       )}

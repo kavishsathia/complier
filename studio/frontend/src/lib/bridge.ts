@@ -5,7 +5,7 @@
  * sensible defaults so the UI can still be developed standalone.
  */
 
-import type { WorkflowMeta } from "../types.ts";
+import type { MCPServerConfig, WorkflowMeta } from "../types.ts";
 
 interface ChatMessage {
   role: string;
@@ -21,6 +21,10 @@ interface PyWebViewAPI {
   save_workflow(name: string, graph_json: string): Promise<{ ok: boolean }>;
   load_workflow(name: string): Promise<Record<string, unknown> | null>;
   delete_workflow(name: string): Promise<{ ok: boolean }>;
+  list_mcp_servers(): Promise<MCPServerConfig[]>;
+  save_mcp_server(config_json: string): Promise<{ ok: boolean }>;
+  delete_mcp_server(config_id: string): Promise<{ ok: boolean }>;
+  test_mcp_server(config_json: string): Promise<{ ok: boolean; error?: string; message?: string; tools?: string[] }>;
   chat(
     ollama_url: string,
     model: string,
@@ -83,6 +87,31 @@ export async function loadWorkflow(
 export async function deleteWorkflow(name: string): Promise<boolean> {
   const res = await api()?.delete_workflow(name);
   return res?.ok ?? false;
+}
+
+export async function listMcpServers(): Promise<MCPServerConfig[]> {
+  return (await api()?.list_mcp_servers()) ?? [];
+}
+
+export async function saveMcpServer(config: MCPServerConfig): Promise<boolean> {
+  const res = await api()?.save_mcp_server(JSON.stringify(config));
+  return res?.ok ?? false;
+}
+
+export async function deleteMcpServer(id: string): Promise<boolean> {
+  const res = await api()?.delete_mcp_server(id);
+  return res?.ok ?? false;
+}
+
+export async function testMcpServer(
+  config: MCPServerConfig
+): Promise<{ ok: boolean; error?: string; message?: string; tools?: string[] }> {
+  return (
+    (await api()?.test_mcp_server(JSON.stringify(config))) ?? {
+      ok: false,
+      error: "No bridge",
+    }
+  );
 }
 
 export async function chat(

@@ -14,6 +14,7 @@ from openai import AsyncOpenAI
 
 from complier import Contract
 
+from .mcp_store import MCPConfigStore
 from .store import WorkflowStore
 
 
@@ -26,8 +27,42 @@ def generate_random_num(min: int = 1, max: int = 100) -> str:
 class StudioAPI:
     """Public methods on this class are callable from JS via window.pywebview.api."""
 
-    def __init__(self, store: WorkflowStore) -> None:
+    def __init__(self, store: WorkflowStore, mcp_store: MCPConfigStore | None = None) -> None:
         self._store = store
+        self._mcp_store = mcp_store or MCPConfigStore()
+
+    @staticmethod
+    def _parse_local_command(command: str) -> tuple[str, list[str]]:
+        """Parse a command string, handling spaces in file paths.
+
+        Tries shlex first.  If the executable token isn't a real file,
+        progressively joins whitespace-separated tokens until a valid
+        path is found (handles unquoted paths like
+        ``/Users/x/Side Projects/venv/bin/python``).
+        """
+        import shlex
+        import shutil
+
+        # 1. Try shlex (handles quoted strings correctly)
+        try:
+            parts = shlex.split(command)
+        except ValueError:
+            parts = command.split()
+
+        # If first token is already a valid executable, we're done
+        if Path(parts[0]).is_file() or shutil.which(parts[0]):
+            return parts[0], parts[1:]
+
+        # 2. Progressively join tokens to find an executable with spaces in path
+        raw_tokens = command.split()
+        for i in range(1, len(raw_tokens)):
+            candidate = " ".join(raw_tokens[: i + 1])
+            if Path(candidate).is_file():
+                remaining = raw_tokens[i + 1 :]
+                return candidate, remaining
+
+        # 3. Fall back to first shlex token (will likely fail, but gives a clear error)
+        return parts[0], parts[1:]
 
     # ------------------------------------------------------------------
     # Health
@@ -97,6 +132,88 @@ class StudioAPI:
     def delete_workflow(self, name: str) -> dict:
         self._store.delete(name)
         return {"ok": True}
+
+    # ------------------------------------------------------------------
+    # MCP server configuration
+    # ------------------------------------------------------------------
+
+    def list_mcp_servers(self) -> list[dict]:
+        return self._mcp_store.list()
+
+    def save_mcp_server(self, config_json: str) -> dict:
+        self._mcp_store.save(json.loads(config_json))
+        return {"ok": True}
+
+    def delete_mcp_server(self, config_id: str) -> dict:
+        self._mcp_store.delete(config_id)
+        return {"ok": True}
+
+    def test_mcp_server(self, config_json: str) -> dict:
+        """Connect to an MCP server and list its tools."""
+        import shlex
+
+        from mcp import ClientSession
+        from mcp.client.stdio import StdioServerParameters, stdio_client
+
+        config = json.loads(config_json)
+        server_type = config.get("type", "")
+
+        if server_type == "remote":
+            from mcp.client.streamable_http import streamable_http_client
+
+            url = config.get("url", "")
+            if not url:
+                return {"ok": False, "error": "No URL provided"}
+
+            async def _test_remote() -> dict:
+                async with streamable_http_client(url) as (read, write, _):
+                    async with ClientSession(read, write) as session:
+                        await session.initialize()
+                        result = await session.list_tools()
+                        names = [t.name for t in result.tools]
+                        return {
+                            "ok": True,
+                            "tools": names,
+                            "message": f"Connected — {len(names)} tool(s) found",
+                        }
+
+            try:
+                return anyio.from_thread.run(_test_remote)
+            except Exception:
+                try:
+                    return anyio.run(_test_remote)
+                except Exception as exc:
+                    return {"ok": False, "error": str(exc)}
+
+        if server_type == "local":
+            command = config.get("command", "")
+            if not command:
+                return {"ok": False, "error": "No command provided"}
+
+            executable, args = self._parse_local_command(command)
+            params = StdioServerParameters(command=executable, args=args)
+
+            async def _test_local() -> dict:
+                async with stdio_client(params) as (read, write):
+                    async with ClientSession(read, write) as session:
+                        await session.initialize()
+                        result = await session.list_tools()
+                        names = [t.name for t in result.tools]
+                        return {
+                            "ok": True,
+                            "tools": names,
+                            "message": f"Connected — {len(names)} tool(s) found",
+                        }
+
+            try:
+                return anyio.from_thread.run(_test_local)
+            except Exception:
+                try:
+                    return anyio.run(_test_local)
+                except Exception as exc:
+                    return {"ok": False, "error": str(exc)}
+
+        return {"ok": False, "error": f"Unknown server type: {server_type}"}
 
     # ------------------------------------------------------------------
     # Chat (OpenAI Agents SDK + Ollama)

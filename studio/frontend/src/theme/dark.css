@@ -581,6 +581,286 @@ select {
   color: var(--text);
 }
 
+/* ── Settings tabs ── */
+
+.settings-dialog--wide {
+  width: 480px;
+}
+
+.settings-tabs {
+  display: flex;
+  gap: 2px;
+  margin-bottom: 16px;
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 6px;
+  padding: 2px;
+}
+
+.settings-tab {
+  flex: 1;
+  padding: 6px 12px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: default;
+  transition: background 100ms ease, color 100ms ease;
+}
+
+.settings-tab:hover {
+  color: var(--text);
+}
+
+.settings-tab--active {
+  background: var(--surface-raised);
+  color: var(--text);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+/* ── MCP server list ── */
+
+.mcp-server-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 12px;
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+.mcp-server-list::-webkit-scrollbar {
+  width: 6px;
+}
+
+.mcp-server-list::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 3px;
+}
+
+.mcp-empty {
+  padding: 16px 0;
+  text-align: center;
+  font-size: 12px;
+  color: var(--text-tertiary);
+  line-height: 1.5;
+}
+
+.mcp-server-item {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  grid-template-rows: auto auto;
+  gap: 2px 8px;
+  padding: 8px 10px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.mcp-server-info {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.mcp-server-name {
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.mcp-server-detail {
+  grid-column: 1;
+  font-size: 11px;
+  color: var(--text-tertiary);
+  font-family: "SF Mono", "Menlo", monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mcp-server-tools {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding-top: 4px;
+}
+
+.mcp-tool-count {
+  font-size: 11px;
+  color: var(--accent);
+  font-weight: 500;
+}
+
+.mcp-status-err {
+  font-size: 11px;
+  color: var(--danger);
+  font-weight: 500;
+}
+
+.mcp-status-loading {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  font-style: italic;
+}
+
+.mcp-server-error {
+  grid-column: 1 / -1;
+  font-size: 11px;
+  color: var(--danger);
+  padding-top: 4px;
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+.mcp-server-actions {
+  grid-row: 1 / 2;
+  grid-column: 2;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.mcp-badge {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 1px 5px;
+  border-radius: 3px;
+}
+
+.mcp-badge--remote {
+  background: rgba(45, 212, 191, 0.15);
+  color: var(--accent);
+}
+
+.mcp-badge--local {
+  background: rgba(167, 139, 250, 0.15);
+  color: #a78bfa;
+}
+
+.mcp-toggle {
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-tertiary);
+  font-size: 11px;
+  font-weight: 500;
+  cursor: default;
+  transition: background 100ms ease, color 100ms ease;
+}
+
+.mcp-toggle--on {
+  background: rgba(45, 212, 191, 0.12);
+  color: var(--accent);
+  border-color: rgba(45, 212, 191, 0.2);
+}
+
+.mcp-delete-btn {
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-tertiary);
+  font-size: 16px;
+  cursor: default;
+  transition: background 100ms ease, color 100ms ease;
+}
+
+.mcp-delete-btn:hover {
+  background: rgba(255, 69, 58, 0.12);
+  color: var(--danger);
+}
+
+/* ── MCP add form ── */
+
+.mcp-server-form {
+  padding: 12px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.mcp-server-form .settings-field {
+  margin-bottom: 10px;
+}
+
+.mcp-type-toggle {
+  display: flex;
+  gap: 2px;
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 5px;
+  padding: 2px;
+}
+
+.mcp-type-btn {
+  flex: 1;
+  padding: 5px 10px;
+  border: none;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: default;
+  transition: background 100ms ease, color 100ms ease;
+}
+
+.mcp-type-btn:hover {
+  color: var(--text);
+}
+
+.mcp-type-btn--active {
+  background: var(--surface-solid);
+  color: var(--text);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+}
+
+.mcp-test-result {
+  padding: 6px 10px;
+  border-radius: 5px;
+  font-size: 12px;
+  margin-bottom: 10px;
+}
+
+.mcp-test-result--ok {
+  background: rgba(48, 209, 88, 0.1);
+  color: var(--success);
+}
+
+.mcp-test-result--err {
+  background: rgba(255, 69, 58, 0.1);
+  color: var(--danger);
+}
+
+.mcp-test-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.mcp-tool-chip {
+  padding: 2px 7px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 3px;
+  font-size: 11px;
+  font-family: "SF Mono", "Menlo", monospace;
+  color: var(--text-secondary);
+}
+
+.mcp-add-area {
+  display: flex;
+  justify-content: center;
+  padding: 4px 0;
+}
+
 /* ── Run output panel ── */
 
 .run-panel {

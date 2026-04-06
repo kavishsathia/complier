@@ -94,3 +94,12 @@ export type NestedStepTarget =
   | { kind: "branch-else" }
   | { kind: "loop-body" }
   | { kind: "unordered-case"; caseId: string };
+
+export interface MCPServerConfig {
+  id: string;
+  name: string;
+  type: "remote" | "local";
+  url?: string;
+  command?: string;
+  enabled: boolean;
+}
