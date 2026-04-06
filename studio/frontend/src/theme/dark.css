@@ -807,6 +807,25 @@ select {
   color: #a78bfa;
 }
 
+.mcp-badge--auth {
+  background: rgba(52, 211, 153, 0.15);
+  color: #34d399;
+}
+
+.mcp-disconnect-btn {
+  padding: 2px 8px;
+  border: 1px solid rgba(251, 191, 36, 0.25);
+  border-radius: 4px;
+  background: rgba(251, 191, 36, 0.08);
+  color: #fbbf24;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.mcp-disconnect-btn:hover {
+  background: rgba(251, 191, 36, 0.18);
+}
+
 .mcp-toggle {
   padding: 2px 8px;
   border: 1px solid var(--border);

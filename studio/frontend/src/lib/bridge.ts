@@ -24,7 +24,8 @@ interface PyWebViewAPI {
   list_mcp_servers(): Promise<MCPServerConfig[]>;
   save_mcp_server(config_json: string): Promise<{ ok: boolean }>;
   delete_mcp_server(config_id: string): Promise<{ ok: boolean }>;
-  test_mcp_server(config_json: string): Promise<{ ok: boolean; error?: string; message?: string; tools?: string[] }>;
+  test_mcp_server(config_json: string): Promise<{ ok: boolean; error?: string; message?: string; tools?: string[]; authenticated?: boolean }>;
+  clear_mcp_tokens(config_id: string): Promise<{ ok: boolean }>;
   chat(
     ollama_url: string,
     model: string,
@@ -105,13 +106,18 @@ export async function deleteMcpServer(id: string): Promise<boolean> {
 
 export async function testMcpServer(
   config: MCPServerConfig
-): Promise<{ ok: boolean; error?: string; message?: string; tools?: string[] }> {
+): Promise<{ ok: boolean; error?: string; message?: string; tools?: string[]; authenticated?: boolean }> {
   return (
     (await api()?.test_mcp_server(JSON.stringify(config))) ?? {
       ok: false,
       error: "No bridge",
     }
   );
+}
+
+export async function clearMcpTokens(id: string): Promise<boolean> {
+  const res = await api()?.clear_mcp_tokens(id);
+  return res?.ok ?? false;
 }
 
 export async function chat(

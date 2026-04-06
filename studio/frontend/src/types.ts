@@ -102,4 +102,5 @@ export interface MCPServerConfig {
   url?: string;
   command?: string;
   enabled: boolean;
+  authenticated?: boolean;
 }

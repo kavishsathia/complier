@@ -145,7 +145,17 @@ class StudioAPI:
         return {"ok": True}
 
     def delete_mcp_server(self, config_id: str) -> dict:
+        from .oauth_flow import clear_tokens
+
+        clear_tokens(config_id)
         self._mcp_store.delete(config_id)
+        return {"ok": True}
+
+    def clear_mcp_tokens(self, config_id: str) -> dict:
+        """Remove stored OAuth tokens for a server without deleting the config."""
+        from .oauth_flow import clear_tokens
+
+        clear_tokens(config_id)
         return {"ok": True}
 
     def test_mcp_server(self, config_json: str) -> dict:
@@ -159,23 +169,16 @@ class StudioAPI:
         server_type = config.get("type", "")
 
         if server_type == "remote":
-            from mcp.client.streamable_http import streamable_http_client
+            from .oauth_flow import test_remote_safe
 
             url = config.get("url", "")
             if not url:
                 return {"ok": False, "error": "No URL provided"}
 
+            server_id = config.get("id", "test")
+
             async def _test_remote() -> dict:
-                async with streamable_http_client(url) as (read, write, _):
-                    async with ClientSession(read, write) as session:
-                        await session.initialize()
-                        result = await session.list_tools()
-                        names = [t.name for t in result.tools]
-                        return {
-                            "ok": True,
-                            "tools": names,
-                            "message": f"Connected — {len(names)} tool(s) found",
-                        }
+                return await test_remote_safe(url, server_id)
 
             try:
                 return anyio.from_thread.run(_test_remote)

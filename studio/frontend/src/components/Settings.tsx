@@ -13,6 +13,7 @@ interface ServerStatus {
   ok?: boolean;
   tools?: string[];
   error?: string;
+  authenticated?: boolean;
 }
 
 function newId(): string {
@@ -54,6 +55,7 @@ export default function Settings({
             ok: result.ok,
             tools: result.tools,
             error: result.error,
+            authenticated: result.authenticated,
           },
         }));
       });
@@ -105,6 +107,14 @@ export default function Settings({
     onMcpServersChange(mcpServers.filter((s) => s.id !== id));
   }
 
+  async function handleDisconnectServer(id: string) {
+    await bridge.clearMcpTokens(id);
+    setServerStatus((prev) => ({
+      ...prev,
+      [id]: { ...prev[id], authenticated: false },
+    }));
+  }
+
   async function handleToggleServer(id: string) {
     const updated = mcpServers.map((s) =>
       s.id === id ? { ...s, enabled: !s.enabled } : s
@@ -148,6 +158,9 @@ export default function Settings({
                       {status.tools.length} tool{status.tools.length !== 1 ? "s" : ""}
                     </span>
                   )}
+                  {status && !status.loading && status.ok && status.authenticated && (
+                    <span className="mcp-badge mcp-badge--auth">authenticated</span>
+                  )}
                   {status && !status.loading && !status.ok && (
                     <span className="mcp-status-err">error</span>
                   )}
@@ -169,6 +182,15 @@ export default function Settings({
                   <div className="mcp-server-error">{status.error}</div>
                 )}
                 <div className="mcp-server-actions">
+                  {status && !status.loading && status.authenticated && (
+                    <button
+                      className="mcp-disconnect-btn"
+                      onClick={() => handleDisconnectServer(s.id)}
+                      title="Clear stored OAuth tokens"
+                    >
+                      Disconnect
+                    </button>
+                  )}
                   <button
                     className={`mcp-toggle${s.enabled ? " mcp-toggle--on" : ""}`}
                     onClick={() => handleToggleServer(s.id)}
