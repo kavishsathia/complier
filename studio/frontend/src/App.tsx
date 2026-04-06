@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import Canvas from "./components/Canvas.tsx";
 import Sidebar from "./components/Sidebar.tsx";
 import ConfigPanel from "./components/ConfigPanel.tsx";
+import ToolPopover from "./components/ToolPopover.tsx";
 import RunOutput from "./components/RunOutput.tsx";
 import Settings from "./components/Settings.tsx";
 import CodeEditor from "./components/CodeEditor.tsx";
@@ -37,6 +38,7 @@ export default function App() {
   const [mode, setMode] = useState<EditorMode>("flow");
   const [cplSource, setCplSource] = useState("");
   const [mcpServers, setMcpServers] = useState<MCPServerConfig[]>([]);
+  const [popoverPos, setPopoverPos] = useState<{ x: number; y: number } | null>(null);
 
   useEffect(() => {
     bridge.listMcpServers().then(setMcpServers);
@@ -71,18 +73,20 @@ export default function App() {
 
   const selectedStep = resolveStepForConfig(selectedStepId);
 
-  function handleSelectNode(id: string | null, isGroup: boolean) {
+  function handleSelectNode(id: string | null, isGroup: boolean, clickPos?: { x: number; y: number }) {
     if (isGroup) {
       setSelectedStepId(null);
+      setPopoverPos(null);
     } else {
       setSelectedStepId(id);
+      setPopoverPos(clickPos ?? null);
     }
   }
 
   // -- Mode switching --
 
   function switchToCode() {
-    const cpl = graphToCpl(workflow);
+    const cpl = graphToCpl(workflow, mcpServers);
     setCplSource(cpl);
     setMode("code");
     setSelectedStepId(null);
@@ -122,7 +126,7 @@ export default function App() {
   // -- Existing handlers --
 
   async function handleRun() {
-    const cpl = mode === "code" ? cplSource : graphToCpl(workflow);
+    const cpl = mode === "code" ? cplSource : graphToCpl(workflow, mcpServers);
     if (!cpl) {
       setRunOutput("No steps to compile.");
       return;
@@ -174,7 +178,7 @@ export default function App() {
     setSelectedStepId(null);
     setRunOutput(null);
     if (mode === "code") {
-      setCplSource(graphToCpl(getPrimaryWorkflow(data)));
+      setCplSource(graphToCpl(getPrimaryWorkflow(data), mcpServers));
     }
   }
 
@@ -347,7 +351,17 @@ export default function App() {
             <CodeEditor value={cplSource} onChange={setCplSource} />
           )}
 
-          {mode === "flow" && selectedStep && (
+          {mode === "flow" && selectedStep && selectedStep.kind === "tool" && popoverPos && (
+            <ToolPopover
+              step={selectedStep}
+              position={popoverPos}
+              mcpServers={mcpServers}
+              onChange={handleStepChange}
+              onClose={() => { setSelectedStepId(null); setPopoverPos(null); }}
+            />
+          )}
+
+          {mode === "flow" && selectedStep && selectedStep.kind !== "tool" && (
             <ConfigPanel
               step={selectedStep}
               onChange={handleStepChange}

@@ -91,7 +91,9 @@ class StudioAPI:
         class _Enc(json.JSONEncoder):
             def default(self, obj: object) -> object:
                 if is_dataclass(obj) and not isinstance(obj, type):
-                    return asdict(obj)
+                    d = asdict(obj)
+                    d["_type"] = type(obj).__name__
+                    return d
                 return super().default(obj)
 
         try:

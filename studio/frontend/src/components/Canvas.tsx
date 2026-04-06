@@ -27,7 +27,7 @@ const GROUP_TYPES = new Set(["branchGroup", "branchArmGroup", "loopGroup", "unor
 interface CanvasProps {
   workflow: WorkflowBlockDocument;
   selectedStepId: string | null;
-  onSelectNode: (id: string | null, isGroup: boolean) => void;
+  onSelectNode: (id: string | null, isGroup: boolean, clickPos?: { x: number; y: number }) => void;
   onDeleteStep?: (stepId: string) => void;
   onInsertStep: (
     parentStepId: string | null,
@@ -251,10 +251,11 @@ function CanvasInner({
   }, [wiredNodes, wiredEdges, setNodes, setEdges, fitView]);
 
   const handleNodeClick: NodeMouseHandler = useCallback(
-    (_event, node) => {
+    (event, node) => {
       if (node.type === "addNode") return; // handled by AddNode's own onClick
       const isGroup = GROUP_TYPES.has(node.type ?? "");
-      onSelectNode(node.id, isGroup);
+      const mouseEvent = event as unknown as MouseEvent;
+      onSelectNode(node.id, isGroup, { x: mouseEvent.clientX, y: mouseEvent.clientY });
     },
     [onSelectNode]
   );
@@ -272,7 +273,7 @@ function CanvasInner({
   );
 
   const handlePaneClick = useCallback(() => {
-    onSelectNode(null, false);
+    onSelectNode(null, false, undefined);
     setPalette(null);
   }, [onSelectNode]);
 

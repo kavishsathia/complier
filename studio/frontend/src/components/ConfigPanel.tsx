@@ -32,16 +32,6 @@ export default function ConfigPanel({
         </button>
       </div>
       <div className="config-section">
-        {step.kind === "tool" && (
-          <label>
-            <span className="config-label">Tool Name</span>
-            <input
-              className="config-input"
-              value={step.toolName}
-              onChange={(e) => update({ toolName: e.target.value })}
-            />
-          </label>
-        )}
         {step.kind === "branch" && (
           <>
             <button

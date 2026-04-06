@@ -89,14 +89,69 @@ function isUnorderedStep(s: AstStep): s is AstUnorderedStep & AstStep {
   return "cases" in s;
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function exprToString(node: any): string {
+  if (typeof node === "string") return node;
+  if (typeof node === "number" || typeof node === "boolean") return String(node);
+  if (node === null || node === undefined) return "";
+  if (typeof node !== "object") return "";
+
+  const t = node._type;
+
+  if (t === "ModelCheck") return `[${node.name}]`;
+  if (t === "HumanCheck") return `{${node.name}}`;
+  if (t === "LearnedCheck") return `#{${node.name}}`;
+  if (t === "NotExpression") return `!${exprToString(node.expression)}`;
+
+  if (t === "AndExpression") return `${exprToString(node.left)} && ${exprToString(node.right)}`;
+  if (t === "OrExpression") return `${exprToString(node.left)} || ${exprToString(node.right)}`;
+
+  if (t === "ContractExpressionWithPolicy") {
+    const expr = exprToString(node.expression);
+    const policy = policyToString(node.policy);
+    return policy ? `${expr}:${policy}` : expr;
+  }
+
+  // Fallback for untyped nodes (legacy)
+  if ("name" in node && !("expression" in node)) return `[${node.name}]`;
+  if ("expression" in node && "policy" in node) {
+    return `${exprToString(node.expression)}:${policyToString(node.policy)}`;
+  }
+  if ("left" in node && "right" in node) {
+    return `${exprToString(node.left)} && ${exprToString(node.right)}`;
+  }
+
+  return "";
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function policyToString(policy: any): string {
+  if (!policy || typeof policy !== "object") return "";
+  const t = policy._type;
+  if (t === "RetryPolicy" || "attempts" in policy) return String(policy.attempts);
+  if (t === "HaltPolicy") return "halt";
+  if (t === "SkipPolicy") return "skip";
+  return "";
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function paramValueToString(value: any): string {
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  if (value === null || value === undefined) return "";
+  return exprToString(value);
+}
+
 function convertStep(s: AstStep): WorkflowStep | null {
   if (isToolStep(s)) {
     const id = nextId();
     const params: Record<string, string> = {};
     for (const p of s.params ?? []) {
-      params[p.name] = String(p.value ?? "");
+      params[p.name] = paramValueToString(p.value);
     }
-    return { id, kind: "tool", toolName: s.name, params } satisfies ToolStep;
+    // Strip namespace prefix (e.g. "notion.notion-search" -> "notion-search")
+    const toolName = s.name.includes(".") ? s.name.split(".").slice(1).join(".") : s.name;
+    return { id, kind: "tool", toolName, params } satisfies ToolStep;
   }
 
   if (isBranchStep(s)) {
