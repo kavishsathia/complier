@@ -12,6 +12,19 @@ interface ChatMessage {
   content: string;
 }
 
+export interface LogEntry {
+  event: "allowed" | "blocked" | "result" | string;
+  tool: string;
+  detail: string;
+}
+
+export interface RunLogsResponse {
+  status: "idle" | "running" | "done" | "error" | "stopped";
+  logs: LogEntry[];
+  final_output?: string | null;
+  error?: string | null;
+}
+
 interface PyWebViewAPI {
   ping(): Promise<string>;
   validate_cpl(source: string): Promise<{ valid: boolean; error?: string }>;
@@ -31,6 +44,15 @@ interface PyWebViewAPI {
     model: string,
     messages_json: string
   ): Promise<string>;
+  run_workflow(
+    cpl: string,
+    prompt: string,
+    ollama_url: string,
+    model: string,
+    mcp_configs_json: string
+  ): Promise<{ ok: boolean; error?: string }>;
+  get_run_logs(): Promise<RunLogsResponse>;
+  stop_run(): Promise<{ ok: boolean }>;
 }
 
 declare global {
@@ -129,4 +151,30 @@ export async function chat(
     (await api()?.chat(ollamaUrl, model, JSON.stringify(messages))) ??
     "No bridge"
   );
+}
+
+export async function runWorkflow(
+  cpl: string,
+  prompt: string,
+  ollamaUrl: string,
+  model: string,
+  mcpConfigs: MCPServerConfig[]
+): Promise<{ ok: boolean; error?: string }> {
+  return (
+    (await api()?.run_workflow(cpl, prompt, ollamaUrl, model, JSON.stringify(mcpConfigs))) ?? {
+      ok: false,
+      error: "No bridge",
+    }
+  );
+}
+
+export async function getRunLogs(): Promise<RunLogsResponse> {
+  return (
+    (await api()?.get_run_logs()) ?? { status: "idle", logs: [] }
+  );
+}
+
+export async function stopRun(): Promise<boolean> {
+  const res = await api()?.stop_run();
+  return res?.ok ?? false;
 }

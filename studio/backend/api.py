@@ -30,6 +30,7 @@ class StudioAPI:
     def __init__(self, store: WorkflowStore, mcp_store: MCPConfigStore | None = None) -> None:
         self._store = store
         self._mcp_store = mcp_store or MCPConfigStore()
+        self._active_runner = None
 
     @staticmethod
     def _parse_local_command(command: str) -> tuple[str, list[str]]:
@@ -270,3 +271,52 @@ class StudioAPI:
             return anyio.from_thread.run(_run)
         except Exception:
             return anyio.run(_run)
+
+    # ------------------------------------------------------------------
+    # Workflow execution
+    # ------------------------------------------------------------------
+
+    def run_workflow(
+        self,
+        cpl: str,
+        prompt: str,
+        ollama_url: str,
+        model: str,
+        mcp_configs_json: str,
+    ) -> dict:
+        """Start a workflow run in the background."""
+        from .runner import WorkflowRunner
+
+        if self._active_runner and self._active_runner.status == "running":
+            return {"ok": False, "error": "A run is already in progress."}
+
+        mcp_configs = json.loads(mcp_configs_json)
+
+        self._active_runner = WorkflowRunner(
+            cpl=cpl,
+            prompt=prompt,
+            ollama_url=f"{ollama_url}/v1" if ollama_url else "",
+            model=model,
+            mcp_configs=mcp_configs,
+        )
+        self._active_runner.start()
+        return {"ok": True}
+
+    def get_run_logs(self) -> dict:
+        """Poll for new log entries from the active run."""
+        if self._active_runner is None:
+            return {"status": "idle", "logs": []}
+        return {
+            "status": self._active_runner.status,
+            "logs": self._active_runner.get_new_logs(),
+            "final_output": self._active_runner.final_output,
+            "error": self._active_runner.error,
+        }
+
+    def stop_run(self) -> dict:
+        """Stop the active workflow run."""
+        if self._active_runner is None:
+            return {"ok": False, "error": "No active run."}
+        self._active_runner.stop()
+        self._active_runner = None
+        return {"ok": True}

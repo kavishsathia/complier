@@ -4,6 +4,7 @@ import Sidebar from "./components/Sidebar.tsx";
 import ConfigPanel from "./components/ConfigPanel.tsx";
 import ToolPopover from "./components/ToolPopover.tsx";
 import RunOutput from "./components/RunOutput.tsx";
+import LogsPanel from "./components/LogsPanel.tsx";
 import Settings from "./components/Settings.tsx";
 import CodeEditor from "./components/CodeEditor.tsx";
 import InlineEdit from "./components/canvas/nodes/InlineEdit.tsx";
@@ -39,6 +40,7 @@ export default function App() {
   const [cplSource, setCplSource] = useState("");
   const [mcpServers, setMcpServers] = useState<MCPServerConfig[]>([]);
   const [popoverPos, setPopoverPos] = useState<{ x: number; y: number } | null>(null);
+  const [logsOpen, setLogsOpen] = useState(false);
 
   useEffect(() => {
     bridge.listMcpServers().then(setMcpServers);
@@ -131,13 +133,13 @@ export default function App() {
       setRunOutput("No steps to compile.");
       return;
     }
-    setRunOutput("Compiling...\n\n" + cpl);
     const result = await bridge.validateCpl(cpl);
-    if (result.valid) {
-      setRunOutput("Valid CPL:\n\n" + cpl);
-    } else {
+    if (!result.valid) {
       setRunOutput("Compilation error:\n" + (result.error ?? "Unknown error") + "\n\nGenerated CPL:\n" + cpl);
+      return;
     }
+    setRunOutput(null);
+    setLogsOpen(true);
   }
 
   async function handleSave() {
@@ -333,48 +335,68 @@ export default function App() {
                 Code
               </button>
             </div>
+            <button
+              className={`run-btn${logsOpen ? " run-btn--active" : ""}`}
+              onClick={() => setLogsOpen(!logsOpen)}
+            >
+              Logs
+            </button>
             <button className="run-btn run-btn-primary" onClick={handleRun}>
               Run
             </button>
           </div>
 
-          {mode === "flow" ? (
-            <Canvas
-              workflow={workflow}
-              selectedStepId={selectedStepId}
-              onSelectNode={handleSelectNode}
-              onDeleteStep={handleDeleteStep}
-              onInsertStep={handleInsertStep}
-              onStepChange={handleStepChange}
-              onAddBranchArm={handleAddBranchArm}
-              onAddUnorderedCase={handleAddUnorderedCase}
-            />
-          ) : (
-            <CodeEditor value={cplSource} onChange={setCplSource} />
-          )}
+          <div className="studio-content">
+            <div className="studio-editor">
+              {mode === "flow" ? (
+                <Canvas
+                  workflow={workflow}
+                  selectedStepId={selectedStepId}
+                  onSelectNode={handleSelectNode}
+                  onDeleteStep={handleDeleteStep}
+                  onInsertStep={handleInsertStep}
+                  onStepChange={handleStepChange}
+                  onAddBranchArm={handleAddBranchArm}
+                  onAddUnorderedCase={handleAddUnorderedCase}
+                />
+              ) : (
+                <CodeEditor value={cplSource} onChange={setCplSource} />
+              )}
 
-          {mode === "flow" && selectedStep && selectedStep.kind === "tool" && popoverPos && (
-            <ToolPopover
-              step={selectedStep}
-              position={popoverPos}
-              mcpServers={mcpServers}
-              onChange={handleStepChange}
-              onClose={() => { setSelectedStepId(null); setPopoverPos(null); }}
-            />
-          )}
+              {mode === "flow" && selectedStep && selectedStep.kind === "tool" && popoverPos && (
+                <ToolPopover
+                  step={selectedStep}
+                  position={popoverPos}
+                  mcpServers={mcpServers}
+                  onChange={handleStepChange}
+                  onClose={() => { setSelectedStepId(null); setPopoverPos(null); }}
+                />
+              )}
 
-          {mode === "flow" && selectedStep && selectedStep.kind !== "tool" && (
-            <ConfigPanel
-              step={selectedStep}
-              onChange={handleStepChange}
-              onAddBranchArm={handleAddBranchArm}
-              onClose={() => setSelectedStepId(null)}
-            />
-          )}
+              {mode === "flow" && selectedStep && selectedStep.kind !== "tool" && (
+                <ConfigPanel
+                  step={selectedStep}
+                  onChange={handleStepChange}
+                  onAddBranchArm={handleAddBranchArm}
+                  onClose={() => setSelectedStepId(null)}
+                />
+              )}
 
-          {runOutput !== null && (
-            <RunOutput output={runOutput} onClose={() => setRunOutput(null)} />
-          )}
+              {runOutput !== null && (
+                <RunOutput output={runOutput} onClose={() => setRunOutput(null)} />
+              )}
+            </div>
+
+            {logsOpen && (
+              <LogsPanel
+                cpl={mode === "code" ? cplSource : graphToCpl(workflow, mcpServers)}
+                ollamaUrl={ollamaUrl}
+                ollamaModel={ollamaModel}
+                mcpServers={mcpServers}
+                onClose={() => setLogsOpen(false)}
+              />
+            )}
+          </div>
         </div>
       )}
     </div>

@@ -55,25 +55,30 @@ async def test_remote_with_oauth(
     client = httpx.AsyncClient(auth=auth)
     tools: list[dict] = []
 
-    async with anyio.create_task_group() as tg:
-        tg.start_soon(callback_server.run)
+    try:
+        async with anyio.create_task_group() as tg:
+            tg.start_soon(callback_server.run)
 
-        try:
-            async with client:
-                async with streamable_http_client(url, http_client=client) as (read, write, _):
-                    async with ClientSession(read, write) as session:
-                        await session.initialize()
-                        result = await session.list_tools()
-                        tools = [
-                            {
-                                "name": t.name,
-                                "description": t.description or "",
-                                "inputSchema": t.inputSchema,
-                            }
-                            for t in result.tools
-                        ]
-        finally:
-            tg.cancel_scope.cancel()
+            try:
+                async with client:
+                    async with streamable_http_client(url, http_client=client) as (read, write, _):
+                        async with ClientSession(read, write) as session:
+                            await session.initialize()
+                            result = await session.list_tools()
+                            tools = [
+                                {
+                                    "name": t.name,
+                                    "description": t.description or "",
+                                    "inputSchema": t.inputSchema,
+                                }
+                                for t in result.tools
+                            ]
+            finally:
+                tg.cancel_scope.cancel()
+    except BaseException:
+        # If tools were fetched, ignore cleanup errors
+        if not tools:
+            raise
 
     has_tokens = await storage.get_tokens() is not None
     return {

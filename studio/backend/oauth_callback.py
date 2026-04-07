@@ -26,17 +26,14 @@ CALLBACK_HTML = """\
 """
 
 
-def _pick_free_port() -> int:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
+CALLBACK_PORT = 9973
 
 
 class OAuthCallbackServer:
     """Starts a local HTTP server, waits for a single OAuth callback, then shuts down."""
 
     def __init__(self) -> None:
-        self.port = _pick_free_port()
+        self.port = CALLBACK_PORT
         self._code: str | None = None
         self._state: str | None = None
         self._received = anyio.Event()

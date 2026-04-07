@@ -30,13 +30,14 @@ def wrap_remote_mcp(
     *,
     host: str = "127.0.0.1",
     port: int = 8766,
+    auth_token: str | None = None,
 ) -> RemoteMCPDetails:
     """Register and return connection details for a namespaced remote HTTP MCP wrapper."""
     from .local_mcp import _normalize_namespace
 
     normalized_namespace = _normalize_namespace(namespace)
     base_url = _ensure_remote_wrapper_host(session, host=host, port=port)
-    _register_remote_namespace(base_url, normalized_namespace, url)
+    _register_remote_namespace(base_url, normalized_namespace, url, auth_token=auth_token)
     return RemoteMCPDetails(namespace=normalized_namespace, url=f"{base_url}/mcp/{normalized_namespace}/")
 
 
@@ -68,12 +69,16 @@ def _ensure_remote_wrapper_host(session: Session, *, host: str, port: int) -> st
     return session._remote_wrapper_base_url
 
 
-def _register_remote_namespace(base_url: str, namespace: str, downstream_url: str) -> None:
-    response = httpx.post(
-        f"{base_url}/setup",
-        json={"namespace": namespace, "downstream_url": downstream_url},
-        timeout=5.0,
-    )
+def _register_remote_namespace(
+    base_url: str,
+    namespace: str,
+    downstream_url: str,
+    auth_token: str | None = None,
+) -> None:
+    payload: dict[str, str] = {"namespace": namespace, "downstream_url": downstream_url}
+    if auth_token:
+        payload["auth_token"] = auth_token
+    response = httpx.post(f"{base_url}/setup", json=payload, timeout=5.0)
     response.raise_for_status()
 
 

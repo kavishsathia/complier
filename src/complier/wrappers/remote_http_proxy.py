@@ -20,6 +20,8 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette.routing import Mount, Route
 
+from mcp.shared.exceptions import McpError
+
 from complier.session.decisions import BlockedToolResponse
 from complier.session.server import SessionServerClient
 
@@ -32,6 +34,7 @@ class RemoteRegistry:
     session_client: SessionServerClient
     namespaces: dict[str, str] = field(default_factory=dict)
     tool_maps: dict[str, dict[str, str]] = field(default_factory=dict)
+    auth_tokens: dict[str, str] = field(default_factory=dict)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -50,10 +53,16 @@ async def _run_proxy(argv: list[str] | None) -> None:
     async def list_tools() -> list[types.Tool]:
         namespace = _namespace_from_request(server.request_context.request)
         downstream_url = _downstream_url(registry, namespace)
-        auth_header = _authorization_header(server.request_context.request)
+        auth_header = _resolve_auth(registry, namespace, server.request_context.request)
 
-        async with _downstream_session(downstream_url, auth_header) as session:
-            result = await session.list_tools()
+        try:
+            async with _downstream_session(downstream_url, auth_header) as session:
+                result = await session.list_tools()
+        except BaseException as exc:
+            raise McpError(error=types.ErrorData(
+                code=-32000,
+                message=_unwrap(exc),
+            )) from None
 
         rewritten_tools: list[types.Tool] = []
         tool_map: dict[str, str] = {}
@@ -71,30 +80,36 @@ async def _run_proxy(argv: list[str] | None) -> None:
         forwarded_arguments = dict(arguments or {})
         choice = forwarded_arguments.pop("choice", None)
         state = ProxyState(namespace=namespace, exposed_to_downstream=registry.tool_maps.get(namespace, {}))
-        auth_header = _authorization_header(server.request_context.request)
+        auth_header = _resolve_auth(registry, namespace, server.request_context.request)
 
-        async with _downstream_session(downstream_url, auth_header) as session:
-            downstream_tool_name = await _resolve_downstream_tool_name(session, state, name)
-            internal_tool_name = normalize_tool_name(namespace, downstream_tool_name)
-            decision = registry.session_client.check_tool_call(
-                internal_tool_name,
-                (),
-                forwarded_arguments,
-                choice=choice,
-            )
-            if not decision.allowed:
-                registry.session_client.record_blocked_call(internal_tool_name, decision)
-                blocked = BlockedToolResponse(
-                    tool_name=name,
-                    reason=decision.reason,
-                    remediation=decision.remediation,
+        try:
+            async with _downstream_session(downstream_url, auth_header) as session:
+                downstream_tool_name = await _resolve_downstream_tool_name(session, state, name)
+                internal_tool_name = normalize_tool_name(namespace, downstream_tool_name)
+                decision = registry.session_client.check_tool_call(
+                    internal_tool_name,
+                    (),
+                    forwarded_arguments,
+                    choice=choice,
                 )
-                return types.CallToolResult(
-                    content=[types.TextContent(type="text", text=str(blocked.to_dict()))],
-                    structuredContent=blocked.to_dict(),
-                    isError=True,
-                )
-            result = await session.call_tool(downstream_tool_name, forwarded_arguments)
+                if not decision.allowed:
+                    registry.session_client.record_blocked_call(internal_tool_name, decision)
+                    blocked = BlockedToolResponse(
+                        tool_name=name,
+                        reason=decision.reason,
+                        remediation=decision.remediation,
+                    )
+                    return types.CallToolResult(
+                        content=[types.TextContent(type="text", text=str(blocked.to_dict()))],
+                        structuredContent=blocked.to_dict(),
+                        isError=True,
+                    )
+                result = await session.call_tool(downstream_tool_name, forwarded_arguments)
+        except BaseException as exc:
+            raise McpError(error=types.ErrorData(
+                code=-32000,
+                message=_unwrap(exc),
+            )) from None
         registry.tool_maps[namespace] = state.exposed_to_downstream
         registry.session_client.record_result(internal_tool_name, result.model_dump(mode="json"))
         return result
@@ -106,6 +121,9 @@ async def _run_proxy(argv: list[str] | None) -> None:
         namespace = str(payload["namespace"])
         downstream_url = str(payload["downstream_url"])
         registry.namespaces[namespace] = downstream_url
+        auth_token = payload.get("auth_token")
+        if auth_token:
+            registry.auth_tokens[namespace] = str(auth_token)
         return JSONResponse({"ok": True, "namespace": namespace, "url": f"/mcp/{namespace}/"})
 
     async def mcp_app(scope: Any, receive: Any, send: Any) -> None:
@@ -154,6 +172,20 @@ def _authorization_header(request: Request | None) -> str | None:
     if request is None:
         return None
     return request.headers.get("authorization")
+
+
+def _resolve_auth(registry: RemoteRegistry, namespace: str, request: Request | None) -> str | None:
+    """Return the auth header: prefer the stored token, fall back to the request header."""
+    stored = registry.auth_tokens.get(namespace)
+    if stored:
+        return f"Bearer {stored}"
+    return _authorization_header(request)
+
+
+def _unwrap(exc: BaseException) -> str:
+    if isinstance(exc, BaseExceptionGroup):
+        return "; ".join(_unwrap(e) for e in exc.exceptions)
+    return str(exc)
 
 
 @asynccontextmanager
