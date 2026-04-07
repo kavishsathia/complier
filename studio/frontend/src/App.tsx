@@ -199,12 +199,14 @@ export default function App() {
 
   async function handleNew() {
     markInteracted();
-    // Auto-save current workflow
-    await bridge.saveWorkflow(workflow.name, JSON.stringify(document));
+    // Auto-save current workflow if it has steps
+    if (workflow.steps.length > 0) {
+      await bridge.saveWorkflow(workflow.name, JSON.stringify(document));
+    }
 
     // Create and save a new workflow with a unique name
     const timestamp = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-    const newDoc = createStudioDocument(`Untitled ${timestamp}`);
+    const newDoc = createStudioDocument(timestamp);
     setDocument(newDoc);
     const newWf = getPrimaryWorkflow(newDoc);
     await bridge.saveWorkflow(newWf.name, JSON.stringify(newDoc));
