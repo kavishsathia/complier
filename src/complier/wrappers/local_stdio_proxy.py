@@ -84,6 +84,11 @@ async def _run_proxy(argv: list[str] | None) -> None:
             )
         result = await session.call_tool(downstream_tool_name, forwarded_arguments)
         state.session_client.record_result(internal_tool_name, result.model_dump(mode="json"))
+        if decision.remediation and decision.remediation.allowed_next_actions:
+            next_hint = "Next allowed actions: " + ", ".join(decision.remediation.allowed_next_actions)
+            result = result.model_copy(update={
+                "content": list(result.content) + [types.TextContent(type="text", text=next_hint)],
+            })
         return result
 
     async with stdio_server() as (read_stream, write_stream):

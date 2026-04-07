@@ -178,10 +178,19 @@ class WorkflowRunner:
             else:
                 model = self.model
 
+            system_instructions = (
+                "You are an agent executing a workflow. "
+                "After each tool call, the result will tell you the next allowed actions. "
+                "You MUST call one of those next allowed actions — do not stop or ask the user. "
+                "Keep calling tools until the workflow is complete and there are no more next actions. "
+                "If a tool call is blocked, read the remediation and call an allowed tool instead.\n\n"
+                f"User instruction: {self.prompt}"
+            )
+
             agent = Agent(
                 name="Complier Studio Agent",
                 model=model,
-                instructions=self.prompt,
+                instructions=system_instructions,
                 mcp_servers=mcp_servers,
             )
 

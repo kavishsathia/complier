@@ -125,7 +125,14 @@ class Session:
         self.state.active_workflow = workflow.name
         self.state.active_step = valid_node.id
         self.state.completed_steps.append(valid_node.id)
-        return Decision(allowed=True)
+        next_actions = self._next_actions_after_node(workflow_name, valid_node.id, choice)
+        return Decision(
+            allowed=True,
+            remediation=Remediation(
+                message="Proceed with one of the next allowed actions.",
+                allowed_next_actions=next_actions,
+            ) if next_actions else None,
+        )
 
     def record_allowed_call(self, tool_name: str, args: tuple[Any, ...], kwargs: dict[str, Any]) -> None:
         """Record that a tool call was allowed."""
@@ -390,42 +397,49 @@ class Session:
         choice: str | None,
     ) -> list[str]:
         workflow = self.contract.workflows[workflow_name]
-        pending = list(workflow.nodes[node_id].next_ids)
+        pending: list[tuple[str, str | None]] = [(nid, None) for nid in workflow.nodes[node_id].next_ids]
         seen: set[str] = set()
         actions: list[str] = []
 
         while pending:
-            current_id = pending.pop(0)
+            current_id, branch_label = pending.pop(0)
             if current_id in seen:
                 continue
             seen.add(current_id)
             current = workflow.nodes[current_id]
 
             if isinstance(current, ToolNode):
-                actions.append(current.tool_name)
+                if branch_label:
+                    actions.append(f"{current.tool_name} (when: {branch_label}, pass choice=\"{branch_label}\")")
+                else:
+                    actions.append(current.tool_name)
                 continue
             if isinstance(current, EndNode):
                 continue
             if isinstance(current, (StartNode, BranchBackNode, UnorderedBackNode, JoinNode)):
-                pending.extend(current.next_ids)
+                for nid in current.next_ids:
+                    pending.append((nid, branch_label))
                 continue
             if isinstance(current, BranchNode):
                 if choice is not None:
                     if choice == "else" and current.else_node_id is not None:
-                        pending.append(current.else_node_id)
+                        pending.append((current.else_node_id, "else"))
                     elif choice in current.arms:
-                        pending.append(current.arms[choice])
+                        pending.append((current.arms[choice], choice))
                 else:
-                    pending.extend(current.arms.values())
+                    for label, arm_id in current.arms.items():
+                        pending.append((arm_id, label))
                     if current.else_node_id is not None:
-                        pending.append(current.else_node_id)
+                        pending.append((current.else_node_id, "else"))
                 continue
             if isinstance(current, UnorderedNode):
                 if choice is not None and choice in current.case_entry_ids:
-                    pending.append(current.case_entry_ids[choice])
+                    pending.append((current.case_entry_ids[choice], choice))
                 else:
-                    pending.extend(current.case_entry_ids.values())
+                    for label, case_id in current.case_entry_ids.items():
+                        pending.append((case_id, label))
                 continue
-            pending.extend(current.next_ids)
+            for nid in current.next_ids:
+                pending.append((nid, branch_label))
 
-        return sorted(set(actions))
+        return actions

@@ -112,6 +112,11 @@ async def _run_proxy(argv: list[str] | None) -> None:
             )) from None
         registry.tool_maps[namespace] = state.exposed_to_downstream
         registry.session_client.record_result(internal_tool_name, result.model_dump(mode="json"))
+        if decision.remediation and decision.remediation.allowed_next_actions:
+            next_hint = "Next allowed actions: " + ", ".join(decision.remediation.allowed_next_actions)
+            result = result.model_copy(update={
+                "content": list(result.content) + [types.TextContent(type="text", text=next_hint)],
+            })
         return result
 
     manager = StreamableHTTPSessionManager(app=server)

@@ -59,6 +59,9 @@ class FunctionWrapper:
             self.session.record_allowed_call(func.__name__, args, kwargs)
             result = func(*args, **kwargs)
             self.session.record_result(func.__name__, result)
+            if decision.remediation and decision.remediation.allowed_next_actions:
+                next_hint = "Next allowed actions: " + ", ".join(decision.remediation.allowed_next_actions)
+                return f"{result}\n{next_hint}" if isinstance(result, str) else result
             return result
 
         return self._attach_metadata(wrapped, func, self.session)
@@ -87,6 +90,9 @@ class FunctionWrapper:
             self.session.record_allowed_call(func.__name__, args, kwargs)
             result = await func(*args, **kwargs)
             self.session.record_result(func.__name__, result)
+            if decision.remediation and decision.remediation.allowed_next_actions:
+                next_hint = "Next allowed actions: " + ", ".join(decision.remediation.allowed_next_actions)
+                return f"{result}\n{next_hint}" if isinstance(result, str) else result
             return result
 
         return self._attach_metadata(wrapped, func, self.session)
