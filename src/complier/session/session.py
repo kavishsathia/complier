@@ -23,7 +23,14 @@ from complier.integration import Integration
 from complier.memory.model import Memory
 
 from .context import activate_session
-from .decisions import Decision, Remediation
+from .decisions import (
+    Decision,
+    NextActionDescriptor,
+    NextActions,
+    NextActionsFormatter,
+    Remediation,
+    default_next_actions_formatter,
+)
 from .server import SessionServer
 from .state import SessionState
 
@@ -39,6 +46,7 @@ class Session:
     memory: Memory | None = None
     model: Integration | None = None
     human: Integration | None = None
+    formatter: NextActionsFormatter = field(default=default_next_actions_formatter)
     state: SessionState = field(default_factory=SessionState)
     server: SessionServer = field(init=False)
     _managed_processes: list[subprocess.Popen[str]] = field(init=False, default_factory=list, repr=False)
@@ -397,49 +405,62 @@ class Session:
         choice: str | None,
     ) -> list[str]:
         workflow = self.contract.workflows[workflow_name]
-        pending: list[tuple[str, str | None]] = [(nid, None) for nid in workflow.nodes[node_id].next_ids]
+        pending: list[tuple[str, str | None, bool, bool]] = [
+            (nid, None, False, False) for nid in workflow.nodes[node_id].next_ids
+        ]
         seen: set[str] = set()
-        actions: list[str] = []
+        descriptors: list[NextActionDescriptor] = []
+        is_branch_possible = False
+        is_unordered_possible = False
 
         while pending:
-            current_id, branch_label = pending.pop(0)
+            current_id, choice_label, in_branch, in_unordered = pending.pop(0)
             if current_id in seen:
                 continue
             seen.add(current_id)
             current = workflow.nodes[current_id]
 
             if isinstance(current, ToolNode):
-                if branch_label:
-                    actions.append(f"{current.tool_name} (when: {branch_label}, pass choice=\"{branch_label}\")")
-                else:
-                    actions.append(current.tool_name)
+                descriptors.append(NextActionDescriptor(
+                    tool_name=current.tool_name,
+                    params=dict(current.params),
+                    guards=list(current.guards),
+                    choice_label=choice_label,
+                ))
                 continue
             if isinstance(current, EndNode):
                 continue
             if isinstance(current, (StartNode, BranchBackNode, UnorderedBackNode, JoinNode)):
                 for nid in current.next_ids:
-                    pending.append((nid, branch_label))
+                    pending.append((nid, choice_label, in_branch, in_unordered))
                 continue
             if isinstance(current, BranchNode):
+                is_branch_possible = True
                 if choice is not None:
                     if choice == "else" and current.else_node_id is not None:
-                        pending.append((current.else_node_id, "else"))
+                        pending.append((current.else_node_id, "else", True, in_unordered))
                     elif choice in current.arms:
-                        pending.append((current.arms[choice], choice))
+                        pending.append((current.arms[choice], choice, True, in_unordered))
                 else:
                     for label, arm_id in current.arms.items():
-                        pending.append((arm_id, label))
+                        pending.append((arm_id, label, True, in_unordered))
                     if current.else_node_id is not None:
-                        pending.append((current.else_node_id, "else"))
+                        pending.append((current.else_node_id, "else", True, in_unordered))
                 continue
             if isinstance(current, UnorderedNode):
+                is_unordered_possible = True
                 if choice is not None and choice in current.case_entry_ids:
-                    pending.append((current.case_entry_ids[choice], choice))
+                    pending.append((current.case_entry_ids[choice], choice, in_branch, True))
                 else:
                     for label, case_id in current.case_entry_ids.items():
-                        pending.append((case_id, label))
+                        pending.append((case_id, label, in_branch, True))
                 continue
             for nid in current.next_ids:
-                pending.append((nid, branch_label))
+                pending.append((nid, choice_label, in_branch, in_unordered))
 
-        return actions
+        next_actions = NextActions(
+            actions=descriptors,
+            is_branch_possible=is_branch_possible,
+            is_unordered_possible=is_unordered_possible,
+        )
+        return self.formatter(next_actions)
