@@ -54,11 +54,21 @@ class Contract:
 
     def create_session(
         self,
+        workflow: str | None = None,
         memory: Memory | None = None,
         model: Integration | None = None,
         human: Integration | None = None,
+        formatter=None,
     ) -> "Session":
         """Create a stateful session for this contract and optional memory."""
         from complier.session.session import Session
+        from complier.session.decisions import default_next_actions_formatter
 
-        return Session(contract=self, memory=memory, model=model, human=human)
+        return Session(
+            contract=self,
+            workflow=workflow,
+            memory=memory,
+            model=model,
+            human=human,
+            formatter=formatter if formatter is not None else default_next_actions_formatter,
+        )
