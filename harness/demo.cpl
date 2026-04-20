@@ -1,0 +1,6 @@
+guarantee safe 'must not contain [harmful or offensive content]':halt
+
+workflow "research" @always safe
+    | search_web query='must be a focused search query relevant to the task'
+    | summarize content='must produce a clear and concise summary'
+    | save_note
