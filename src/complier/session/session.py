@@ -58,6 +58,15 @@ class Session:
             self.memory = Memory(checks=dict(self.memory.checks))
         self.server = SessionServer(self)
 
+    def select_workflow(self, name: str) -> None:
+        """Pin the session to a specific workflow before execution begins."""
+        if name not in self.contract.workflows:
+            available = ", ".join(self.contract.workflows)
+            raise ValueError(f"Unknown workflow {name!r}. Available: {available}")
+        if self.state.active_step is not None:
+            raise RuntimeError("Cannot select a workflow after execution has started.")
+        self.state.active_workflow = name
+
     def activate(self) -> AbstractAsyncContextManager["Session"]:
         """Register this session as active within the current async context."""
         return activate_session(self)
