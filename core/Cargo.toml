@@ -1,0 +1,9 @@
+[workspace]
+members = [
+    "ast",
+    "parser",
+    "compiler",
+    "runtime",
+    "session",
+]
+resolver = "2"
