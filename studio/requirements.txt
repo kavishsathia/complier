@@ -1,3 +1,0 @@
-pywebview>=5.0
-complier
-httpx
