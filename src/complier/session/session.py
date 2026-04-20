@@ -43,6 +43,7 @@ class Session:
     """One live execution session against a contract and memory."""
 
     contract: "Contract"
+    workflow: str | None = None
     memory: Memory | None = None
     model: Integration | None = None
     human: Integration | None = None
@@ -56,6 +57,11 @@ class Session:
         """Detach session-owned memory from the caller's original instance."""
         if self.memory is not None:
             self.memory = Memory(checks=dict(self.memory.checks))
+        if self.workflow is not None:
+            if self.workflow not in self.contract.workflows:
+                available = ", ".join(self.contract.workflows)
+                raise ValueError(f"Unknown workflow {self.workflow!r}. Available: {available}")
+            self.state.active_workflow = self.workflow
         self.server = SessionServer(self)
 
     def kickoff(self) -> str:
@@ -67,14 +73,6 @@ class Session:
         actions = self._next_actions_after_node(workflow_name, start_node_id, None)
         return "\n".join(actions)
 
-    def select_workflow(self, name: str) -> None:
-        """Pin the session to a specific workflow before execution begins."""
-        if name not in self.contract.workflows:
-            available = ", ".join(self.contract.workflows)
-            raise ValueError(f"Unknown workflow {name!r}. Available: {available}")
-        if self.state.active_step is not None:
-            raise RuntimeError("Cannot select a workflow after execution has started.")
-        self.state.active_workflow = name
 
     def activate(self) -> AbstractAsyncContextManager["Session"]:
         """Register this session as active within the current async context."""
