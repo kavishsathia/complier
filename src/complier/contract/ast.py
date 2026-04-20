@@ -18,7 +18,7 @@ class Guarantee:
     """Named reusable contract expression."""
 
     name: str
-    expression: ContractExpressionWithPolicy
+    expression: ProseGuard
 
 
 @dataclass(slots=True)
@@ -157,66 +157,36 @@ Policy: TypeAlias = str | RetryPolicy
 
 @dataclass(slots=True)
 class ModelCheck:
-    """Square-bracket check."""
+    """Square-bracket [name] check — evaluated by the model."""
 
     name: str
 
 
 @dataclass(slots=True)
 class HumanCheck:
-    """Curly-brace check."""
+    """Curly-brace {name} check — evaluated by a human."""
 
     name: str
 
 
 @dataclass(slots=True)
 class LearnedCheck:
-    """Memory-backed check."""
+    """Hash-brace #{name} check — evaluated from learned memory."""
 
     name: str
 
 
-@dataclass(slots=True)
-class GuaranteeRef:
-    """Reference to a named guarantee."""
-
-    name: str
+Check: TypeAlias = ModelCheck | HumanCheck | LearnedCheck
 
 
 @dataclass(slots=True)
-class NotExpression:
-    """Negated contract expression."""
+class ProseGuard:
+    """A natural-language guard with inline annotated checks and a failure policy."""
 
-    expression: ContractExpression
-
-
-@dataclass(slots=True)
-class AndExpression:
-    """Logical conjunction."""
-
-    left: ContractExpression
-    right: ContractExpression
-
-
-@dataclass(slots=True)
-class OrExpression:
-    """Logical disjunction."""
-
-    left: ContractExpression
-    right: ContractExpression
-
-
-ContractAtom: TypeAlias = ModelCheck | HumanCheck | LearnedCheck | GuaranteeRef
-ContractExpression: TypeAlias = ContractAtom | NotExpression | AndExpression | OrExpression
-
-
-@dataclass(slots=True)
-class ContractExpressionWithPolicy:
-    """A contract expression with an attached failure policy."""
-
-    expression: ContractExpression
+    prose: str
+    checks: list[Check] = field(default_factory=list)
     policy: Policy = field(default_factory=lambda: RetryPolicy(attempts=3))
 
 
-ParamValue: TypeAlias = str | int | bool | None | ContractExpressionWithPolicy
+ParamValue: TypeAlias = str | int | bool | None | ProseGuard
 CallType: TypeAlias = str

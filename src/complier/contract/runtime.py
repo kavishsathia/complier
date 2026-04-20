@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from .ast import ContractExpressionWithPolicy, ParamValue
+from .ast import ParamValue, ProseGuard
 
 
 @dataclass(slots=True)
@@ -29,7 +29,7 @@ class RuntimeNode:
 class ExecutableNode(RuntimeNode):
     """Base node for executable steps."""
 
-    guards: list[ContractExpressionWithPolicy] = field(default_factory=list)
+    guards: list[ProseGuard] = field(default_factory=list)
 
 
 @dataclass(slots=True)

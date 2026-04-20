@@ -17,7 +17,7 @@ start: _NL* item (_NL* item)* _NL*
 
 item: guarantee | workflow
 
-guarantee: "guarantee" IDENT contract_expr
+guarantee: "guarantee" IDENT prose_guard
 
 workflow: "workflow" STRING always_clause* _NL _INDENT step+ _DEDENT
 always_clause: "@always" IDENT
@@ -60,27 +60,11 @@ param: IDENT "=" param_value
             | TRUE            -> true_value
             | FALSE           -> false_value
             | NULL            -> null_value
-            | policy_expr      -> contract_expr
+            | prose_guard
 
-contract_expr: policy_expr
-?policy_expr: or_expr
-            | or_expr ":" check_policy -> policy_expr
-?or_expr: and_expr
-        | or_expr OR and_expr   -> or_expr
-?and_expr: unary_expr
-         | and_expr AND unary_expr -> and_expr
-?unary_expr: NOT unary_expr     -> not_expr
-           | contract_atom
-?contract_atom: model_check
-              | human_check
-              | learned_check
-              | IDENT           -> guarantee_ref
-              | "(" policy_expr ")"
+prose_guard: PROSE_STRING
+           | PROSE_STRING ":" check_policy
 
-model_check: "[" check_name "]"
-human_check: "{" check_name "}"
-learned_check: "#{" check_name "}"
-check_name: IDENT
 check_policy: HALT -> halt_policy
             | SKIP -> skip_policy
             | NUMBER -> retry_policy
@@ -93,9 +77,6 @@ STEP_KW: "-step"
 CALL: "@call"
 USE: "@use"
 INLINE: "@inline"
-NOT: "!"
-AND: "&&"
-OR: "||"
 
 IDENT: /[a-zA-Z_][a-zA-Z0-9_.\/-]*/
 NUMBER: /[0-9]+/
@@ -104,6 +85,7 @@ SKIP: "skip"
 TRUE: "true"
 FALSE: "false"
 NULL: "null"
+PROSE_STRING: "'" /[^']*/ "'"
 
 _NL: /(\r?\n[ \t]*)+/
 

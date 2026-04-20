@@ -2,18 +2,16 @@
 
 from __future__ import annotations
 
-import ast
+import re
 from typing import Any
 
 from lark import Token, Transformer
 
 from .ast import (
-    AndExpression,
     BranchStep,
     ElseArm,
     ForkStep,
     Guarantee,
-    GuaranteeRef,
     HumanCheck,
     HumanStep,
     JoinStep,
@@ -21,11 +19,9 @@ from .ast import (
     LlmStep,
     LoopStep,
     ModelCheck,
-    NotExpression,
-    OrExpression,
-    ContractExpressionWithPolicy,
     Param,
     Program,
+    ProseGuard,
     RetryPolicy,
     SubworkflowStep,
     ToolStep,
@@ -35,9 +31,12 @@ from .ast import (
     Workflow,
 )
 
+_CHECK_PATTERN = re.compile(r"#\{(\w+)\}|\{(\w+)\}|\[(\w+)\]")
+
 
 def _strip_string(token: str) -> str:
-    return ast.literal_eval(token)
+    import ast as _ast
+    return _ast.literal_eval(token)
 
 
 class ContractTransformer(Transformer[Token, Any]):
@@ -151,30 +150,18 @@ class ContractTransformer(Transformer[Token, Any]):
     def null_value(self, _items: list[Any]) -> None:
         return None
 
-    def model_check(self, items: list[Any]) -> ModelCheck:
-        return ModelCheck(name=items[0])
-
-    def human_check(self, items: list[Any]) -> HumanCheck:
-        return HumanCheck(name=items[0])
-
-    def learned_check(self, items: list[Any]) -> LearnedCheck:
-        return LearnedCheck(name=items[0])
-
-    def check_name(self, items: list[Any]) -> str:
-        return items[0]
-
-    def policy_expr(self, items: list[Any]) -> ContractExpressionWithPolicy:
-        expression, policy = items
-        return ContractExpressionWithPolicy(expression=expression, policy=policy)
-
-    def contract_expr(self, items: list[Any]) -> ContractExpressionWithPolicy:
-        expression = items[0]
-        if isinstance(expression, ContractExpressionWithPolicy):
-            return expression
-        return ContractExpressionWithPolicy(
-            expression=expression,
-            policy=RetryPolicy(attempts=3),
-        )
+    def prose_guard(self, items: list[Any]) -> ProseGuard:
+        prose = str(items[0])[1:-1]  # strip surrounding single quotes
+        policy = items[1] if len(items) > 1 else RetryPolicy(attempts=3)
+        checks = []
+        for m in _CHECK_PATTERN.finditer(prose):
+            if m.group(1):
+                checks.append(LearnedCheck(name=m.group(1)))
+            elif m.group(2):
+                checks.append(HumanCheck(name=m.group(2)))
+            elif m.group(3):
+                checks.append(ModelCheck(name=m.group(3)))
+        return ProseGuard(prose=prose, checks=checks, policy=policy)
 
     def halt_policy(self, _items: list[Any]) -> str:
         return "halt"
@@ -184,21 +171,6 @@ class ContractTransformer(Transformer[Token, Any]):
 
     def retry_policy(self, items: list[Any]) -> RetryPolicy:
         return RetryPolicy(attempts=int(items[0]))
-
-    def guarantee_ref(self, items: list[Any]) -> GuaranteeRef:
-        return GuaranteeRef(name=items[0])
-
-    def not_expr(self, items: list[Any]) -> NotExpression:
-        filtered = self._without_tokens(items, {"NOT"})
-        return NotExpression(expression=filtered[0])
-
-    def and_expr(self, items: list[Any]) -> AndExpression:
-        filtered = self._without_tokens(items, {"AND"})
-        return AndExpression(left=filtered[0], right=filtered[1])
-
-    def or_expr(self, items: list[Any]) -> OrExpression:
-        filtered = self._without_tokens(items, {"OR"})
-        return OrExpression(left=filtered[0], right=filtered[1])
 
     def call_type(self, items: list[Any]) -> str:
         return str(items[0])

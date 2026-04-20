@@ -11,7 +11,7 @@ class ContractLoadingTests(unittest.TestCase):
     def test_contract_from_source_returns_compiled_contract(self) -> None:
         contract = Contract.from_source(
             """
-guarantee safe [no_harmful_content]:halt
+guarantee safe 'must have [no_harmful_content]':halt
 
 workflow "research" @always safe
     | search_web

@@ -1,17 +1,13 @@
-"""Tests for guarantee and expression parsing."""
+"""Tests for guarantee and prose guard parsing."""
 
 import unittest
 
 from complier.contract.ast import (
-    AndExpression,
-    ContractExpressionWithPolicy,
     Guarantee,
-    GuaranteeRef,
     HumanCheck,
     LearnedCheck,
     ModelCheck,
-    NotExpression,
-    OrExpression,
+    ProseGuard,
     RetryPolicy,
 )
 
@@ -22,9 +18,9 @@ class GuaranteeParsingTests(unittest.TestCase):
     def test_parses_multiple_guarantee_check_kinds(self) -> None:
         program = parse_program(
             """
-guarantee safe [no_harmful_content]:halt
-guarantee approved {editor_signed_off}:skip
-guarantee quality #{quality_model}:3
+guarantee safe '[no_harmful_content]':halt
+guarantee approved '{editor_signed_off}':skip
+guarantee quality '#{quality_model}':3
 """
         )
 
@@ -38,81 +34,60 @@ guarantee quality #{quality_model}:3
         approved_expr = program.items[1].expression
         quality_expr = program.items[2].expression
 
-        self.assertIsInstance(safe_expr, ContractExpressionWithPolicy)
-        self.assertIsInstance(safe_expr.expression, ModelCheck)
-        self.assertEqual(safe_expr.expression.name, "no_harmful_content")
+        self.assertIsInstance(safe_expr, ProseGuard)
+        self.assertIsInstance(safe_expr.checks[0], ModelCheck)
+        self.assertEqual(safe_expr.checks[0].name, "no_harmful_content")
         self.assertEqual(safe_expr.policy, "halt")
 
-        self.assertIsInstance(approved_expr, ContractExpressionWithPolicy)
-        self.assertIsInstance(approved_expr.expression, HumanCheck)
-        self.assertEqual(approved_expr.expression.name, "editor_signed_off")
+        self.assertIsInstance(approved_expr, ProseGuard)
+        self.assertIsInstance(approved_expr.checks[0], HumanCheck)
+        self.assertEqual(approved_expr.checks[0].name, "editor_signed_off")
         self.assertEqual(approved_expr.policy, "skip")
 
-        self.assertIsInstance(quality_expr, ContractExpressionWithPolicy)
-        self.assertIsInstance(quality_expr.expression, LearnedCheck)
-        self.assertEqual(quality_expr.expression.name, "quality_model")
+        self.assertIsInstance(quality_expr, ProseGuard)
+        self.assertIsInstance(quality_expr.checks[0], LearnedCheck)
+        self.assertEqual(quality_expr.checks[0].name, "quality_model")
         self.assertIsInstance(quality_expr.policy, RetryPolicy)
         self.assertEqual(quality_expr.policy.attempts, 3)
 
-    def test_parses_nested_boolean_contract_expressions(self) -> None:
+    def test_parses_mixed_check_kinds_in_prose(self) -> None:
         program = parse_program(
             """
-guarantee gate (([relevant] && !{approved}) || safe):3
+guarantee gate 'must be [relevant] and {approved} and #{tone}':3
 """
         )
 
         expr = program.items[0].expression
-        self.assertIsInstance(expr, ContractExpressionWithPolicy)
+        self.assertIsInstance(expr, ProseGuard)
         self.assertIsInstance(expr.policy, RetryPolicy)
         self.assertEqual(expr.policy.attempts, 3)
-        self.assertIsInstance(expr.expression, OrExpression)
-        self.assertIsInstance(expr.expression.left, AndExpression)
-        self.assertIsInstance(expr.expression.right, GuaranteeRef)
-        self.assertEqual(expr.expression.right.name, "safe")
+        self.assertEqual(len(expr.checks), 3)
+        self.assertIsInstance(expr.checks[0], ModelCheck)
+        self.assertEqual(expr.checks[0].name, "relevant")
+        self.assertIsInstance(expr.checks[1], HumanCheck)
+        self.assertEqual(expr.checks[1].name, "approved")
+        self.assertIsInstance(expr.checks[2], LearnedCheck)
+        self.assertEqual(expr.checks[2].name, "tone")
 
-        and_expr = expr.expression.left
-        self.assertIsInstance(and_expr.left, ModelCheck)
-        self.assertEqual(and_expr.left.name, "relevant")
-
-        self.assertIsInstance(and_expr.right, NotExpression)
-        self.assertIsInstance(and_expr.right.expression, HumanCheck)
-        self.assertEqual(and_expr.right.expression.name, "approved")
-
-    def test_parses_expression_shapes_and_check_variants(self) -> None:
+    def test_parses_prose_guard_without_policy_defaults_to_retry_3(self) -> None:
         program = parse_program(
             """
-guarantee blocked !safe
-guarantee fallback safe || [relevant]
-guarantee grouped ((!safe && ({editor_review} || #{tone})):halt)
+guarantee safe 'must be [no_harmful_content]'
 """
         )
 
-        blocked_expr = program.items[0].expression
-        fallback_expr = program.items[1].expression
-        grouped_expr = program.items[2].expression
+        expr = program.items[0].expression
+        self.assertIsInstance(expr, ProseGuard)
+        self.assertIsInstance(expr.policy, RetryPolicy)
+        self.assertEqual(expr.policy.attempts, 3)
 
-        self.assertIsInstance(blocked_expr, ContractExpressionWithPolicy)
-        self.assertIsInstance(blocked_expr.expression, NotExpression)
-        self.assertIsInstance(blocked_expr.expression.expression, GuaranteeRef)
-        self.assertEqual(blocked_expr.expression.expression.name, "safe")
-        self.assertIsInstance(blocked_expr.policy, RetryPolicy)
-        self.assertEqual(blocked_expr.policy.attempts, 3)
+    def test_parses_halt_and_skip_policies(self) -> None:
+        program = parse_program(
+            """
+guarantee a '[check_a]':halt
+guarantee b '[check_b]':skip
+"""
+        )
 
-        self.assertIsInstance(fallback_expr, ContractExpressionWithPolicy)
-        self.assertIsInstance(fallback_expr.expression, OrExpression)
-        self.assertIsInstance(fallback_expr.expression.left, GuaranteeRef)
-        self.assertEqual(fallback_expr.expression.left.name, "safe")
-        self.assertIsInstance(fallback_expr.expression.right, ModelCheck)
-        self.assertEqual(fallback_expr.expression.right.name, "relevant")
-
-        self.assertIsInstance(grouped_expr, ContractExpressionWithPolicy)
-        self.assertEqual(grouped_expr.policy, "halt")
-        self.assertIsInstance(grouped_expr.expression, AndExpression)
-        self.assertIsInstance(grouped_expr.expression.left, NotExpression)
-        self.assertIsInstance(grouped_expr.expression.left.expression, GuaranteeRef)
-        self.assertEqual(grouped_expr.expression.left.expression.name, "safe")
-        self.assertIsInstance(grouped_expr.expression.right, OrExpression)
-        self.assertIsInstance(grouped_expr.expression.right.left, HumanCheck)
-        self.assertEqual(grouped_expr.expression.right.left.name, "editor_review")
-        self.assertIsInstance(grouped_expr.expression.right.right, LearnedCheck)
-        self.assertEqual(grouped_expr.expression.right.right.name, "tone")
+        self.assertEqual(program.items[0].expression.policy, "halt")
+        self.assertEqual(program.items[1].expression.policy, "skip")

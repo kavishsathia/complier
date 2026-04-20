@@ -4,10 +4,9 @@ import unittest
 
 from complier.contract.parser import ContractParser
 from complier.contract.ast import (
-    AndExpression,
-    ContractExpressionWithPolicy,
     ModelCheck,
     Param,
+    ProseGuard,
     RetryPolicy,
     ToolStep,
 )
@@ -34,11 +33,11 @@ workflow "params"
         self.assertIs(params["disabled"], False)
         self.assertIsNone(params["reviewer"])
 
-    def test_parses_contract_expressions_as_param_values(self) -> None:
+    def test_parses_prose_guard_as_param_value(self) -> None:
         program = parse_program(
             """
 workflow "checks"
-    | classify gate=([relevant] && [concise]):halt
+    | classify gate='must be [relevant] and [concise]':halt
 """
         )
 
@@ -49,24 +48,24 @@ workflow "checks"
         gate = tool.params[0]
         self.assertIsInstance(gate, Param)
         self.assertEqual(gate.name, "gate")
-        self.assertIsInstance(gate.value, ContractExpressionWithPolicy)
+        self.assertIsInstance(gate.value, ProseGuard)
         self.assertEqual(gate.value.policy, "halt")
-        self.assertIsInstance(gate.value.expression, AndExpression)
-        self.assertIsInstance(gate.value.expression.left, ModelCheck)
-        self.assertIsInstance(gate.value.expression.right, ModelCheck)
-        self.assertEqual(gate.value.expression.left.name, "relevant")
-        self.assertEqual(gate.value.expression.right.name, "concise")
+        self.assertEqual(len(gate.value.checks), 2)
+        self.assertIsInstance(gate.value.checks[0], ModelCheck)
+        self.assertIsInstance(gate.value.checks[1], ModelCheck)
+        self.assertEqual(gate.value.checks[0].name, "relevant")
+        self.assertEqual(gate.value.checks[1].name, "concise")
 
-    def test_contract_expressions_default_to_retry_three_policy(self) -> None:
+    def test_prose_guards_default_to_retry_three_policy(self) -> None:
         program = parse_program(
             """
 workflow "checks"
-    | classify gate=[relevant]
+    | classify gate='must be [relevant]'
 """
         )
 
         gate = program.items[0].steps[0].params[0]
-        self.assertIsInstance(gate.value, ContractExpressionWithPolicy)
+        self.assertIsInstance(gate.value, ProseGuard)
         self.assertIsInstance(gate.value.policy, RetryPolicy)
         self.assertEqual(gate.value.policy.attempts, 3)
 
