@@ -106,7 +106,7 @@ workflow "research"
         session = Contract.from_source(
             """
 workflow "research"
-    | search_web query=[safe]
+    | search_web query='must be [safe]'
 """
         ).create_session(model=StubModel())
 
@@ -210,7 +210,7 @@ workflow "research"
         session = Contract.from_source(
             """
 workflow "research"
-    | search_web query=[safe]:2
+    | search_web query='must be [safe]':2
 """
         ).create_session(model=RejectingModel())
 
@@ -256,7 +256,7 @@ workflow "research"
         session = Contract.from_source(
             """
 workflow "research"
-    | search_web query=[safe]:halt
+    | search_web query='must be [safe]':halt
 """
         ).create_session(model=RejectingModel())
 
@@ -274,7 +274,7 @@ workflow "research"
         session = Contract.from_source(
             """
 workflow "research"
-    | search_web query=[safe]:halt
+    | search_web query='must be [safe]':halt
 """
         ).create_session(model=RejectingModel())
 
@@ -294,7 +294,7 @@ workflow "research"
 workflow "research"
     | @branch
         -when "technical"
-            | search_web query=[safe]:skip
+            | search_web query='must be [safe]':skip
             | finalize_technical
         -else
             | search_web query="overview"
@@ -326,7 +326,7 @@ workflow "research"
 workflow "research"
     | @unordered
         -step "first"
-            | search_web query=[safe]:skip
+            | search_web query='must be [safe]':skip
             | finalize_first
         -step "second"
             | search_web query="ok"

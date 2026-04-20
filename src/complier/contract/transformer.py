@@ -31,7 +31,7 @@ from .ast import (
     Workflow,
 )
 
-_CHECK_PATTERN = re.compile(r"#\{(\w+)\}|\{(\w+)\}|\[(\w+)\]")
+_CHECK_PATTERN = re.compile(r"#\{([^}]+)\}|\{([^}]+)\}|\[([^\]]+)\]")
 
 
 def _strip_string(token: str) -> str:
