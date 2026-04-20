@@ -58,6 +58,15 @@ class Session:
             self.memory = Memory(checks=dict(self.memory.checks))
         self.server = SessionServer(self)
 
+    def kickoff(self) -> str:
+        """Return a formatted string describing what the agent can do first."""
+        workflow_name = self._get_or_choose_workflow()
+        if workflow_name is None:
+            raise RuntimeError("Multiple workflows defined — call select_workflow() first.")
+        start_node_id = self.contract.workflows[workflow_name].start_node_id
+        actions = self._next_actions_after_node(workflow_name, start_node_id, None)
+        return "\n".join(actions)
+
     def select_workflow(self, name: str) -> None:
         """Pin the session to a specific workflow before execution begins."""
         if name not in self.contract.workflows:
