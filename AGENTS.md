@@ -2,7 +2,7 @@
 
 ## Purpose
 
-`complier` is a Python package for enforcing contracts over tool-using AI agents.
+`complier` is a Rust workspace for enforcing contracts over tool-using AI agents.
 
 The core idea is simple:
 
@@ -23,15 +23,16 @@ The product value is not "tool ordering" in isolation. The product value is:
 
 ## What This Repo Is Building
 
-This repo is building the first version of that enforcement layer as a proper Python package.
+This repo is building the enforcement layer as a Rust library plus MCP proxy binaries.
 
-The current intended architecture is:
+The current architecture is:
 
 - `Contract`: the compiled runtime representation of the authored spec
 - `Memory`: optional learned knowledge that can influence evaluation over time
 - `Session`: one live execution against a contract and optional memory
-- `FunctionWrapper`: wraps Python callables so they are enforced through a session
-- `MCPWrapper`: wraps MCP tool boundaries so they are enforced through a session
+- `FunctionWrapper`: wraps in-process async callables so they are enforced through a session
+- `complier-mcp-proxy`: stdio MCP proxy that enforces a session against a downstream MCP server
+- `complier-remote-mcp-proxy`: streamable-HTTP variant of the MCP proxy
 
 There may be many workflows inside a single contract, so the primary top-level concept is `Contract`, not `Workflow`.
 
@@ -44,22 +45,24 @@ This project should be treated like a real product, not a temporary prototype.
 Important product assumptions:
 
 - `complier` should work with existing agent frameworks rather than replacing them
-- the Python package experience matters a lot
+- the library and binary ergonomics both matter — adoption paths are "link the crate" and "drop the proxy in front of my MCP server"
 - the enforcement layer should feel general, not like a tiny niche feature
 - the key abstraction is agent compliance with an intended process
 - the system should govern what agents do, not just what they say
 
-The package should be designed so that developers can adopt it with low friction and understand the value quickly.
-
 ## Current Repo Shape
 
-- `src/complier/contract/`: contract parsing, compilation, validation, and runtime model
-- `src/complier/memory/`: persistent learned knowledge
-- `src/complier/session/`: live execution state and compliance decisions
-- `src/complier/wrappers/`: function and MCP wrappers
-- `src/complier/runtime/`: runtime support types such as events and remediation messages
-- `src/complier/errors/`: package-specific exceptions
-- `demo/contract_demo.cpl`: reference DSL sample preserved from the earlier prototype
+- `core/` — Rust workspace (this is the active implementation)
+  - `core/ast/` — typed AST for the `.cpl` language
+  - `core/parser/` — hand-written lexer and parser that produces an AST
+  - `core/compiler/` — AST-to-runtime-graph compilation (`Contract`, `CompiledWorkflow`, `RuntimeNode`)
+  - `core/runtime/` — shared node/graph types consumed by the session
+  - `core/session/` — live execution state, decisions, memory, evaluators, remediation, session server client
+  - `core/wrappers/` — `FunctionWrapper` plus the two MCP proxy binaries (`src/bin/mcp_proxy.rs`, `src/bin/remote_mcp_proxy.rs`)
+- `archive/` — the Python prototype, preserved for reference only (do not extend it)
+- `visualizer/` — Vite app that renders a compiled contract as a graph
+- `landing/` — Next.js marketing site
+- `assets/` — logo and other static assets
 
 ## Contract Syntax
 
@@ -222,7 +225,7 @@ Instead:
 4. compliant calls proceed
 5. non-compliant calls are blocked and the agent receives structured remediation
 
-This means the DSL defines intended process, while the Python runtime enforces compliance at execution time.
+This means the DSL defines intended process, while the Rust runtime enforces compliance at execution time.
 
 ## Working Style
 
@@ -242,22 +245,22 @@ If you need to explain flow, prefer plain language, numbered steps, or short bul
 
 ## Implementation Guidance
 
-- Keep runtime enforcement logic separate from wrappers as much as possible
-- wrappers should stay thin and delegate decision-making to session-level logic
-- keep `Memory` distinct from per-run session state
-- preserve a clear boundary between authored source, compiled contract, and runtime execution
-- do not reintroduce the old Rust prototype as the main implementation path
-- prefer simple, explicit Python APIs over clever abstractions
+- Keep runtime enforcement logic in the `session` crate, separate from wrappers.
+- Wrappers (in-process and MCP) should stay thin and delegate decision-making to `Session::check_tool_call`.
+- Keep `Memory` distinct from per-run `SessionState`.
+- Preserve the boundary between authored source, AST, compiled contract, and runtime execution — each lives in its own crate for a reason.
+- Do not extend or re-activate the `archive/` Python prototype; treat it as read-only history.
+- Prefer simple, explicit Rust APIs over clever abstractions. Async lives on the wrapper boundary (tokio); the session itself is synchronous behind an `Arc<Mutex<Session>>`.
 
 ## Non-Goals For Now
 
 - do not build a full replacement agent runtime
-- do not over-rotate into a DSL-first experience at the expense of Python usability
-- do not optimize for theoretical generality before the core package ergonomics are strong
+- do not over-rotate into a DSL-first experience at the expense of library usability
+- do not optimize for theoretical generality before the core crate ergonomics are strong
 
 ## Notes For Future Agents
 
-- treat the current stubs as intentional scaffolding
-- preserve the names `Contract`, `Memory`, `Session`, `FunctionWrapper`, and `MCPWrapper` unless there is a strong reason to change them
-- if packaging or structure changes are needed, keep the repo as a proper Python package
+- treat any empty or stub modules as intentional scaffolding
+- preserve the names `Contract`, `Memory`, `Session`, `FunctionWrapper` unless there is a strong reason to change them
+- the MCP proxy binaries are a first-class adoption surface, not an afterthought — keep them working
 - when in doubt, optimize for clarity, adoption, and maintainability
