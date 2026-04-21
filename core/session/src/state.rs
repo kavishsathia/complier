@@ -14,10 +14,7 @@ pub enum SessionEvent {
         kwargs: HashMap<String, Value>,
     },
     #[serde(rename = "tool_result_recorded")]
-    ToolResultRecorded {
-        tool_name: String,
-        result: Value,
-    },
+    ToolResultRecorded { tool_name: String, result: Value },
     #[serde(rename = "tool_call_blocked")]
     ToolCallBlocked {
         tool_name: String,

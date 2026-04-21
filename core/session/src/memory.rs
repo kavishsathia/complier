@@ -22,10 +22,16 @@ impl Memory {
         }
         let value: serde_json::Value =
             serde_json::from_str(source).map_err(|e| format!("Invalid memory JSON: {e}"))?;
+        if !value.is_object() {
+            return Err("Memory payload must be a JSON object.".into());
+        }
         let checks = value
             .get("checks")
             .cloned()
             .unwrap_or(serde_json::Value::Object(Default::default()));
+        if !checks.is_object() {
+            return Err("Memory 'checks' field must be an object.".into());
+        }
         let map: HashMap<String, String> = serde_json::from_value(checks)
             .map_err(|e| format!("Memory 'checks' must be a string→string object: {e}"))?;
         Ok(Self { checks: map })

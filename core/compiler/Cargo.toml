@@ -7,3 +7,7 @@ edition = "2021"
 ast = { path = "../ast" }
 runtime = { path = "../runtime" }
 thiserror = "1"
+
+[dev-dependencies]
+parser = { path = "../parser" }
+tempfile = "3"

@@ -30,7 +30,9 @@ workflow "research"
         assert_eq!(wf.always, vec!["safe"]);
         assert_eq!(wf.steps.len(), 3);
 
-        let Step::Tool(t) = &wf.steps[0] else { panic!() };
+        let Step::Tool(t) = &wf.steps[0] else {
+            panic!()
+        };
         assert_eq!(t.name, "search_web");
         assert_eq!(t.params.len(), 1);
     }

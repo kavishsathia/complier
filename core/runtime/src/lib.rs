@@ -147,16 +147,11 @@ pub struct JoinNode {
     pub fork_id: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
 pub enum BranchMode {
+    #[default]
     Branch,
     Loop,
-}
-
-impl Default for BranchMode {
-    fn default() -> Self {
-        BranchMode::Branch
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

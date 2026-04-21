@@ -17,12 +17,12 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use rmcp::{
-    ErrorData as McpError, RoleServer, ServerHandler,
     model::{
         CallToolRequestParams, CallToolResult, Content, ListToolsResult, PaginatedRequestParams,
         ServerCapabilities, ServerInfo, Tool,
     },
-    service::{MaybeSendFuture, RequestContext, RunningService, RoleClient},
+    service::{RequestContext, RoleClient, RunningService},
+    ErrorData as McpError, RoleServer, ServerHandler,
 };
 use serde_json::{Map, Value};
 use session::Session;
@@ -106,7 +106,12 @@ impl McpGate {
             .remediation
             .as_ref()
             .filter(|r| !r.allowed_next_actions.is_empty())
-            .map(|r| format!("Next allowed actions: {}", r.allowed_next_actions.join(", ")));
+            .map(|r| {
+                format!(
+                    "Next allowed actions: {}",
+                    r.allowed_next_actions.join(", ")
+                )
+            });
 
         McpCallOutcome::Allowed {
             internal_tool_name: internal,
@@ -145,7 +150,13 @@ impl McpProxyServer {
     }
 
     async fn resolve_downstream(&self, public_name: &str) -> Result<String, McpError> {
-        if let Some(n) = self.public_to_downstream.lock().await.get(public_name).cloned() {
+        if let Some(n) = self
+            .public_to_downstream
+            .lock()
+            .await
+            .get(public_name)
+            .cloned()
+        {
             return Ok(n);
         }
         // Map wasn't populated yet — refresh by listing downstream tools.
@@ -156,19 +167,14 @@ impl McpProxyServer {
             .get(public_name)
             .cloned()
             .ok_or_else(|| {
-                McpError::invalid_params(
-                    format!("Unknown wrapped tool: {public_name}"),
-                    None,
-                )
+                McpError::invalid_params(format!("Unknown wrapped tool: {public_name}"), None)
             })
     }
 
     async fn refresh_tool_map(&self) -> Result<Vec<Tool>, McpError> {
-        let tools = self
-            .downstream
-            .list_all_tools()
-            .await
-            .map_err(|e| McpError::internal_error(format!("downstream list_tools failed: {e}"), None))?;
+        let tools = self.downstream.list_all_tools().await.map_err(|e| {
+            McpError::internal_error(format!("downstream list_tools failed: {e}"), None)
+        })?;
 
         let mut map = self.public_to_downstream.lock().await;
         map.clear();
@@ -181,6 +187,24 @@ impl McpProxyServer {
         }
         Ok(rewritten)
     }
+}
+
+/// Inject an optional `choice` parameter into an MCP tool input schema.
+/// Mirrors Python's `_with_choice_param`.
+pub fn with_choice_param(mut schema: rmcp::model::JsonObject) -> rmcp::model::JsonObject {
+    let props = schema
+        .entry("properties".to_string())
+        .or_insert_with(|| Value::Object(Map::new()));
+    if let Value::Object(p) = props {
+        p.insert(
+            "choice".to_string(),
+            serde_json::json!({
+                "type": "string",
+                "description": "Optional branch or unordered-block choice label.",
+            }),
+        );
+    }
+    schema
 }
 
 /// Rewrite a downstream tool for exposure: public name + `choice` param.
@@ -223,66 +247,55 @@ impl ServerHandler for McpProxyServer {
         info
     }
 
-    fn list_tools(
+    async fn list_tools(
         &self,
         _request: Option<PaginatedRequestParams>,
         _context: RequestContext<RoleServer>,
-    ) -> impl std::future::Future<Output = Result<ListToolsResult, McpError>> + MaybeSendFuture + '_
-    {
-        async move {
-            let tools = self.refresh_tool_map().await?;
-            Ok(ListToolsResult::with_all_items(tools))
-        }
+    ) -> Result<ListToolsResult, McpError> {
+        let tools = self.refresh_tool_map().await?;
+        Ok(ListToolsResult::with_all_items(tools))
     }
 
-    fn call_tool(
+    async fn call_tool(
         &self,
         request: CallToolRequestParams,
         _context: RequestContext<RoleServer>,
-    ) -> impl std::future::Future<Output = Result<CallToolResult, McpError>> + MaybeSendFuture + '_
-    {
-        async move {
-            let public_name = request.name.to_string();
-            let kwargs = kwargs_from_arguments(request.arguments);
+    ) -> Result<CallToolResult, McpError> {
+        let public_name = request.name.to_string();
+        let kwargs = kwargs_from_arguments(request.arguments);
 
-            match self.gate.gate(&public_name, kwargs).await {
-                McpCallOutcome::Blocked(b) => {
-                    let blob = serde_json::to_value(&b).unwrap_or(Value::Null);
-                    let mut result =
-                        CallToolResult::error(vec![Content::text(b.summary())]);
-                    result.structured_content = Some(blob);
-                    Ok(result)
+        match self.gate.gate(&public_name, kwargs).await {
+            McpCallOutcome::Blocked(b) => {
+                let blob = serde_json::to_value(&b).unwrap_or(Value::Null);
+                let mut result = CallToolResult::error(vec![Content::text(b.summary())]);
+                result.structured_content = Some(blob);
+                Ok(result)
+            }
+            McpCallOutcome::Allowed {
+                internal_tool_name,
+                kwargs,
+                next_actions_hint,
+            } => {
+                let downstream_name = self.resolve_downstream(&public_name).await?;
+                let downstream_params = CallToolRequestParams::new(downstream_name)
+                    .with_arguments(kwargs_to_arguments(kwargs));
+                let mut result = self
+                    .downstream
+                    .peer()
+                    .call_tool(downstream_params)
+                    .await
+                    .map_err(|e| {
+                        McpError::internal_error(format!("downstream call_tool failed: {e}"), None)
+                    })?;
+
+                // Record the raw downstream result under the internal name.
+                let recorded = serde_json::to_value(&result).unwrap_or(Value::Null);
+                self.gate.record_result(&internal_tool_name, recorded).await;
+
+                if let Some(hint) = next_actions_hint {
+                    result.content.push(Content::text(hint));
                 }
-                McpCallOutcome::Allowed {
-                    internal_tool_name,
-                    kwargs,
-                    next_actions_hint,
-                } => {
-                    let downstream_name = self.resolve_downstream(&public_name).await?;
-                    let downstream_params = CallToolRequestParams::new(downstream_name)
-                        .with_arguments(kwargs_to_arguments(kwargs));
-                    let mut result = self
-                        .downstream
-                        .peer()
-                        .call_tool(downstream_params)
-                        .await
-                        .map_err(|e| {
-                            McpError::internal_error(
-                                format!("downstream call_tool failed: {e}"),
-                                None,
-                            )
-                        })?;
-
-                    // Record the raw downstream result under the internal name.
-                    let recorded =
-                        serde_json::to_value(&result).unwrap_or(Value::Null);
-                    self.gate.record_result(&internal_tool_name, recorded).await;
-
-                    if let Some(hint) = next_actions_hint {
-                        result.content.push(Content::text(hint));
-                    }
-                    Ok(result)
-                }
+                Ok(result)
             }
         }
     }

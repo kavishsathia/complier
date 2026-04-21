@@ -4,7 +4,7 @@ use ast::*;
 use regex::Regex;
 use thiserror::Error;
 
-use crate::lexer::{Tok, Token, tokenize};
+use crate::lexer::{tokenize, Tok, Token};
 
 #[derive(Debug, Error)]
 pub enum ParseError {
@@ -19,8 +19,16 @@ struct Parser {
 }
 
 pub fn parse(src: &str) -> Result<Program, ParseError> {
+    if src.trim().is_empty() {
+        return Err(ParseError::Unexpected {
+            line: 0,
+            msg: "source is empty".into(),
+        });
+    }
     let tokens = tokenize(src);
-    let mut p = Parser { tokens: tokens.into() };
+    let mut p = Parser {
+        tokens: tokens.into(),
+    };
     p.parse_program()
 }
 
@@ -45,24 +53,42 @@ impl Parser {
 
     fn expect_ident(&mut self) -> Result<String, ParseError> {
         match self.next() {
-            Some(Token { kind: Tok::Ident(s), .. }) => Ok(s),
-            Some(t) => Err(ParseError::Unexpected { line: t.line, msg: format!("expected identifier, got {:?}", t.kind) }),
+            Some(Token {
+                kind: Tok::Ident(s),
+                ..
+            }) => Ok(s),
+            Some(t) => Err(ParseError::Unexpected {
+                line: t.line,
+                msg: format!("expected identifier, got {:?}", t.kind),
+            }),
             None => Err(ParseError::Eof("expected identifier".into())),
         }
     }
 
     fn expect_string(&mut self) -> Result<String, ParseError> {
         match self.next() {
-            Some(Token { kind: Tok::StringLit(s), .. }) => Ok(s),
-            Some(t) => Err(ParseError::Unexpected { line: t.line, msg: format!("expected string, got {:?}", t.kind) }),
+            Some(Token {
+                kind: Tok::StringLit(s),
+                ..
+            }) => Ok(s),
+            Some(t) => Err(ParseError::Unexpected {
+                line: t.line,
+                msg: format!("expected string, got {:?}", t.kind),
+            }),
             None => Err(ParseError::Eof("expected string".into())),
         }
     }
 
     fn expect_prose(&mut self) -> Result<String, ParseError> {
         match self.next() {
-            Some(Token { kind: Tok::ProseStringLit(s), .. }) => Ok(s),
-            Some(t) => Err(ParseError::Unexpected { line: t.line, msg: format!("expected prose string, got {:?}", t.kind) }),
+            Some(Token {
+                kind: Tok::ProseStringLit(s),
+                ..
+            }) => Ok(s),
+            Some(t) => Err(ParseError::Unexpected {
+                line: t.line,
+                msg: format!("expected prose string, got {:?}", t.kind),
+            }),
             None => Err(ParseError::Eof("expected prose string".into())),
         }
     }
@@ -80,10 +106,13 @@ impl Parser {
     fn parse_item(&mut self) -> Result<Item, ParseError> {
         match self.peek_kind() {
             Some(Tok::Guarantee) => Ok(Item::Guarantee(self.parse_guarantee()?)),
-            Some(Tok::Workflow)  => Ok(Item::Workflow(self.parse_workflow()?)),
+            Some(Tok::Workflow) => Ok(Item::Workflow(self.parse_workflow()?)),
             Some(_) => {
                 let t = self.next().unwrap();
-                Err(ParseError::Unexpected { line: t.line, msg: format!("expected guarantee or workflow, got {:?}", t.kind) })
+                Err(ParseError::Unexpected {
+                    line: t.line,
+                    msg: format!("expected guarantee or workflow, got {:?}", t.kind),
+                })
             }
             None => Err(ParseError::Eof("expected item".into())),
         }
@@ -112,7 +141,11 @@ impl Parser {
 
         // steps are indented (indent > 0 and start with Pipe)
         let steps = self.parse_steps(4)?;
-        Ok(Workflow { name, always, steps })
+        Ok(Workflow {
+            name,
+            always,
+            steps,
+        })
     }
 
     // ── steps ─────────────────────────────────────────────────────────────────
@@ -137,18 +170,31 @@ impl Parser {
         self.next();
 
         match self.peek_kind() {
-            Some(Tok::Llm)       => { self.next(); Ok(Step::Llm(LlmStep { prompt: self.expect_string()? })) }
-            Some(Tok::Human)     => { self.next(); Ok(Step::Human(HumanStep { prompt: self.expect_string()? })) }
-            Some(Tok::Fork)      => self.parse_fork_step(),
-            Some(Tok::Join)      => self.parse_join_step(),
+            Some(Tok::Llm) => {
+                self.next();
+                Ok(Step::Llm(LlmStep {
+                    prompt: self.expect_string()?,
+                }))
+            }
+            Some(Tok::Human) => {
+                self.next();
+                Ok(Step::Human(HumanStep {
+                    prompt: self.expect_string()?,
+                }))
+            }
+            Some(Tok::Fork) => self.parse_fork_step(),
+            Some(Tok::Join) => self.parse_join_step(),
             Some(Tok::Call) | Some(Tok::Use) | Some(Tok::Inline) => self.parse_subworkflow_step(),
-            Some(Tok::Branch)    => self.parse_branch_step(base_indent),
-            Some(Tok::Loop)      => self.parse_loop_step(base_indent),
+            Some(Tok::Branch) => self.parse_branch_step(base_indent),
+            Some(Tok::Loop) => self.parse_loop_step(base_indent),
             Some(Tok::Unordered) => self.parse_unordered_step(base_indent),
-            Some(Tok::Ident(_))  => self.parse_tool_step(),
+            Some(Tok::Ident(_)) => self.parse_tool_step(),
             _ => {
                 let line = self.next_line();
-                Err(ParseError::Unexpected { line, msg: "expected step keyword or tool name".into() })
+                Err(ParseError::Unexpected {
+                    line,
+                    msg: "expected step keyword or tool name".into(),
+                })
             }
         }
     }
@@ -158,21 +204,34 @@ impl Parser {
         let mut params = Vec::new();
 
         // params are on the same line (same indent level), each `ident =`
-        while let Some(Token { kind: Tok::Ident(_), indent, .. }) = self.peek() {
+        while let Some(Token {
+            kind: Tok::Ident(_),
+            indent,
+            ..
+        }) = self.peek()
+        {
             let _ = indent;
             let param_name = self.expect_ident()?;
             // expect `=`
             match self.peek_kind() {
-                Some(Tok::Eq) => { self.next(); }
+                Some(Tok::Eq) => {
+                    self.next();
+                }
                 _ => {
                     // not a param — push ident back as ident? We can't un-consume easily.
                     // Instead treat it as a bare ident param with null value (unlikely in practice)
-                    params.push(Param { name: param_name, value: ParamValue::Null });
+                    params.push(Param {
+                        name: param_name,
+                        value: ParamValue::Null,
+                    });
                     continue;
                 }
             }
             let value = self.parse_param_value()?;
-            params.push(Param { name: param_name, value });
+            params.push(Param {
+                name: param_name,
+                value,
+            });
         }
 
         Ok(Step::Tool(ToolStep { name, params }))
@@ -180,13 +239,16 @@ impl Parser {
 
     fn parse_subworkflow_step(&mut self) -> Result<Step, ParseError> {
         let call_type = match self.next().map(|t| t.kind) {
-            Some(Tok::Call)   => "@call".to_string(),
-            Some(Tok::Use)    => "@use".to_string(),
+            Some(Tok::Call) => "@call".to_string(),
+            Some(Tok::Use) => "@use".to_string(),
             Some(Tok::Inline) => "@inline".to_string(),
             _ => unreachable!(),
         };
         let workflow_name = self.expect_ident()?;
-        Ok(Step::Subworkflow(SubworkflowStep { call_type, workflow_name }))
+        Ok(Step::Subworkflow(SubworkflowStep {
+            call_type,
+            workflow_name,
+        }))
     }
 
     fn parse_fork_step(&mut self) -> Result<Step, ParseError> {
@@ -232,7 +294,10 @@ impl Parser {
             }
         }
 
-        Ok(Step::Branch(BranchStep { when_arms, else_arm }))
+        Ok(Step::Branch(BranchStep {
+            when_arms,
+            else_arm,
+        }))
     }
 
     fn parse_loop_step(&mut self, base_indent: usize) -> Result<Step, ParseError> {
@@ -289,19 +354,39 @@ impl Parser {
 
     fn parse_param_value(&mut self) -> Result<ParamValue, ParseError> {
         match self.peek_kind() {
-            Some(Tok::ProseStringLit(_)) => Ok(ParamValue::Guard(Box::new(self.parse_prose_guard()?))),
-            Some(Tok::StringLit(_))      => Ok(ParamValue::String(self.expect_string()?)),
-            Some(Tok::Number(_))         => {
-                if let Some(Token { kind: Tok::Number(n), .. }) = self.next() {
-                    Ok(ParamValue::Int(n as i64))
-                } else { unreachable!() }
+            Some(Tok::ProseStringLit(_)) => {
+                Ok(ParamValue::Guard(Box::new(self.parse_prose_guard()?)))
             }
-            Some(Tok::True)  => { self.next(); Ok(ParamValue::Bool(true)) }
-            Some(Tok::False) => { self.next(); Ok(ParamValue::Bool(false)) }
-            Some(Tok::Null)  => { self.next(); Ok(ParamValue::Null) }
+            Some(Tok::StringLit(_)) => Ok(ParamValue::String(self.expect_string()?)),
+            Some(Tok::Number(_)) => {
+                if let Some(Token {
+                    kind: Tok::Number(n),
+                    ..
+                }) = self.next()
+                {
+                    Ok(ParamValue::Int(n as i64))
+                } else {
+                    unreachable!()
+                }
+            }
+            Some(Tok::True) => {
+                self.next();
+                Ok(ParamValue::Bool(true))
+            }
+            Some(Tok::False) => {
+                self.next();
+                Ok(ParamValue::Bool(false))
+            }
+            Some(Tok::Null) => {
+                self.next();
+                Ok(ParamValue::Null)
+            }
             _ => {
                 let line = self.next_line();
-                Err(ParseError::Unexpected { line, msg: "expected param value".into() })
+                Err(ParseError::Unexpected {
+                    line,
+                    msg: "expected param value".into(),
+                })
             }
         }
     }
@@ -319,21 +404,40 @@ impl Parser {
             Policy::default()
         };
 
-        Ok(ProseGuard { prose, checks, policy })
+        Ok(ProseGuard {
+            prose,
+            checks,
+            policy,
+        })
     }
 
     fn parse_policy(&mut self) -> Result<Policy, ParseError> {
         match self.peek_kind() {
-            Some(Tok::Halt)     => { self.next(); Ok(Policy::Halt) }
-            Some(Tok::Skip)     => { self.next(); Ok(Policy::Skip) }
+            Some(Tok::Halt) => {
+                self.next();
+                Ok(Policy::Halt)
+            }
+            Some(Tok::Skip) => {
+                self.next();
+                Ok(Policy::Skip)
+            }
             Some(Tok::Number(_)) => {
-                if let Some(Token { kind: Tok::Number(n), .. }) = self.next() {
+                if let Some(Token {
+                    kind: Tok::Number(n),
+                    ..
+                }) = self.next()
+                {
                     Ok(Policy::Retry(RetryPolicy { attempts: n }))
-                } else { unreachable!() }
+                } else {
+                    unreachable!()
+                }
             }
             _ => {
                 let line = self.next_line();
-                Err(ParseError::Unexpected { line, msg: "expected policy (halt, skip, or number)".into() })
+                Err(ParseError::Unexpected {
+                    line,
+                    msg: "expected policy (halt, skip, or number)".into(),
+                })
             }
         }
     }
@@ -346,11 +450,17 @@ fn extract_checks(prose: &str) -> Vec<Check> {
     let mut checks = Vec::new();
     for cap in re.captures_iter(prose) {
         if let Some(m) = cap.get(1) {
-            checks.push(Check::Learned(LearnedCheck { name: m.as_str().to_string() }));
+            checks.push(Check::Learned(LearnedCheck {
+                name: m.as_str().to_string(),
+            }));
         } else if let Some(m) = cap.get(2) {
-            checks.push(Check::Human(HumanCheck { name: m.as_str().to_string() }));
+            checks.push(Check::Human(HumanCheck {
+                name: m.as_str().to_string(),
+            }));
         } else if let Some(m) = cap.get(3) {
-            checks.push(Check::Model(ModelCheck { name: m.as_str().to_string() }));
+            checks.push(Check::Model(ModelCheck {
+                name: m.as_str().to_string(),
+            }));
         }
     }
     checks

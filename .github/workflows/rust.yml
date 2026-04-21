@@ -1,0 +1,62 @@
+name: Rust
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "core/**"
+      - ".github/workflows/rust.yml"
+  pull_request:
+    paths:
+      - "core/**"
+      - ".github/workflows/rust.yml"
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -D warnings
+
+jobs:
+  build-and-test:
+    name: build + test (${{ matrix.toolchain }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        toolchain:
+          - stable
+    defaults:
+      run:
+        working-directory: core
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ matrix.toolchain }}
+          components: rustfmt, clippy
+
+      - name: Cache cargo registry + target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            core/target
+          key: cargo-${{ runner.os }}-${{ matrix.toolchain }}-${{ hashFiles('core/Cargo.lock', 'core/**/Cargo.toml') }}
+          restore-keys: |
+            cargo-${{ runner.os }}-${{ matrix.toolchain }}-
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Clippy (deny warnings)
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Build workspace
+        run: cargo build --workspace --all-targets
+
+      - name: Run workspace tests
+        run: cargo test --workspace --all-targets

@@ -38,7 +38,8 @@ fn normalize_machine_name(value: &str) -> String {
             last_was_underscore = true;
         }
     }
-    out.trim_matches(|c: char| matches!(c, '.' | '_' | '/' | '-')).to_string()
+    out.trim_matches(|c: char| matches!(c, '.' | '_' | '/' | '-'))
+        .to_string()
 }
 
 #[cfg(test)]

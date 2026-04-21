@@ -25,6 +25,13 @@ impl<T> WrapOutcome<T> {
     }
 }
 
+/// Convenience helper mirroring Python's top-level `wrap_function(session, func)`.
+/// Returns a `FunctionWrapper` bound to the session; call `.call_sync(...)` etc.
+/// on the returned wrapper to actually execute gated calls.
+pub fn wrap_function(session: Arc<Mutex<Session>>, _func_name: &str) -> FunctionWrapper {
+    FunctionWrapper::new(session)
+}
+
 /// A session-bound gate for tool calls. Holds a shared handle to the
 /// `Session` so multiple wrappers can share state.
 #[derive(Clone)]
@@ -96,8 +103,8 @@ impl FunctionWrapper {
         };
 
         let result = f(&decision);
-        let json =
-            serde_json::to_value(&result).unwrap_or_else(|e| Value::String(format!("<serialize error: {e}>")));
+        let json = serde_json::to_value(&result)
+            .unwrap_or_else(|e| Value::String(format!("<serialize error: {e}>")));
         self.session.lock().await.record_result(tool_name, json);
         WrapOutcome::Allowed(result)
     }
@@ -154,8 +161,8 @@ impl FunctionWrapper {
         };
 
         let result = f(decision).await;
-        let json =
-            serde_json::to_value(&result).unwrap_or_else(|e| Value::String(format!("<serialize error: {e}>")));
+        let json = serde_json::to_value(&result)
+            .unwrap_or_else(|e| Value::String(format!("<serialize error: {e}>")));
         self.session.lock().await.record_result(tool_name, json);
         WrapOutcome::Allowed(result)
     }

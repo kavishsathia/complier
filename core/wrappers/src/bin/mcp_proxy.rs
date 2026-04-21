@@ -13,8 +13,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use rmcp::{
-    ServiceExt,
     transport::{ConfigureCommandExt, TokioChildProcess},
+    ServiceExt,
 };
 use tokio::sync::Mutex;
 use wrappers::mcp::{McpGate, McpProxyServer};
@@ -87,11 +87,9 @@ async fn main() -> anyhow::Result<()> {
     // Spawn the downstream MCP server as a child process and connect to it.
     let head = args.downstream_command[0].clone();
     let tail: Vec<String> = args.downstream_command[1..].to_vec();
-    let transport = TokioChildProcess::new(tokio::process::Command::new(&head).configure(
-        |cmd| {
-            cmd.args(&tail);
-        },
-    ))?;
+    let transport = TokioChildProcess::new(tokio::process::Command::new(&head).configure(|cmd| {
+        cmd.args(&tail);
+    }))?;
     let downstream = ().serve(transport).await?;
 
     // Serve our proxy to the parent agent on stdio.

@@ -70,10 +70,21 @@ pub fn tokenize(src: &str) -> Vec<Token> {
 
         while let Some(&c) = chars.peek() {
             match c {
-                ' ' | '\t' => { chars.next(); }
-                '|' => { chars.next(); col_tokens.push(Tok::Pipe); }
-                ':' => { chars.next(); col_tokens.push(Tok::Colon); }
-                '=' => { chars.next(); col_tokens.push(Tok::Eq); }
+                ' ' | '\t' => {
+                    chars.next();
+                }
+                '|' => {
+                    chars.next();
+                    col_tokens.push(Tok::Pipe);
+                }
+                ':' => {
+                    chars.next();
+                    col_tokens.push(Tok::Colon);
+                }
+                '=' => {
+                    chars.next();
+                    col_tokens.push(Tok::Eq);
+                }
                 '"' => {
                     chars.next();
                     let s: String = chars.by_ref().take_while(|&ch| ch != '"').collect();
@@ -91,7 +102,9 @@ pub fn tokenize(src: &str) -> Vec<Token> {
                         if ch.is_alphanumeric() || ch == '_' {
                             chars.next();
                             rest.push(ch);
-                        } else { break; }
+                        } else {
+                            break;
+                        }
                     }
                     col_tokens.push(keyword_or_ident(&format!("@{rest}")));
                 }
@@ -102,14 +115,21 @@ pub fn tokenize(src: &str) -> Vec<Token> {
                         if ch.is_alphanumeric() || ch == '_' {
                             chars.next();
                             rest.push(ch);
-                        } else { break; }
+                        } else {
+                            break;
+                        }
                     }
                     col_tokens.push(keyword_or_ident(&format!("-{rest}")));
                 }
                 c if c.is_ascii_digit() => {
                     let mut n = String::new();
                     while let Some(&ch) = chars.peek() {
-                        if ch.is_ascii_digit() { chars.next(); n.push(ch); } else { break; }
+                        if ch.is_ascii_digit() {
+                            chars.next();
+                            n.push(ch);
+                        } else {
+                            break;
+                        }
                     }
                     col_tokens.push(Tok::Number(n.parse().unwrap_or(0)));
                 }
@@ -120,16 +140,24 @@ pub fn tokenize(src: &str) -> Vec<Token> {
                         if ch.is_alphanumeric() || ch == '_' || ch == '.' || ch == '/' {
                             chars.next();
                             word.push(ch);
-                        } else { break; }
+                        } else {
+                            break;
+                        }
                     }
                     col_tokens.push(keyword_or_ident(&word));
                 }
-                _ => { chars.next(); }
+                _ => {
+                    chars.next();
+                }
             }
         }
 
         for kind in col_tokens {
-            out.push(Token { kind, indent, line: line_no });
+            out.push(Token {
+                kind,
+                indent,
+                line: line_no,
+            });
         }
     }
     out
@@ -138,27 +166,27 @@ pub fn tokenize(src: &str) -> Vec<Token> {
 fn keyword_or_ident(s: &str) -> Tok {
     match s {
         "guarantee" => Tok::Guarantee,
-        "workflow"  => Tok::Workflow,
-        "@always"   => Tok::Always,
-        "@llm"      => Tok::Llm,
-        "@human"    => Tok::Human,
-        "@fork"     => Tok::Fork,
-        "@join"     => Tok::Join,
-        "@branch"   => Tok::Branch,
-        "@loop"     => Tok::Loop,
-        "@unordered"=> Tok::Unordered,
-        "-when"     => Tok::When,
-        "-else"     => Tok::Else,
-        "-until"    => Tok::Until,
-        "-step"     => Tok::Step,
-        "@call"     => Tok::Call,
-        "@use"      => Tok::Use,
-        "@inline"   => Tok::Inline,
-        "halt"      => Tok::Halt,
-        "skip"      => Tok::Skip,
-        "true"      => Tok::True,
-        "false"     => Tok::False,
-        "null"      => Tok::Null,
-        other       => Tok::Ident(other.to_string()),
+        "workflow" => Tok::Workflow,
+        "@always" => Tok::Always,
+        "@llm" => Tok::Llm,
+        "@human" => Tok::Human,
+        "@fork" => Tok::Fork,
+        "@join" => Tok::Join,
+        "@branch" => Tok::Branch,
+        "@loop" => Tok::Loop,
+        "@unordered" => Tok::Unordered,
+        "-when" => Tok::When,
+        "-else" => Tok::Else,
+        "-until" => Tok::Until,
+        "-step" => Tok::Step,
+        "@call" => Tok::Call,
+        "@use" => Tok::Use,
+        "@inline" => Tok::Inline,
+        "halt" => Tok::Halt,
+        "skip" => Tok::Skip,
+        "true" => Tok::True,
+        "false" => Tok::False,
+        "null" => Tok::Null,
+        other => Tok::Ident(other.to_string()),
     }
 }

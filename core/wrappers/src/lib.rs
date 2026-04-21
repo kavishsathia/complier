@@ -7,9 +7,11 @@
 
 mod blocked;
 mod function;
+pub mod local;
 pub mod mcp;
 mod naming;
+pub mod remote;
 
 pub use blocked::BlockedToolResponse;
-pub use function::{FunctionWrapper, WrapOutcome};
+pub use function::{wrap_function, FunctionWrapper, WrapOutcome};
 pub use naming::{normalize_tool_name, public_tool_name};
