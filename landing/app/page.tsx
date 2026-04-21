@@ -1,165 +1,184 @@
 import Image from "next/image";
 
-function Hero() {
+const navItems = ["Product", "Runtime", "Syntax", "Docs"];
+
+const featureCards = [
+  {
+    title: "Contracts",
+    eyebrow: "Authored process",
+    body: "Declare the tool sequence, checks, branches, loops, and guarantees your agent is expected to follow.",
+  },
+  {
+    title: "Sessions",
+    eyebrow: "Live state",
+    body: "Bind one execution to a compiled contract and track the current workflow position as tool calls happen.",
+  },
+  {
+    title: "Wrappers",
+    eyebrow: "Tool boundary",
+    body: "Wrap Python callables or MCP tools so enforcement happens where actions actually execute.",
+  },
+  {
+    title: "Remediation",
+    eyebrow: "Agent feedback",
+    body: "Blocked calls return structured guidance with the next allowed actions, not a generic failure.",
+  },
+];
+
+const runtimeRows = [
+  ["01", "parse", "authored .cpl becomes a validated contract model"],
+  ["02", "compile", "workflows become deterministic runtime graphs"],
+  ["03", "attach", "a session tracks one live agent execution"],
+  ["04", "enforce", "wrapped tools consult the session before running"],
+];
+
+function Header() {
   return (
-    <section className="min-h-screen flex flex-col items-center justify-center px-6 text-center">
-      <div className="animate-fade-in-up">
+    <header className="site-header">
+      <a href="#top" className="brand" aria-label="complier homepage">
         <Image
           src="/logo-transparent.png"
-          alt="complier logo"
-          width={280}
-          height={124}
+          alt="complier"
+          width={158}
+          height={70}
           priority
-          className="mx-auto mb-8 h-auto"
+          className="brand-mark"
         />
-      </div>
+      </a>
+      <nav className="nav-links" aria-label="Primary navigation">
+        {navItems.map((item) => (
+          <a key={item} href={item === "Docs" ? "/docs" : `#${item.toLowerCase()}`}>
+            {item}
+          </a>
+        ))}
+      </nav>
+      <a href="/docs" className="header-cta">
+        Read Docs
+      </a>
+    </header>
+  );
+}
 
-      <p className="animate-fade-in-up-delay-1 text-secondary text-base md:text-lg max-w-xl leading-relaxed">
-        a compiled DSL that enforces workflow contracts
-        <br />
-        on tool-using AI agents — at runtime
-      </p>
+function DotField() {
+  return (
+    <div className="dot-field" aria-hidden="true">
+      <span className="dot-cluster cluster-a" />
+      <span className="dot-cluster cluster-b" />
+      <span className="dot-cluster cluster-c" />
+      <span className="dot-cluster cluster-d" />
+      <span className="dot-cluster cluster-e" />
+      <span className="dot-cluster cluster-f" />
+    </div>
+  );
+}
 
-      <div className="animate-fade-in-up-delay-2 flex gap-3 mt-8">
-        <a
-          href="/docs"
-          className="px-5 py-2.5 bg-accent text-[#0a0a0a] text-sm font-medium rounded hover:brightness-110 transition-all"
-        >
-          get started
-        </a>
-        <a
-          href="https://github.com/kavishsathia/complier#features"
-          className="px-5 py-2.5 border border-border text-secondary text-sm rounded hover:border-secondary hover:text-foreground transition-all"
-        >
-          documentation
-        </a>
-      </div>
-
-      <div className="animate-fade-in-up-delay-3 mt-20 text-muted text-xs animate-pulse-slow hidden md:block">
-        ↓
+function Hero() {
+  return (
+    <section id="top" className="hero-shell">
+      <DotField />
+      <div className="hero-copy">
+        <p className="hero-kicker">Contract enforcement for tool-using AI agents.</p>
+        <h1>
+          Agents drift from process.
+          <br />
+          Complier blocks the drift.
+        </h1>
+        <p className="hero-subhead">
+          Define the workflow your agent is supposed to follow. Complier
+          compiles it into a runtime contract and enforces every tool call at
+          the boundary.
+        </p>
+        <div className="hero-actions">
+          <a href="/docs" className="button button-primary">
+            Get Started
+          </a>
+          <a
+            href="https://github.com/kavishsathia/complier"
+            className="button button-secondary"
+          >
+            GitHub
+          </a>
+        </div>
       </div>
     </section>
   );
 }
 
-function Problem() {
+function Product() {
   return (
-    <section className="py-24 px-6 border-t border-border">
-      <div className="max-w-4xl mx-auto">
-        <h2 className="text-xl md:text-2xl font-medium mb-4">the problem</h2>
-        <p className="text-secondary text-base leading-relaxed max-w-2xl mb-12">
-          AI agents with tool access can do anything — and that&apos;s the
-          problem. A prompt says &quot;only search then summarize&quot;, but
-          nothing enforces it. The agent can call any tool, in any order, at any
-          time. You only find out it went wrong after the damage is done.
+    <section id="product" className="section section-grid">
+      <div className="section-heading">
+        <p className="eyebrow">Product</p>
+        <h2>Govern what agents do, not just what they say.</h2>
+      </div>
+      <div className="copy-block">
+        <p>
+          Prompts can ask an agent to follow a process. Complier makes the
+          process executable. It sits beside your existing framework, watches
+          wrapped tools, and decides whether each attempted call complies with
+          the active contract.
         </p>
-
-        <div className="grid md:grid-cols-2 gap-4">
-          <div className="rounded border border-border bg-card p-5">
-            <div className="text-muted text-sm mb-3 uppercase tracking-wider">
-              what you wrote
-            </div>
-            <pre className="text-base leading-relaxed">
-              <code>
-                <span className="code-string">
-                  &quot;Search the web for the topic,
-                </span>
-                {"\n"}
-                <span className="code-string">
-                  {" "}then summarize the results.
-                </span>
-                {"\n"}
-                <span className="code-string">
-                  {" "}Do NOT send any emails.&quot;
-                </span>
-              </code>
-            </pre>
-          </div>
-          <div className="rounded border border-border bg-card p-5">
-            <div className="text-muted text-sm mb-3 uppercase tracking-wider">
-              what it did
-            </div>
-            <pre className="text-base leading-relaxed">
-              <code>
-                <span className="code-comment">
-                  # searched web ✓
-                </span>
-                {"\n"}
-                <span className="code-comment"># summarized ✓</span>
-                {"\n"}
-                <span className="text-red-400">
-                  send_email(to=&quot;boss@work.com&quot;)
-                </span>
-                {"\n"}
-                <span className="code-comment">
-                  # ...oops
-                </span>
-              </code>
-            </pre>
-          </div>
-        </div>
-
-        <p className="text-muted text-sm mt-6 text-center">
-          natural language directives are suggestions — not guarantees
-        </p>
+      </div>
+      <div className="feature-grid">
+        {featureCards.map((card) => (
+          <article key={card.title} className="feature-card">
+            <p>{card.eyebrow}</p>
+            <h3>{card.title}</h3>
+            <span>{card.body}</span>
+          </article>
+        ))}
       </div>
     </section>
   );
 }
 
-function Solution() {
+function Runtime() {
   return (
-    <section className="py-24 px-6 bg-bg-secondary border-t border-border">
-      <div className="max-w-4xl mx-auto">
-        <h2 className="text-xl md:text-2xl font-medium mb-4">the solution</h2>
-        <p className="text-secondary text-base leading-relaxed max-w-2xl mb-14">
-          Write a contract in complier&apos;s DSL. It compiles into a runtime
-          graph that sits alongside your agent. Every tool call is checked
-          against the graph — allowed calls pass through, disallowed calls are
-          blocked with structured remediation.
-        </p>
-
-        <div className="flex flex-col md:flex-row items-center justify-center gap-6 md:gap-10 mb-16">
-          {[
-            { symbol: "◇", label: "define", sub: "write a .cpl contract" },
-            { symbol: "▷", label: "compile", sub: "parse → AST → graph" },
-            { symbol: "◈", label: "enforce", sub: "intercept every tool call" },
-          ].map((step, i) => (
-            <div key={step.label} className="flex items-center gap-6 md:gap-10">
-              <div className="text-center">
-                <div className="text-2xl mb-2 text-accent">{step.symbol}</div>
-                <div className="text-base font-medium">{step.label}</div>
-                <div className="text-sm text-muted mt-1">{step.sub}</div>
-              </div>
-              {i < 2 && (
-                <div className="hidden md:block text-muted text-lg">→</div>
-              )}
+    <section id="runtime" className="section runtime-section">
+      <div className="section-heading compact">
+        <p className="eyebrow">Runtime</p>
+        <h2>A contract-aware boundary around your tools.</h2>
+      </div>
+      <div className="runtime-panel">
+        <div className="runtime-diagram" aria-label="Runtime enforcement diagram">
+          <div className="flow-row">
+            <div className="diagram-node">
+              <small>agent</small>
+              <strong>attempts tool call</strong>
+              <span>send_email(to=&quot;team&quot;)</span>
             </div>
-          ))}
+            <div className="flow-line">
+              <span>wrapped tool</span>
+            </div>
+            <div className="diagram-node diagram-node-primary">
+              <small>session</small>
+              <strong>checks contract</strong>
+              <span>is this action allowed now?</span>
+            </div>
+          </div>
+          <div className="decision-split">
+            <span />
+          </div>
+          <div className="decision-grid">
+            <div className="decision allowed">
+              <small>allowed path</small>
+              <strong>tool executes</strong>
+              <span>session advances to next step</span>
+            </div>
+            <div className="decision blocked">
+              <small>blocked path</small>
+              <strong>call is stopped</strong>
+              <span>remediation lists allowed actions</span>
+            </div>
+          </div>
         </div>
-
-        <div className="grid md:grid-cols-3 gap-4">
-          {[
-            {
-              title: "runtime enforcement",
-              desc: "blocks bad calls before they execute — not after",
-            },
-            {
-              title: "framework agnostic",
-              desc: "wraps your tools, doesn't replace your agent framework",
-            },
-            {
-              title: "HATEOAS-inspired",
-              desc: "the agent always knows what it can do next",
-            },
-          ].map((card) => (
-            <div
-              key={card.title}
-              className="rounded border border-border bg-card p-5"
-            >
-              <div className="text-base font-medium mb-2">{card.title}</div>
-              <div className="text-sm text-secondary leading-relaxed">
-                {card.desc}
+        <div className="runtime-list">
+          {runtimeRows.map(([step, title, body]) => (
+            <div key={step} className="runtime-row">
+              <span>{step}</span>
+              <div>
+                <h3>{title}</h3>
+                <p>{body}</p>
               </div>
             </div>
           ))}
@@ -171,200 +190,89 @@ function Solution() {
 
 function Syntax() {
   return (
-    <section className="py-24 px-6 border-t border-border">
-      <div className="max-w-4xl mx-auto">
-        <h2 className="text-xl md:text-2xl font-medium mb-4">the language</h2>
-        <p className="text-secondary text-base leading-relaxed max-w-2xl mb-10">
-          A purpose-built DSL for defining agent workflows. Supports tool calls,
-          branching, loops, parallel execution, contract checks, and reusable
-          guarantees — all compiled into a directed runtime graph.
-        </p>
-
-        <div className="rounded border border-border bg-[#0c0c0c] p-6 overflow-x-auto">
-          <pre>
-            <code>
-              <span className="code-keyword">guarantee</span>
-              {" safe "}
-              <span className="code-param">[no_harmful_content]:halt</span>
-              {"\n\n"}
-              <span className="code-keyword">workflow</span>
-              <span className="code-string"> &quot;research&quot;</span>
-              <span className="code-decorator"> @always</span>
-              {" safe\n"}
-              {"    "}
-              <span className="code-op">|</span>
-              <span className="code-decorator"> @human</span>
-              <span className="code-string">
-                {" "}&quot;What topic?&quot;
-              </span>
-              {"\n"}
-              {"    "}
-              <span className="code-op">|</span>
-              {" search_web\n"}
-              {"    "}
-              <span className="code-op">|</span>
-              {" summarize "}
-              <span className="code-param">
-                style=([relevant] && [concise]):halt
-              </span>
-              {"\n"}
-              {"    "}
-              <span className="code-op">|</span>
-              <span className="code-decorator"> @branch</span>
-              {"\n"}
-              {"        "}
-              <span className="code-keyword">-when</span>
-              <span className="code-string"> &quot;technical&quot;</span>
-              {"\n"}
-              {"            "}
-              <span className="code-op">|</span>
-              <span className="code-decorator"> @llm</span>
-              <span className="code-string">
-                {" "}&quot;Write detailed analysis&quot;
-              </span>
-              {"\n"}
-              {"        "}
-              <span className="code-keyword">-else</span>
-              {"\n"}
-              {"            "}
-              <span className="code-op">|</span>
-              <span className="code-decorator"> @llm</span>
-              <span className="code-string">
-                {" "}&quot;Write brief summary&quot;
-              </span>
-              {"\n"}
-              {"    "}
-              <span className="code-op">|</span>
-              <span className="code-decorator"> @call</span>
-              {" send_report"}
-            </code>
-          </pre>
+    <section id="syntax" className="section syntax-section">
+      <div className="section-heading">
+        <p className="eyebrow">Syntax</p>
+        <h2>Small authored specs. Concrete runtime behavior.</h2>
+      </div>
+      <div className="code-window">
+        <div className="code-titlebar">
+          <span>contract_demo.cpl</span>
+          <span>compiled enforcement</span>
         </div>
-
-        <div className="mt-8 grid md:grid-cols-2 gap-4">
-          <div className="rounded border border-border bg-card p-5">
-            <div className="text-base font-medium mb-3">constructs</div>
-            <div className="text-sm text-secondary leading-loose">
-              <span className="code-decorator">@branch</span>{" "}
-              <span className="code-decorator">@loop</span>{" "}
-              <span className="code-decorator">@unordered</span>{" "}
-              <span className="code-decorator">@fork</span>/
-              <span className="code-decorator">@join</span>{" "}
-              <span className="code-decorator">@call</span>{" "}
-              <span className="code-decorator">@use</span>{" "}
-              <span className="code-decorator">@inline</span>{" "}
-              <span className="code-decorator">@llm</span>{" "}
-              <span className="code-decorator">@human</span>
-            </div>
-          </div>
-          <div className="rounded border border-border bg-card p-5">
-            <div className="text-base font-medium mb-3">checks</div>
-            <div className="text-sm text-secondary leading-loose">
-              <span className="code-param">[model]</span>{" "}
-              model-evaluated
-              <br />
-              <span className="code-string">{"{human}"}</span>{" "}
-              human-approved
-              <br />
-              <span className="code-keyword">#{"{learned}"}</span>{" "}
-              memory-backed
-              <br />
-              <span className="code-param">(expr):policy</span>{" "}
-              expression-level policy
-            </div>
-          </div>
-        </div>
+        <pre>
+          <code>
+            <span className="code-keyword">guarantee</span>
+            {" safe "}
+            <span className="code-param">[no_harmful_content]:halt</span>
+            {"\n\n"}
+            <span className="code-keyword">workflow</span>
+            <span className="code-string"> &quot;research&quot;</span>
+            <span className="code-decorator"> @always</span>
+            {" safe\n"}
+            {"    "}
+            <span className="code-op">|</span>
+            <span className="code-decorator"> @human</span>
+            <span className="code-string"> &quot;What topic?&quot;</span>
+            {"\n"}
+            {"    "}
+            <span className="code-op">|</span>
+            {" search_web\n"}
+            {"    "}
+            <span className="code-op">|</span>
+            <span className="code-decorator"> @llm</span>
+            <span className="code-string"> &quot;Summarize&quot;</span>
+            {" "}
+            <span className="code-param">([relevant]:3 && [concise]:halt)</span>
+            {"\n"}
+            {"    "}
+            <span className="code-op">|</span>
+            {" send_report "}
+            <span className="code-param">audience=&quot;team&quot;</span>
+          </code>
+        </pre>
       </div>
     </section>
   );
 }
 
-function HowItWorks() {
+function Enforcement() {
   return (
-    <section className="py-24 px-6 bg-bg-secondary border-t border-border">
-      <div className="max-w-4xl mx-auto">
-        <h2 className="text-xl md:text-2xl font-medium mb-4">how it works</h2>
-        <p className="text-secondary text-base leading-relaxed max-w-2xl mb-12">
-          Wrap your existing tools. The session checks every call against the
-          compiled graph and either lets it through or returns remediation info.
-        </p>
-
-        <div className="rounded border border-border bg-[#0c0c0c] p-6 overflow-x-auto">
+    <section className="section enforcement-section">
+      <div className="section-heading compact">
+        <p className="eyebrow">Tool Calls</p>
+        <h2>Allowed calls advance. Non-compliant calls stop.</h2>
+      </div>
+      <div className="terminal-grid">
+        <div className="terminal-card">
+          <p>compliant call</p>
           <pre>
             <code>
-              <span className="code-keyword">from</span>
-              {" complier "}
-              <span className="code-keyword">import</span>
-              {" Contract, wrap_function\n\n"}
-              <span className="code-comment">
-                # compile the contract
-              </span>
+              <span className="code-comment">agent attempts</span>
               {"\n"}
-              {"contract = Contract.from_file("}
-              <span className="code-string">&quot;workflow.cpl&quot;</span>
-              {")\n"}
-              {"session = contract.create_session()\n\n"}
-              <span className="code-comment">
-                # wrap your tools — enforcement is transparent
-              </span>
-              {"\n"}
-              {"safe_search = wrap_function(session, search_web)\n"}
-              {"safe_summarize = wrap_function(session, summarize)\n\n"}
-              <span className="code-comment">
-                # if the agent calls a tool out of order:
-              </span>
-              {"\n"}
-              <span className="code-comment">
-                # → BlockedToolResponse with remediation info
-              </span>
-              {"\n"}
-              <span className="code-comment">
-                # if the call is allowed:
-              </span>
-              {"\n"}
-              <span className="code-comment">
-                # → executes normally, session advances
-              </span>
+              {"search_web(topic="}
+              <span className="code-string">&quot;rbac&quot;</span>
+              {")\n\n"}
+              <span className="status-pass">ALLOW</span>
+              {" session advances\n"}
+              <span className="code-comment">next allowed: summarize</span>
             </code>
           </pre>
         </div>
-
-        <div className="mt-10 flex flex-col gap-0">
-          {[
-            {
-              step: "01",
-              title: "agent calls wrapped tool",
-              desc: "your agent framework calls search_web() as usual",
-            },
-            {
-              step: "02",
-              title: "session checks the graph",
-              desc: "is this tool allowed at this point in the workflow?",
-            },
-            {
-              step: "03",
-              title: "guards are evaluated",
-              desc: "model checks, human checks, learned checks — all run",
-            },
-            {
-              step: "04",
-              title: "allow or block",
-              desc: "allowed → tool executes. blocked → remediation info returned to the agent",
-            },
-          ].map((item) => (
-            <div
-              key={item.step}
-              className="flex gap-5 py-4 border-b border-border last:border-0"
-            >
-              <div className="text-accent text-sm font-medium mt-0.5 shrink-0">
-                {item.step}
-              </div>
-              <div>
-                <div className="text-base font-medium">{item.title}</div>
-                <div className="text-sm text-secondary mt-1">{item.desc}</div>
-              </div>
-            </div>
-          ))}
+        <div className="terminal-card">
+          <p>blocked call</p>
+          <pre>
+            <code>
+              <span className="code-comment">agent attempts</span>
+              {"\n"}
+              {"send_email(to="}
+              <span className="code-string">&quot;team&quot;</span>
+              {")\n\n"}
+              <span className="status-block">BLOCK</span>
+              {" not allowed now\n"}
+              <span className="code-comment">remediation: call summarize first</span>
+            </code>
+          </pre>
         </div>
       </div>
     </section>
@@ -373,36 +281,26 @@ function HowItWorks() {
 
 function Footer() {
   return (
-    <footer className="py-10 px-6 border-t border-border text-center">
-      <div className="text-sm text-muted">
-        <a
-          href="https://github.com/kavishsathia/complier"
-          className="hover:text-secondary transition-colors"
-        >
-          github
-        </a>
-        <span className="mx-2">·</span>
-        <a
-          href="https://pypi.org/project/complier/"
-          className="hover:text-secondary transition-colors"
-        >
-          pypi
-        </a>
-        <span className="mx-2">·</span>
-        <span>MIT — Kavish Sathia, 2026</span>
-      </div>
+    <footer className="footer">
+      <span>complier</span>
+      <nav aria-label="Footer navigation">
+        <a href="/docs">Documentation</a>
+        <a href="https://github.com/kavishsathia/complier">GitHub</a>
+        <a href="https://pypi.org/project/complier/">PyPI</a>
+      </nav>
     </footer>
   );
 }
 
 export default function Home() {
   return (
-    <main>
+    <main className="page-frame">
+      <Header />
       <Hero />
-      <Problem />
-      <Solution />
+      <Product />
+      <Runtime />
       <Syntax />
-      <HowItWorks />
+      <Enforcement />
       <Footer />
     </main>
   );
