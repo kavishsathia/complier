@@ -1,15 +1,22 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 
-use ast::{ParamValue, Policy, ProseGuard, RetryPolicy};
+use ast::{Check, ParamValue, Policy, ProseGuard, RetryPolicy};
 use compiler::Contract;
 use runtime::{RuntimeNode, ToolNode};
+use serde_json::Value;
 
 use crate::decisions::{Decision, NextActionDescriptor, NextActions, Remediation};
-use crate::state::SessionState;
+use crate::memory::Memory;
+use crate::state::{SessionEvent, SessionState};
 
-/// Trait for evaluating prose guards and param constraints.
-/// Callers inject an implementation — local model, cloud, or mock.
+/// Evaluates a `[model_check]` prose expression against a candidate value.
+/// The `prose` includes the full guard text with check annotations stripped.
 pub trait ModelEvaluator: Send + Sync {
+    fn evaluate(&self, prose: &str, value: &str) -> EvalResult;
+}
+
+/// Evaluates a `{human_check}` prose expression. Typically prompts the user.
+pub trait HumanEvaluator: Send + Sync {
     fn evaluate(&self, prose: &str, value: &str) -> EvalResult;
 }
 
@@ -19,10 +26,21 @@ pub struct EvalResult {
     pub reasons: Vec<String>,
 }
 
+impl EvalResult {
+    pub fn pass() -> Self {
+        Self { passed: true, reasons: vec![] }
+    }
+    pub fn fail(reason: impl Into<String>) -> Self {
+        Self { passed: false, reasons: vec![reason.into()] }
+    }
+}
+
 pub struct Session {
     pub contract: Contract,
     pub state: SessionState,
-    pub evaluator: Option<Box<dyn ModelEvaluator>>,
+    pub memory: Memory,
+    pub model: Option<Box<dyn ModelEvaluator>>,
+    pub human: Option<Box<dyn HumanEvaluator>>,
 }
 
 impl Session {
@@ -31,21 +49,41 @@ impl Session {
         if let Some(ref name) = workflow {
             if !contract.workflows.contains_key(name) {
                 let available: Vec<_> = contract.workflows.keys().cloned().collect();
-                return Err(format!("Unknown workflow '{name}'. Available: {}", available.join(", ")));
+                return Err(format!(
+                    "Unknown workflow '{name}'. Available: {}",
+                    available.join(", ")
+                ));
             }
             state.active_workflow = Some(name.clone());
         }
-        Ok(Self { contract, state, evaluator: None })
+        Ok(Self {
+            contract,
+            state,
+            memory: Memory::empty(),
+            model: None,
+            human: None,
+        })
     }
 
-    pub fn with_evaluator(mut self, eval: Box<dyn ModelEvaluator>) -> Self {
-        self.evaluator = Some(eval);
+    pub fn with_model(mut self, eval: Box<dyn ModelEvaluator>) -> Self {
+        self.model = Some(eval);
+        self
+    }
+
+    pub fn with_human(mut self, eval: Box<dyn HumanEvaluator>) -> Self {
+        self.human = Some(eval);
+        self
+    }
+
+    pub fn with_memory(mut self, memory: Memory) -> Self {
+        self.memory = memory;
         self
     }
 
     /// Describe what the agent can do first.
     pub fn kickoff(&self) -> Result<Vec<String>, String> {
-        let wf_name = self.get_or_choose_workflow()
+        let wf_name = self
+            .get_or_choose_workflow()
             .ok_or("Multiple workflows — specify one.")?;
         let start_id = &self.contract.workflows[wf_name].start_node_id;
         Ok(self.next_actions_after_node(wf_name, start_id, None))
@@ -55,14 +93,18 @@ impl Session {
     pub fn check_tool_call(
         &mut self,
         tool_name: &str,
-        kwargs: &HashMap<String, String>,
+        kwargs: &HashMap<String, Value>,
         choice: Option<&str>,
     ) -> Decision {
         if self.state.terminated {
             return Decision::blocked("The session has been halted.", None);
         }
         if self.contract.workflows.is_empty() {
-            return Decision { allowed: true, reason: None, remediation: None };
+            return Decision {
+                allowed: true,
+                reason: None,
+                remediation: None,
+            };
         }
 
         let wf_name = match self.get_or_choose_workflow() {
@@ -81,7 +123,11 @@ impl Session {
                 Some(Remediation {
                     message: "Choose one of the next allowed tool actions.".into(),
                     allowed_next_actions: {
-                        let mut v: Vec<_> = allowed.into_iter().collect::<HashSet<_>>().into_iter().collect();
+                        let mut v: Vec<_> = allowed
+                            .into_iter()
+                            .collect::<HashSet<_>>()
+                            .into_iter()
+                            .collect();
                         v.sort();
                         v
                     },
@@ -108,7 +154,9 @@ impl Session {
         // validate params
         let eval = self.params_match(&node_params, kwargs, &node_guards);
         if !eval.passed {
-            return self.decision_for_failed_constraint(&wf_name, &node_id, tool_name, &eval, choice);
+            return self.decision_for_failed_constraint(
+                &wf_name, &node_id, tool_name, &eval, &node_params, choice,
+            );
         }
 
         self.state.active_workflow = Some(wf_name.clone());
@@ -116,6 +164,33 @@ impl Session {
         self.state.completed_steps.push(node_id.clone());
         let next_actions = self.next_actions_after_node(&wf_name, &node_id, choice);
         Decision::allowed_with(next_actions)
+    }
+
+    // ── event recording ──────────────────────────────────────────────────────
+
+    pub fn record_allowed_call(
+        &mut self,
+        tool_name: &str,
+        kwargs: HashMap<String, Value>,
+    ) {
+        self.state.history.push(SessionEvent::ToolCallAllowed {
+            tool_name: tool_name.into(),
+            kwargs,
+        });
+    }
+
+    pub fn record_result(&mut self, tool_name: &str, result: Value) {
+        self.state.history.push(SessionEvent::ToolResultRecorded {
+            tool_name: tool_name.into(),
+            result,
+        });
+    }
+
+    pub fn record_blocked_call(&mut self, tool_name: &str, decision: Decision) {
+        self.state.history.push(SessionEvent::ToolCallBlocked {
+            tool_name: tool_name.into(),
+            decision,
+        });
     }
 
     // ── internal traversal ────────────────────────────────────────────────────
@@ -146,40 +221,57 @@ impl Session {
         let mut candidates: Vec<ToolNode> = Vec::new();
 
         while let Some(node_id) = pending.pop_front() {
-            if !seen.insert(node_id.clone()) { continue; }
+            if !seen.insert(node_id.clone()) {
+                continue;
+            }
             let node = &workflow.nodes[&node_id];
             match node {
                 RuntimeNode::Tool(t) => candidates.push(t.clone()),
-                RuntimeNode::Start(_) | RuntimeNode::BranchBack(_) |
-                RuntimeNode::UnorderedBack(_) | RuntimeNode::Join(_) => {
+                RuntimeNode::Start(_)
+                | RuntimeNode::BranchBack(_)
+                | RuntimeNode::UnorderedBack(_)
+                | RuntimeNode::Join(_) => {
                     pending.extend(node.next_ids().iter().cloned());
                 }
                 RuntimeNode::Branch(b) => {
                     if let Some(c) = choice {
                         if c == "else" {
-                            if let Some(ref id) = b.else_node_id { pending.push_back(id.clone()); }
+                            if let Some(ref id) = b.else_node_id {
+                                pending.push_back(id.clone());
+                            }
                         } else if let Some(id) = b.arms.get(c) {
                             pending.push_back(id.clone());
                         }
                     } else {
                         pending.extend(b.arms.values().cloned());
-                        if let Some(ref id) = b.else_node_id { pending.push_back(id.clone()); }
+                        if let Some(ref id) = b.else_node_id {
+                            pending.push_back(id.clone());
+                        }
                     }
                 }
                 RuntimeNode::Unordered(u) => {
                     if let Some(c) = choice {
-                        if let Some(id) = u.case_entry_ids.get(c) { pending.push_back(id.clone()); }
+                        if let Some(id) = u.case_entry_ids.get(c) {
+                            pending.push_back(id.clone());
+                        }
                     } else {
                         pending.extend(u.case_entry_ids.values().cloned());
                     }
                 }
-                _ => { pending.extend(node.next_ids().iter().cloned()); }
+                _ => {
+                    pending.extend(node.next_ids().iter().cloned());
+                }
             }
         }
         candidates
     }
 
-    fn next_actions_after_node(&self, wf_name: &str, node_id: &str, choice: Option<&str>) -> Vec<String> {
+    fn next_actions_after_node(
+        &self,
+        wf_name: &str,
+        node_id: &str,
+        choice: Option<&str>,
+    ) -> Vec<String> {
         let workflow = &self.contract.workflows[wf_name];
         let mut pending: VecDeque<(String, Option<String>)> = workflow.nodes[node_id]
             .next_ids()
@@ -191,7 +283,9 @@ impl Session {
         let mut descriptors: Vec<NextActionDescriptor> = Vec::new();
 
         while let Some((cur_id, choice_label)) = pending.pop_front() {
-            if !seen.insert(cur_id.clone()) { continue; }
+            if !seen.insert(cur_id.clone()) {
+                continue;
+            }
             let node = &workflow.nodes[&cur_id];
             match node {
                 RuntimeNode::Tool(t) => {
@@ -203,8 +297,10 @@ impl Session {
                     });
                 }
                 RuntimeNode::End(_) => {}
-                RuntimeNode::Start(_) | RuntimeNode::BranchBack(_) |
-                RuntimeNode::UnorderedBack(_) | RuntimeNode::Join(_) => {
+                RuntimeNode::Start(_)
+                | RuntimeNode::BranchBack(_)
+                | RuntimeNode::UnorderedBack(_)
+                | RuntimeNode::Join(_) => {
                     for nid in node.next_ids() {
                         pending.push_back((nid.clone(), choice_label.clone()));
                     }
@@ -253,36 +349,109 @@ impl Session {
         })
     }
 
-    fn params_match(&self, params: &HashMap<String, ParamValue>, kwargs: &HashMap<String, String>, _guards: &[ProseGuard]) -> EvalResult {
+    fn params_match(
+        &self,
+        params: &HashMap<String, ParamValue>,
+        kwargs: &HashMap<String, Value>,
+        _guards: &[ProseGuard],
+    ) -> EvalResult {
         for (name, constraint) in params {
-            if let Some(value) = kwargs.get(name) {
-                if let Some(eval) = &self.evaluator {
-                    match constraint {
-                        ParamValue::Guard(guard) => {
-                            let result = eval.evaluate(&guard.prose, value);
-                            if !result.passed {
-                                return result;
-                            }
-                        }
-                        ParamValue::String(expected) => {
-                            if expected != value {
-                                return EvalResult {
-                                    passed: false,
-                                    reasons: vec![format!("Expected '{expected}', got '{value}'.")],
-                                };
-                            }
-                        }
-                        _ => {}
+            let Some(value) = kwargs.get(name) else {
+                return EvalResult::fail(format!("Missing required param '{name}'."));
+            };
+            let value_str = value_as_str(value);
+
+            match constraint {
+                ParamValue::Guard(guard) => {
+                    let res = self.evaluate_guard(guard, &value_str);
+                    if !res.passed {
+                        return res;
                     }
                 }
-            } else {
-                return EvalResult {
-                    passed: false,
-                    reasons: vec![format!("Missing required param '{name}'.")],
-                };
+                ParamValue::String(expected) => {
+                    if expected != &value_str {
+                        return EvalResult::fail(format!(
+                            "Expected '{expected}', got '{value_str}'."
+                        ));
+                    }
+                }
+                ParamValue::Int(expected) => {
+                    if value.as_i64() != Some(*expected) {
+                        return EvalResult::fail(format!(
+                            "Expected integer {expected}, got {value}."
+                        ));
+                    }
+                }
+                ParamValue::Bool(expected) => {
+                    if value.as_bool() != Some(*expected) {
+                        return EvalResult::fail(format!(
+                            "Expected bool {expected}, got {value}."
+                        ));
+                    }
+                }
+                ParamValue::Null => {
+                    if !value.is_null() {
+                        return EvalResult::fail(format!("Expected null, got {value}."));
+                    }
+                }
             }
         }
-        EvalResult { passed: true, reasons: vec![] }
+        EvalResult::pass()
+    }
+
+    /// Walk a `ProseGuard`'s checks. Each check must pass independently;
+    /// the first failure short-circuits.
+    fn evaluate_guard(&self, guard: &ProseGuard, value: &str) -> EvalResult {
+        let prose = strip_annotations(&guard.prose);
+        for check in &guard.checks {
+            match check {
+                Check::Model(_) => {
+                    if let Some(m) = &self.model {
+                        let res = m.evaluate(&prose, value);
+                        if !res.passed {
+                            return res;
+                        }
+                    } else {
+                        return EvalResult::fail(format!(
+                            "No model evaluator configured for guard '{}'.",
+                            prose
+                        ));
+                    }
+                }
+                Check::Human(_) => {
+                    if let Some(h) = &self.human {
+                        let res = h.evaluate(&prose, value);
+                        if !res.passed {
+                            return res;
+                        }
+                    } else {
+                        return EvalResult::fail(format!(
+                            "No human evaluator configured for guard '{}'.",
+                            prose
+                        ));
+                    }
+                }
+                Check::Learned(l) => {
+                    let learned = self.memory.get_check(&l.name);
+                    if learned.is_empty() {
+                        return EvalResult::fail(format!(
+                            "No learned state for '{}'; memory not yet populated.",
+                            l.name
+                        ));
+                    }
+                    // Learned checks are advisory — if memory has any entry, trust it.
+                    // A richer implementation could run the model against `learned`.
+                }
+            }
+        }
+        // If no specific checks were declared, fall back to whatever model we have
+        // (mirrors the Python default for bare `[prose]`).
+        if guard.checks.is_empty() {
+            if let Some(m) = &self.model {
+                return m.evaluate(&prose, value);
+            }
+        }
+        EvalResult::pass()
     }
 
     fn decision_for_failed_constraint(
@@ -291,17 +460,19 @@ impl Session {
         node_id: &str,
         tool_name: &str,
         eval: &EvalResult,
+        node_params: &HashMap<String, ParamValue>,
         choice: Option<&str>,
     ) -> Decision {
-        // look up the policy from the node's guards
-        let policy = self.contract.workflows[wf_name]
-            .nodes
-            .get(node_id)
-            .and_then(|n| if let RuntimeNode::Tool(t) = n {
-                t.params.values().find_map(|v| {
-                    if let ParamValue::Guard(g) = v { Some(g.policy.clone()) } else { None }
-                })
-            } else { None })
+        // Derive policy from whichever param-level guard is present, else default.
+        let policy = node_params
+            .values()
+            .find_map(|v| {
+                if let ParamValue::Guard(g) = v {
+                    Some(g.policy.clone())
+                } else {
+                    None
+                }
+            })
             .unwrap_or(Policy::Retry(RetryPolicy { attempts: 3 }));
 
         match policy {
@@ -363,42 +534,61 @@ impl Session {
     }
 }
 
-// ── formatting ────────────────────────────────────────────────────────────────
+// ── helpers ───────────────────────────────────────────────────────────────────
+
+fn value_as_str(v: &Value) -> String {
+    match v {
+        Value::String(s) => s.clone(),
+        other => other.to_string(),
+    }
+}
 
 fn strip_annotations(prose: &str) -> String {
     let re = regex::Regex::new(r"#?\{[^}]+\}|\[[^\]]+\]").unwrap();
     re.replace_all(prose, |caps: &regex::Captures| {
         let m = caps.get(0).unwrap().as_str();
-        m.trim_start_matches('#').trim_matches(|c| c == '{' || c == '}' || c == '[' || c == ']').to_string()
-    }).to_string()
+        m.trim_start_matches('#')
+            .trim_matches(|c| c == '{' || c == '}' || c == '[' || c == ']')
+            .to_string()
+    })
+    .to_string()
 }
 
 fn format_next_actions(next: &NextActions) -> Vec<String> {
-    next.actions.iter().map(|desc| {
-        let mut parts: Vec<String> = Vec::new();
+    next.actions
+        .iter()
+        .map(|desc| {
+            let mut parts: Vec<String> = Vec::new();
 
-        let param_strs: Vec<String> = desc.params.iter().map(|(name, val)| {
-            match val {
-                ParamValue::Guard(g) => format!("{name}: {}", strip_annotations(&g.prose)),
-                other => format!("{name}={other:?}"),
+            let param_strs: Vec<String> = desc
+                .params
+                .iter()
+                .map(|(name, val)| match val {
+                    ParamValue::Guard(g) => format!("{name}: {}", strip_annotations(&g.prose)),
+                    other => format!("{name}={other:?}"),
+                })
+                .collect();
+            if !param_strs.is_empty() {
+                parts.push(format!("({})", param_strs.join(", ")));
             }
-        }).collect();
-        if !param_strs.is_empty() {
-            parts.push(format!("({})", param_strs.join(", ")));
-        }
 
-        let guard_strs: Vec<String> = desc.guards.iter()
-            .filter(|g| !g.prose.is_empty())
-            .map(|g| strip_annotations(&g.prose))
-            .collect();
-        if !guard_strs.is_empty() {
-            parts.push(format!("— requires: {}", guard_strs.join("; ")));
-        }
+            let guard_strs: Vec<String> = desc
+                .guards
+                .iter()
+                .filter(|g| !g.prose.is_empty())
+                .map(|g| strip_annotations(&g.prose))
+                .collect();
+            if !guard_strs.is_empty() {
+                parts.push(format!("— requires: {}", guard_strs.join("; ")));
+            }
 
-        if let Some(ref label) = desc.choice_label {
-            parts.push(format!("(pass choice=\"{label}\")"));
-        }
+            if let Some(ref label) = desc.choice_label {
+                parts.push(format!("(pass choice=\"{label}\")"));
+            }
 
-        format!("{} {}", desc.tool_name, parts.join("  ")).trim().to_string()
-    }).collect()
+            format!("{} {}", desc.tool_name, parts.join("  "))
+                .trim()
+                .to_string()
+        })
+        .collect()
 }

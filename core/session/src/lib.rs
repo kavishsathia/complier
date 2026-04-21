@@ -1,7 +1,9 @@
 mod decisions;
-mod state;
+mod memory;
 mod session;
+mod state;
 
-pub use decisions::{Decision, Remediation, NextActionDescriptor, NextActions};
-pub use state::SessionState;
-pub use session::Session;
+pub use decisions::{Decision, NextActionDescriptor, NextActions, Remediation};
+pub use memory::Memory;
+pub use session::{EvalResult, HumanEvaluator, ModelEvaluator, Session};
+pub use state::{SessionEvent, SessionState};
