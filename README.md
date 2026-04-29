@@ -5,7 +5,7 @@
 <h1 align="center">complier</h1>
 
 <p align="center">
-  <strong>Contract enforcement for tool-using AI agents</strong>
+  <strong>Contract enforcement for tool-using AI agents.</strong>
 </p>
 
 <p align="center">
