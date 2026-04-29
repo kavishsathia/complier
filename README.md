@@ -9,8 +9,10 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/kavishsathia/complier/actions"><img src="https://github.com/kavishsathia/complier/actions/workflows/test.yml/badge.svg" alt="CI"></a>
+  <a href="https://codecov.io/gh/kavishsathia/complier"><img src="https://codecov.io/gh/kavishsathia/complier/graph/badge.svg" alt="codecov"></a>
   <a href="https://github.com/kavishsathia/complier/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT"></a>
-  <a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/rust-2021-orange" alt="Rust 2021"></a>
+  <a href="https://www.python.org/"><img src="https://img.shields.io/badge/python-3.10%2B-blue" alt="Python 3.10+"></a>
 </p>
 
 ## Overview
@@ -29,8 +31,6 @@ The result after all that is a DSL to define loosely what your agent can do, and
 
 The entire framework relies on these critical insights that you just read.
 
-> The original Python prototype lives in [`archive/`](archive) for reference. The active implementation is the Rust workspace under [`core/`](core).
-
 ## Features
 
 - **Custom DSL** — A purpose-built language for defining agent workflows. Supports tool calls with parameters, `@llm` and `@human` steps, subworkflow invocation (`@call`, `@use`, `@inline`), branching, loops, unordered blocks, and parallel execution with `@fork`/`@join`.
@@ -43,23 +43,19 @@ The entire framework relies on these critical insights that you just read.
 
 - **Session tracking** — A `Session` binds a compiled contract to mutable runtime state, tracking the active workflow, completed steps, branch conditions, and a full event history. When a tool call is blocked, the agent gets a structured `BlockedToolResponse` with remediation info.
 
-- **Function wrapping** — `FunctionWrapper` gates any async callable so contract enforcement happens transparently at the call boundary; the session lock is shared, so multiple wrappers can cooperate.
+- **Function wrapping** — `Session.wrap(func)` wraps any Python callable (sync or async) so that contract enforcement happens transparently at the function boundary.
 
-- **MCP proxies** — Two binaries ship alongside the library: `complier-mcp-proxy` guards a downstream MCP server over stdio, and `complier-remote-mcp-proxy` applies the same guard over streamable HTTP.
+- **Visualizer** — A local web server (`Session.visualize()`) that serves your compiled contract as an interactive graph, so you can see the workflow topology and node types at a glance.
 
-- **Visualizer** — A small Vite app under [`visualizer/`](visualizer) that renders a compiled contract as an interactive graph.
+- **Memory** — A JSON-backed persistence layer for learned checks, allowing knowledge to carry across sessions.
 
 ## Installation
 
-The Rust crates are not published yet. Build from source:
-
 ```bash
-git clone https://github.com/kavishsathia/complier.git
-cd complier/core
-cargo build --release
+pip install complier
 ```
 
-This produces the library crates plus the two proxy binaries (`complier-mcp-proxy`, `complier-remote-mcp-proxy`) in `core/target/release/`.
+Requires Python 3.11+. The only runtime dependency is [Lark](https://github.com/lark-parser/lark).
 
 ## Quick Start
 
@@ -80,77 +76,50 @@ workflow "research" @always safe
     | @call send_report
 ```
 
-Load it, build a session, and wrap your tools:
+Load it, wrap your tools, and go:
 
-```rust
-use std::sync::Arc;
-use tokio::sync::Mutex;
+```python
+from complier import Contract, wrap_function
 
-use compiler::Contract;
-use parser::parse;
-use session::Session;
-use wrappers::FunctionWrapper;
+contract = Contract.from_file("workflow.cpl")
+session = contract.create_session()
 
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
-    let source = std::fs::read_to_string("workflow.cpl")?;
-    let program = parse(&source)?;
-    let contract = Contract::from_program(&program)?;
+# wrap your tools — contract enforcement happens transparently
+safe_search = wrap_function(session, search_web)
+safe_summarize = wrap_function(session, summarize)
 
-    let session = Arc::new(Mutex::new(Session::new(contract, None)?));
-    let wrapper = FunctionWrapper::new(session.clone());
-
-    let outcome = wrapper
-        .call_async_json("search_web", Default::default(), None, |_decision| async {
-            // your real tool call goes here
-            serde_json::json!({ "results": [] })
-        })
-        .await;
-
-    match outcome.into_result() {
-        Ok(value) => println!("allowed: {value}"),
-        Err(blocked) => println!("blocked: {blocked:?}"),
-    }
-    Ok(())
-}
+# fire up the visualizer to see the workflow graph
+server = session.visualize()
+print(f"Visualizer running at {server.url}")
 ```
 
-If a call isn't allowed at that point in the workflow, the wrapper returns a `BlockedToolResponse` with a structured `Remediation` block (reason, allowed next actions, missing requirements) instead of dispatching.
+Wrapped functions behave exactly like the originals, except the session checks each call against the compiled graph. If a call isn't allowed at that point in the workflow, the agent gets a `BlockedToolResponse` with remediation info instead.
 
 ## Architecture
 
 ```mermaid
 graph LR
-    A[".cpl source"] -->|parser| B["AST"]
-    B -->|compiler| C["Runtime Graph"]
-    C --> D["Session"]
-    C --> E["Visualizer"]
-    D -->|wraps| F["Your Tools / MCP server"]
-    F -->|tool call| D
-    D -->|allowed / blocked| F
+    A[".cpl source"] -->|Parser| B["Parse Tree"]
+    B -->|Transformer| C["AST"]
+    C -->|Compiler| D["Runtime Graph"]
+    D --> E["Session"]
+    D --> F["Visualizer"]
+    E -->|wraps| G["Your Tools"]
+    G -->|tool call| E
+    E -->|allowed / blocked| G
 ```
 
-The Rust workspace (`core/`) is split into six crates:
+The pipeline has three compilation stages and a runtime layer:
 
-1. **`ast`** — Typed AST for the `.cpl` language: `Program`, `Item`, `Workflow`, `Step`, `ProseGuard`, `ParamValue`, etc.
+1. **Parser** — A Lark-based LALR parser tokenizes your `.cpl` source into a parse tree. A custom indenter handles the whitespace-sensitive syntax.
 
-2. **`parser`** — Hand-written lexer plus recursive-descent parser that consumes whitespace-sensitive `.cpl` source and produces an AST.
+2. **Transformer** — Walks the parse tree and produces a strongly-typed AST. Guarantees, workflows, steps, and contract expressions all become proper dataclasses at this stage.
 
-3. **`compiler`** — Walks the AST and emits a `Contract` containing one `CompiledWorkflow` per `workflow` block. Each workflow becomes a map of `RuntimeNode`s (tool, llm, human, call, fork, join, branch, loop, unordered, start, end). `@always` guarantees are inlined as guards on every executable node.
+3. **Compiler** — Converts the AST into a directed graph of `RuntimeNode`s. Each workflow becomes a `CompiledWorkflow` with a node lookup table and execution edges. Control flow constructs (branches, loops, unordered blocks, fork/join) get their own node types with merge points. `@always` guarantees are inlined as guards on every executable node.
 
-4. **`runtime`** — Shared node/graph types used by the compiler and consumed by the session.
+4. **Session** — Binds a compiled `Contract` to mutable state (active workflow, completed steps, event history). When a wrapped tool is called, the session checks it against the graph: is this tool allowed at this point? And either lets it through or returns a `BlockedToolResponse` with remediation info. And this part is inspired by HATEOAS: the graph always knows what can happen next, and the agent is told.
 
-5. **`session`** — Binds a compiled contract to mutable state (active workflow, active step, completed steps, retry counts, event history, memory). `Session::check_tool_call` walks the graph to decide whether a call is allowed, evaluates guards through pluggable `ModelEvaluator` / `HumanEvaluator` traits, and returns a `Decision` (allowed with next-action hints, or blocked with a `Remediation`). Includes a `SessionServerClient` for in-process sharing with the proxies.
-
-6. **`wrappers`** — `FunctionWrapper` for in-process callables, plus two MCP proxy binaries (`complier-mcp-proxy` over stdio, `complier-remote-mcp-proxy` over streamable HTTP) that apply the same session guard at the MCP boundary.
-
-## Repo Layout
-
-- [`core/`](core) — the Rust workspace; this is the implementation.
-- [`archive/`](archive) — the original Python prototype, preserved for reference.
-- [`landing/`](landing) — Next.js marketing site.
-- [`visualizer/`](visualizer) — Vite app that renders compiled contracts as a graph.
-- [`assets/`](assets) — logo and other static assets.
+5. The **Visualizer** taps into the same compiled graph, serializing it as JSON and serving it over a local HTTP server so you can see the workflow topology in your browser.
 
 ## Contributing
 
@@ -158,8 +127,9 @@ Contributions are welcome. Open an issue first if you're planning something non-
 
 ```bash
 git clone https://github.com/kavishsathia/complier.git
-cd complier/core
-cargo test
+cd complier
+pip install -e ".[dev]"
+pytest
 ```
 
 ## License
