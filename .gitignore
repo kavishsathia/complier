@@ -1,5 +1,4 @@
 /target
-core/target
 __pycache__/
 *.py[cod]
 .venv
