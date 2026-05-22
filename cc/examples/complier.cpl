@@ -1,0 +1,4 @@
+workflow "edit_with_review"
+    | Read
+    | Edit
+    | Bash command='must run the project test command'
