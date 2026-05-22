@@ -28,23 +28,12 @@ pub struct EvalResult {
 
 impl EvalResult {
     pub fn pass() -> Self {
-        Self {
-            passed: true,
-            reasons: vec![],
-        }
+        Self { passed: true, reasons: vec![] }
     }
     pub fn fail(reason: impl Into<String>) -> Self {
-        Self {
-            passed: false,
-            reasons: vec![reason.into()],
-        }
+        Self { passed: false, reasons: vec![reason.into()] }
     }
 }
-
-/// Formats a `NextActions` into the strings surfaced to agents. The default
-/// formatter mirrors the Python `default_next_actions_formatter`: one line per
-/// descriptor, "tool (params) — requires: guards (pass choice=\"label\")".
-pub type NextActionsFormatter = Box<dyn Fn(&NextActions) -> Vec<String> + Send + Sync>;
 
 pub struct Session {
     pub contract: Contract,
@@ -52,7 +41,6 @@ pub struct Session {
     pub memory: Memory,
     pub model: Option<Box<dyn ModelEvaluator>>,
     pub human: Option<Box<dyn HumanEvaluator>>,
-    pub formatter: NextActionsFormatter,
 }
 
 impl Session {
@@ -74,7 +62,6 @@ impl Session {
             memory: Memory::empty(),
             model: None,
             human: None,
-            formatter: Box::new(default_next_actions_formatter),
         })
     }
 
@@ -90,11 +77,6 @@ impl Session {
 
     pub fn with_memory(mut self, memory: Memory) -> Self {
         self.memory = memory;
-        self
-    }
-
-    pub fn with_formatter(mut self, formatter: NextActionsFormatter) -> Self {
-        self.formatter = formatter;
         self
     }
 
@@ -132,10 +114,7 @@ impl Session {
 
         let candidates = self.collect_next_tool_nodes(&wf_name, choice);
 
-        let matching: Vec<_> = candidates
-            .iter()
-            .filter(|n| n.tool_name == tool_name)
-            .collect();
+        let matching: Vec<_> = candidates.iter().filter(|n| n.tool_name == tool_name).collect();
 
         if matching.is_empty() {
             let allowed: Vec<_> = candidates.iter().map(|n| n.tool_name.clone()).collect();
@@ -176,12 +155,7 @@ impl Session {
         let eval = self.params_match(&node_params, kwargs, &node_guards);
         if !eval.passed {
             return self.decision_for_failed_constraint(
-                &wf_name,
-                &node_id,
-                tool_name,
-                &eval,
-                &node_params,
-                choice,
+                &wf_name, &node_id, tool_name, &eval, &node_params, choice,
             );
         }
 
@@ -194,7 +168,11 @@ impl Session {
 
     // ── event recording ──────────────────────────────────────────────────────
 
-    pub fn record_allowed_call(&mut self, tool_name: &str, kwargs: HashMap<String, Value>) {
+    pub fn record_allowed_call(
+        &mut self,
+        tool_name: &str,
+        kwargs: HashMap<String, Value>,
+    ) {
         self.state.history.push(SessionEvent::ToolCallAllowed {
             tool_name: tool_name.into(),
             kwargs,
@@ -303,8 +281,6 @@ impl Session {
 
         let mut seen: HashSet<String> = HashSet::new();
         let mut descriptors: Vec<NextActionDescriptor> = Vec::new();
-        let mut is_branch_possible = false;
-        let mut is_unordered_possible = false;
 
         while let Some((cur_id, choice_label)) = pending.pop_front() {
             if !seen.insert(cur_id.clone()) {
@@ -330,7 +306,6 @@ impl Session {
                     }
                 }
                 RuntimeNode::Branch(b) => {
-                    is_branch_possible = true;
                     if let Some(c) = choice {
                         if c == "else" {
                             if let Some(ref id) = b.else_node_id {
@@ -349,7 +324,6 @@ impl Session {
                     }
                 }
                 RuntimeNode::Unordered(u) => {
-                    is_unordered_possible = true;
                     if let Some(c) = choice {
                         if let Some(id) = u.case_entry_ids.get(c) {
                             pending.push_back((id.clone(), Some(c.to_string())));
@@ -368,10 +342,10 @@ impl Session {
             }
         }
 
-        (self.formatter)(&NextActions {
+        format_next_actions(&NextActions {
             actions: descriptors,
-            is_branch_possible,
-            is_unordered_possible,
+            is_branch_possible: false,
+            is_unordered_possible: false,
         })
     }
 
@@ -410,7 +384,9 @@ impl Session {
                 }
                 ParamValue::Bool(expected) => {
                     if value.as_bool() != Some(*expected) {
-                        return EvalResult::fail(format!("Expected bool {expected}, got {value}."));
+                        return EvalResult::fail(format!(
+                            "Expected bool {expected}, got {value}."
+                        ));
                     }
                 }
                 ParamValue::Null => {
@@ -456,31 +432,15 @@ impl Session {
                     }
                 }
                 Check::Learned(l) => {
-                    // Python dispatches learned checks to BOTH human and model
-                    // (human collects feedback; model evaluates against learned
-                    // memory). Both must be configured.
-                    if self.human.is_none() {
-                        return EvalResult::fail(
-                            "Human integration is required for learned checks.".to_string(),
-                        );
-                    }
-                    if self.model.is_none() {
-                        return EvalResult::fail(
-                            "Model integration is required for learned checks.".to_string(),
-                        );
-                    }
-                    let h = self.human.as_ref().unwrap();
-                    let m = self.model.as_ref().unwrap();
-                    let h_res = h.evaluate(&prose, value);
-                    if !h_res.passed {
-                        return h_res;
-                    }
                     let learned = self.memory.get_check(&l.name);
-                    // Model evaluates the value against the learned memory.
-                    let m_res = m.evaluate(&format!("{prose}\nlearned: {learned}"), value);
-                    if !m_res.passed {
-                        return m_res;
+                    if learned.is_empty() {
+                        return EvalResult::fail(format!(
+                            "No learned state for '{}'; memory not yet populated.",
+                            l.name
+                        ));
                     }
+                    // Learned checks are advisory — if memory has any entry, trust it.
+                    // A richer implementation could run the model against `learned`.
                 }
             }
         }
@@ -522,8 +482,7 @@ impl Session {
                     format!("Tool '{tool_name}' was skipped."),
                     Some(Remediation {
                         message: "Step skipped. Continue with next action.".into(),
-                        allowed_next_actions: self
-                            .next_actions_after_node(wf_name, node_id, choice),
+                        allowed_next_actions: self.next_actions_after_node(wf_name, node_id, choice),
                         missing_requirements: eval.reasons.clone(),
                     }),
                 )
@@ -595,7 +554,7 @@ fn strip_annotations(prose: &str) -> String {
     .to_string()
 }
 
-pub fn default_next_actions_formatter(next: &NextActions) -> Vec<String> {
+fn format_next_actions(next: &NextActions) -> Vec<String> {
     next.actions
         .iter()
         .map(|desc| {

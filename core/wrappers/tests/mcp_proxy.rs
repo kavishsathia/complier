@@ -5,12 +5,12 @@
 use std::sync::Arc;
 
 use rmcp::{
+    ErrorData as McpError, RoleServer, ServerHandler, ServiceExt,
     model::{
         CallToolRequestParams, CallToolResult, Content, ListToolsResult, PaginatedRequestParams,
         ServerCapabilities, ServerInfo, Tool,
     },
-    service::RequestContext,
-    ErrorData as McpError, RoleServer, ServerHandler, ServiceExt,
+    service::{MaybeSendFuture, RequestContext},
 };
 use serde_json::json;
 use session::{EvalResult, ModelEvaluator, Session};
@@ -46,40 +46,46 @@ impl ServerHandler for FakeDownstream {
         info
     }
 
-    async fn list_tools(
+    fn list_tools(
         &self,
         _request: Option<PaginatedRequestParams>,
         _context: RequestContext<RoleServer>,
-    ) -> Result<ListToolsResult, McpError> {
-        let schema = Arc::new(
-            serde_json::from_value::<rmcp::model::JsonObject>(json!({
-                "type": "object",
-                "properties": {"query": {"type": "string"}, "content": {"type": "string"}}
-            }))
-            .unwrap(),
-        );
-        let tools = vec![
-            Tool::new("search_web", "search the web", schema.clone()),
-            Tool::new("summarize", "summarize text", schema.clone()),
-            Tool::new("save_note", "persist a note", schema),
-        ];
-        Ok(ListToolsResult::with_all_items(tools))
+    ) -> impl std::future::Future<Output = Result<ListToolsResult, McpError>> + MaybeSendFuture + '_
+    {
+        async move {
+            let schema = Arc::new(
+                serde_json::from_value::<rmcp::model::JsonObject>(json!({
+                    "type": "object",
+                    "properties": {"query": {"type": "string"}, "content": {"type": "string"}}
+                }))
+                .unwrap(),
+            );
+            let tools = vec![
+                Tool::new("search_web", "search the web", schema.clone()),
+                Tool::new("summarize", "summarize text", schema.clone()),
+                Tool::new("save_note", "persist a note", schema),
+            ];
+            Ok(ListToolsResult::with_all_items(tools))
+        }
     }
 
-    async fn call_tool(
+    fn call_tool(
         &self,
         request: CallToolRequestParams,
         _context: RequestContext<RoleServer>,
-    ) -> Result<CallToolResult, McpError> {
-        let echo = format!(
-            "downstream:{}:{}",
-            request.name,
-            request
-                .arguments
-                .map(|a| serde_json::to_string(&a).unwrap_or_default())
-                .unwrap_or_default()
-        );
-        Ok(CallToolResult::success(vec![Content::text(echo)]))
+    ) -> impl std::future::Future<Output = Result<CallToolResult, McpError>> + MaybeSendFuture + '_
+    {
+        async move {
+            let echo = format!(
+                "downstream:{}:{}",
+                request.name,
+                request
+                    .arguments
+                    .map(|a| serde_json::to_string(&a).unwrap_or_default())
+                    .unwrap_or_default()
+            );
+            Ok(CallToolResult::success(vec![Content::text(echo)]))
+        }
     }
 }
 
@@ -144,10 +150,7 @@ async fn proxy_forwards_list_and_gates_calls() -> anyhow::Result<()> {
         .call_tool(CallToolRequestParams::new("summarize").with_arguments(args_early))
         .await?;
     assert_eq!(blocked.is_error, Some(true));
-    let structured = blocked
-        .structured_content
-        .clone()
-        .expect("structured content");
+    let structured = blocked.structured_content.clone().expect("structured content");
     assert_eq!(structured["tool_name"], "summarize");
 
     // 3. Allowed call: first step in the workflow is `search_web`.
@@ -161,9 +164,9 @@ async fn proxy_forwards_list_and_gates_calls() -> anyhow::Result<()> {
         .content
         .iter()
         .find_map(|c| {
-            serde_json::to_value(c)
-                .ok()
-                .and_then(|v| v.get("text").and_then(|t| t.as_str().map(str::to_owned)))
+            serde_json::to_value(c).ok().and_then(|v| {
+                v.get("text").and_then(|t| t.as_str().map(str::to_owned))
+            })
         })
         .expect("text content");
     assert!(text.contains("downstream:search_web"));

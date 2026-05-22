@@ -50,10 +50,6 @@ impl Decision {
     }
 
     pub fn blocked(reason: impl Into<String>, remediation: Option<Remediation>) -> Self {
-        Self {
-            allowed: false,
-            reason: Some(reason.into()),
-            remediation,
-        }
+        Self { allowed: false, reason: Some(reason.into()), remediation }
     }
 }
