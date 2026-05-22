@@ -5,6 +5,5 @@ members = [
     "compiler",
     "runtime",
     "session",
-    "wrappers",
 ]
 resolver = "2"
