@@ -2,7 +2,7 @@
 
 import unittest
 
-from complier.contract.ast import ModelCheck, ProseGuard, RetryPolicy
+from complier.contract.ast import ModelPrompt, RetryPolicy
 from complier.contract.compiler import ContractCompiler, WorkflowCompiler
 from complier.contract.parser import ParsedContract
 from complier.contract.model import Contract
@@ -41,7 +41,7 @@ workflow "research"
     def test_inlines_always_guarantees_into_executable_nodes(self) -> None:
         contract = Contract.from_source(
             """
-guarantee safe 'must have [no_harmful_content]':halt
+guarantee safe [must not contain harmful content]:halt
 
 workflow "research" @always safe
     | search_web
@@ -54,9 +54,8 @@ workflow "research" @always safe
 
         self.assertIsInstance(tool, ToolNode)
         self.assertEqual(len(tool.guards), 1)
-        self.assertIsInstance(tool.guards[0], ProseGuard)
-        self.assertIsInstance(tool.guards[0].checks[0], ModelCheck)
-        self.assertEqual(tool.guards[0].checks[0].name, "no_harmful_content")
+        self.assertIsInstance(tool.guards[0], ModelPrompt)
+        self.assertEqual(tool.guards[0].text, "must not contain harmful content")
         self.assertEqual(tool.guards[0].policy, "halt")
 
     def test_ambient_tools_are_carried_onto_compiled_workflow(self) -> None:
@@ -70,11 +69,11 @@ workflow "research" @ambient ToolSearch LS
         workflow = contract.workflows["research"]
         self.assertEqual(workflow.ambient, frozenset({"ToolSearch", "LS"}))
 
-    def test_inlines_guarantee_references_inside_param_expressions(self) -> None:
+    def test_model_prompt_param_with_retry_policy(self) -> None:
         contract = Contract.from_source(
             """
 workflow "research"
-    | review gate='must be [no_harmful_content] and [relevant]':2
+    | review gate=[must be safe and relevant]:2
 """
         )
 
@@ -84,14 +83,10 @@ workflow "research"
 
         self.assertIsInstance(tool, ToolNode)
         gate = tool.params["gate"]
-        self.assertIsInstance(gate, ProseGuard)
+        self.assertIsInstance(gate, ModelPrompt)
         self.assertIsInstance(gate.policy, RetryPolicy)
         self.assertEqual(gate.policy.attempts, 2)
-        self.assertEqual(len(gate.checks), 2)
-        self.assertIsInstance(gate.checks[0], ModelCheck)
-        self.assertEqual(gate.checks[0].name, "no_harmful_content")
-        self.assertIsInstance(gate.checks[1], ModelCheck)
-        self.assertEqual(gate.checks[1].name, "relevant")
+        self.assertEqual(gate.text, "must be safe and relevant")
 
     def test_compiles_branch_and_unordered_control_flow_nodes(self) -> None:
         contract = Contract.from_source(
@@ -258,10 +253,10 @@ workflow "research"
         with self.assertRaises(TypeError):
             compiler._compile_step(object(), [])  # type: ignore[arg-type]
 
-    def test_inlines_nested_guarantee_references_globally(self) -> None:
+    def test_guarantees_carry_text_and_retry_policy(self) -> None:
         contract = Contract.from_source(
             """
-guarantee reviewed '[no_harmful_content] and [quality]':2
+guarantee reviewed [must be safe and high quality]:2
 
 workflow "research"
     | publish
@@ -269,19 +264,15 @@ workflow "research"
         )
 
         expression = contract.guarantees["reviewed"]
-        self.assertIsInstance(expression, ProseGuard)
+        self.assertIsInstance(expression, ModelPrompt)
         self.assertIsInstance(expression.policy, RetryPolicy)
         self.assertEqual(expression.policy.attempts, 2)
-        self.assertEqual(len(expression.checks), 2)
-        self.assertIsInstance(expression.checks[0], ModelCheck)
-        self.assertEqual(expression.checks[0].name, "no_harmful_content")
-        self.assertIsInstance(expression.checks[1], ModelCheck)
-        self.assertEqual(expression.checks[1].name, "quality")
+        self.assertEqual(expression.text, "must be safe and high quality")
 
     def test_applies_inherited_guards_to_all_executable_step_types(self) -> None:
         contract = Contract.from_source(
             """
-guarantee safe 'must have [no_harmful_content]':halt
+guarantee safe [must not contain harmful content]:halt
 
 workflow "research" @always safe
     | @human "What topic?"
@@ -303,9 +294,8 @@ workflow "research" @always safe
         self.assertTrue(executable_nodes)
         for node in executable_nodes:
             self.assertEqual(len(node.guards), 1)
-            self.assertIsInstance(node.guards[0], ProseGuard)
-            self.assertIsInstance(node.guards[0].checks[0], ModelCheck)
-            self.assertEqual(node.guards[0].checks[0].name, "no_harmful_content")
+            self.assertIsInstance(node.guards[0], ModelPrompt)
+            self.assertEqual(node.guards[0].text, "must not contain harmful content")
             self.assertEqual(node.guards[0].policy, "halt")
 
     def test_contract_compiler_rejects_non_parsed_contract_input(self) -> None:

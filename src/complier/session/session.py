@@ -19,7 +19,7 @@ from complier.contract.runtime import (
     UnorderedBackNode,
     UnorderedNode,
 )
-from complier.verification import CelVerifier, Verifier
+from complier.verification import Verifier, default_verifiers
 
 from .context import activate_session
 from .decisions import (
@@ -43,9 +43,7 @@ class Session:
 
     contract: "Contract"
     workflow: str | None = None
-    model: Verifier | None = None
-    human: Verifier | None = None
-    cel: CelVerifier = field(default_factory=CelVerifier)
+    verifiers: list[Verifier] = field(default_factory=default_verifiers)
     formatter: NextActionsFormatter = field(default=default_next_actions_formatter)
     state: SessionState = field(default_factory=SessionState)
     server: SessionServer = field(init=False)
@@ -314,7 +312,7 @@ class Session:
     def _params_match(self, node: ToolNode, kwargs: dict[str, Any]):
         for name, constraint in node.params.items():
             if name not in kwargs:
-                from complier.contract.evaluator import EvaluationResult
+                from complier.verification import EvaluationResult
 
                 return EvaluationResult(
                     passed=False,
@@ -323,14 +321,12 @@ class Session:
             result = evaluate_constraint(
                 constraint,
                 kwargs[name],
-                model=self.model,
-                human=self.human,
-                cel=self.cel,
+                verifiers=self.verifiers,
                 context=kwargs,
             )
             if not result.passed:
                 return result
-        from complier.contract.evaluator import EvaluationResult
+        from complier.verification import EvaluationResult
 
         return EvaluationResult(passed=True)
 

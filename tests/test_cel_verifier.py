@@ -3,48 +3,65 @@
 import unittest
 
 from complier import CelVerifier
+from complier.contract.ast import CelExpression
+
+
+def _eval(verifier: CelVerifier, expression: str, context: dict) -> bool:
+    """Evaluate via the Verifier protocol and return the bool result."""
+    result = verifier.evaluate(
+        CelExpression(text=expression),
+        context.get(next(iter(context), None)) if context else None,
+        context=context,
+    )
+    return result.passed
 
 
 class CelVerifierTests(unittest.TestCase):
     def test_starts_with_predicate(self) -> None:
         v = CelVerifier()
-        self.assertTrue(v.evaluate('command.startsWith("grep ")', {"command": "grep -n foo bar"}))
-        self.assertFalse(v.evaluate('command.startsWith("grep ")', {"command": "cat foo"}))
+        self.assertTrue(_eval(v, 'command.startsWith("grep ")', {"command": "grep -n foo bar"}))
+        self.assertFalse(_eval(v, 'command.startsWith("grep ")', {"command": "cat foo"}))
 
     def test_regex_matches(self) -> None:
         v = CelVerifier()
-        self.assertTrue(v.evaluate('file_path.matches("^src/.*\\\\.py$")', {"file_path": "src/foo.py"}))
-        self.assertFalse(v.evaluate('file_path.matches("^src/.*\\\\.py$")', {"file_path": "lib/foo.py"}))
+        self.assertTrue(_eval(v, 'file_path.matches("^src/.*\\\\.py$")', {"file_path": "src/foo.py"}))
+        self.assertFalse(_eval(v, 'file_path.matches("^src/.*\\\\.py$")', {"file_path": "lib/foo.py"}))
 
     def test_set_membership(self) -> None:
         v = CelVerifier()
-        self.assertTrue(v.evaluate('to in ["a@x", "b@x"]', {"to": "a@x"}))
-        self.assertFalse(v.evaluate('to in ["a@x", "b@x"]', {"to": "c@x"}))
+        self.assertTrue(_eval(v, 'to in ["a@x", "b@x"]', {"to": "a@x"}))
+        self.assertFalse(_eval(v, 'to in ["a@x", "b@x"]', {"to": "c@x"}))
 
     def test_boolean_composition(self) -> None:
         v = CelVerifier()
-        # For substring checks, use regex .matches() — celpy's .contains and
-        # `in` on strings don't behave like the CEL spec on this version.
+        # Substring via .matches() — celpy's .contains is broken on plain strs.
         expr = 'command.startsWith("grep ") && !command.matches(".*rm.*")'
-        self.assertTrue(v.evaluate(expr, {"command": "grep foo bar"}))
-        self.assertFalse(v.evaluate(expr, {"command": "grep rm foo"}))
+        self.assertTrue(_eval(v, expr, {"command": "grep foo bar"}))
+        self.assertFalse(_eval(v, expr, {"command": "grep rm foo"}))
 
     def test_program_cache(self) -> None:
         v = CelVerifier()
-        v.evaluate("x > 0", {"x": 1})
-        v.evaluate("x > 0", {"x": 2})
+        _eval(v, "x > 0", {"x": 1})
+        _eval(v, "x > 0", {"x": 2})
         self.assertIn("x > 0", v._cache)
         self.assertEqual(len(v._cache), 1)
 
-    def test_compile_error_is_descriptive(self) -> None:
+    def test_compile_error_is_surfaced_in_reasons(self) -> None:
         v = CelVerifier()
-        with self.assertRaises(ValueError) as caught:
-            v.evaluate("this is (not valid", {})
-        self.assertIn("failed to compile", str(caught.exception))
+        result = v.evaluate(
+            CelExpression(text="this is (not valid"),
+            None,
+            context={},
+        )
+        self.assertFalse(result.passed)
+        self.assertTrue(any("failed to compile" in r for r in result.reasons))
 
-    def test_runtime_error_is_descriptive(self) -> None:
+    def test_runtime_error_is_surfaced_in_reasons(self) -> None:
         v = CelVerifier()
-        # `undeclared.foo` raises a runtime evaluation error in CEL.
-        with self.assertRaises(ValueError) as caught:
-            v.evaluate("undeclared.foo", {})
-        self.assertIn("failed at runtime", str(caught.exception))
+        result = v.evaluate(
+            CelExpression(text="undeclared.foo"),
+            None,
+            context={},
+        )
+        self.assertFalse(result.passed)
+        self.assertTrue(any("failed at runtime" in r for r in result.reasons))

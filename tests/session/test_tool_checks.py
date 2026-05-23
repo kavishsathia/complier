@@ -98,17 +98,16 @@ workflow "research"
 
         self.assertTrue(decision.allowed)
 
-    def test_expression_params_use_verifiers_during_validation(self) -> None:
-        class StubModel(Verifier):
-            def verify(self, prompt: str, output_schema: dict[str, type]) -> dict[str, object]:
-                return {"safe": True}
+    def test_model_prompt_param_uses_model_verifier(self) -> None:
+        from complier import ModelVerifier
+        model = ModelVerifier(verify_fn=lambda prompt, value, ctx: True)
 
         session = Contract.from_source(
             """
 workflow "research"
-    | search_web query='must be [safe]'
+    | search_web query=[must be safe]
 """
-        ).create_session(model=StubModel())
+        ).create_session(verifiers=[model])
 
         decision = session.check_tool_call(
             "search_web",
@@ -203,16 +202,15 @@ workflow "research"
         self.assertEqual(decision.reason, "Tool 'search_web' is not allowed next.")
 
     def test_retry_policy_tracks_attempts_and_blocks_until_exhausted(self) -> None:
-        class RejectingModel(Verifier):
-            def verify(self, prompt: str, output_schema: dict[str, type]) -> dict[str, object]:
-                return {"safe": False}
+        from complier import ModelVerifier
+        model = ModelVerifier(verify_fn=lambda p, v, c: False)
 
         session = Contract.from_source(
             """
 workflow "research"
-    | search_web query='must be [safe]':2
+    | search_web query=[must be safe]:2
 """
-        ).create_session(model=RejectingModel())
+        ).create_session(verifiers=[model])
 
         first = session.check_tool_call("search_web", (), {"query": "bad query"})
 
@@ -347,16 +345,15 @@ workflow "research"
         self.assertTrue(decision.allowed)
 
     def test_halt_policy_terminates_session(self) -> None:
-        class RejectingModel(Verifier):
-            def verify(self, prompt: str, output_schema: dict[str, type]) -> dict[str, object]:
-                return {"safe": False}
+        from complier import ModelVerifier
+        model = ModelVerifier(verify_fn=lambda p, v, c: False)
 
         session = Contract.from_source(
             """
 workflow "research"
-    | search_web query='must be [safe]':halt
+    | search_web query=[must be safe]:halt
 """
-        ).create_session(model=RejectingModel())
+        ).create_session(verifiers=[model])
 
         decision = session.check_tool_call("search_web", (), {"query": "bad query"})
 
@@ -365,16 +362,15 @@ workflow "research"
         self.assertTrue(session.state.terminated)
 
     def test_halted_session_blocks_future_calls_immediately(self) -> None:
-        class RejectingModel(Verifier):
-            def verify(self, prompt: str, output_schema: dict[str, type]) -> dict[str, object]:
-                return {"safe": False}
+        from complier import ModelVerifier
+        model = ModelVerifier(verify_fn=lambda p, v, c: False)
 
         session = Contract.from_source(
             """
 workflow "research"
-    | search_web query='must be [safe]':halt
+    | search_web query=[must be safe]:halt
 """
-        ).create_session(model=RejectingModel())
+        ).create_session(verifiers=[model])
 
         session.check_tool_call("search_web", (), {"query": "bad query"})
         decision = session.check_tool_call("search_web", (), {"query": "bad query"})
@@ -383,22 +379,21 @@ workflow "research"
         self.assertEqual(decision.reason, "The session has been halted.")
 
     def test_skip_policy_advances_past_node_and_uses_branch_choice(self) -> None:
-        class RejectingModel(Verifier):
-            def verify(self, prompt: str, output_schema: dict[str, type]) -> dict[str, object]:
-                return {"safe": False}
+        from complier import ModelVerifier
+        model = ModelVerifier(verify_fn=lambda p, v, c: False)
 
         session = Contract.from_source(
             """
 workflow "research"
     | @branch
         -when "technical"
-            | search_web query='must be [safe]':skip
+            | search_web query=[must be safe]:skip
             | finalize_technical
         -else
             | search_web query="overview"
             | finalize_overview
 """
-        ).create_session(model=RejectingModel())
+        ).create_session(verifiers=[model])
 
         decision = session.check_tool_call(
             "search_web",
@@ -415,22 +410,21 @@ workflow "research"
         self.assertEqual(decision.remediation.allowed_next_actions, ["finalize_technical"])
 
     def test_skip_policy_on_unordered_step_uses_choice_for_next_actions(self) -> None:
-        class RejectingModel(Verifier):
-            def verify(self, prompt: str, output_schema: dict[str, type]) -> dict[str, object]:
-                return {"safe": False}
+        from complier import ModelVerifier
+        model = ModelVerifier(verify_fn=lambda p, v, c: False)
 
         session = Contract.from_source(
             """
 workflow "research"
     | @unordered
         -step "first"
-            | search_web query='must be [safe]':skip
+            | search_web query=[must be safe]:skip
             | finalize_first
         -step "second"
             | search_web query="ok"
             | finalize_second
 """
-        ).create_session(model=RejectingModel())
+        ).create_session(verifiers=[model])
 
         decision = session.check_tool_call(
             "search_web",

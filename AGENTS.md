@@ -77,32 +77,34 @@ At the top level, a contract contains:
 - guarantees
 - workflows
 
+### Constraint forms
+
+Every typed-constraint location in the DSL (param value, guarantee body, `@always` reference target) takes one of four delimiter forms. Each delimiter binds to one verifier kind. Verifiers do not compose each other; if you need composition, write a single constraint that captures it.
+
+| Form | Meaning | Verifier |
+|---|---|---|
+| `(prompt)` | guidance shown to the agent, no verification | (none) |
+| `[prompt]` | model verifier evaluates the prompt against the value | `ModelVerifier` |
+| `{prompt}` | human verifier evaluates the prompt against the value | `HumanVerifier` |
+| `` `expression` `` | deterministic CEL evaluation | `CelVerifier` |
+
+The three verified forms (`[]`, `{}`, `` `` ``) accept an optional failure policy:
+
+- `:halt` — terminate the session on failure
+- `:skip` — advance past the node on failure
+- `:3` — retry up to N times (default: 3)
+
+Hint prompts `(...)` never fail and don't take a policy.
+
 ### Guarantees
 
-Guarantees define reusable checks that can be referenced by workflows.
-
-Example:
+Guarantees name a reusable verified constraint that workflows reference via `@always`.
 
 ```text
-guarantee safe [no_harmful_content]:halt
+guarantee safe [must not contain harmful content]:halt
+guarantee approved {editor signed off}:skip
+guarantee shape `args.size() > 0`
 ```
-
-The current syntax supports checks such as:
-
-- `[check]` for model-style checks
-- `{check}` for human checks
-
-Checks may also include failure policies such as:
-
-- `:halt`
-- `:skip`
-- `:3` for retries
-
-Checks can be composed with boolean logic:
-
-- `&&`
-- `||`
-- `!`
 
 ### Workflows
 
@@ -212,31 +214,28 @@ Example:
 
 ### Parameters
 
-Tool calls may include named parameters with three constraint forms:
+Tool calls may include named parameters. Values use one of five forms, each backed by zero or one verifier (see "Constraint forms" above).
 
-1. **Literal** — exact-equality match.
+```text
+draft_post channel="blog" count=42 enabled=true
+                                              # literals (exact match)
 
-   ```text
-   draft_post channel="blog" audience="developers"
-   ```
+summarize style=(should be concise and relevant)
+                                              # hint — guidance, no check
 
-2. **Prose with checks** — fuzzy semantic constraint evaluated by a model/human verifier. Use when the check is genuinely semantic (`[safe]`, `[concise]`, `{approved}`).
+Bash command=[must be a grep command]:halt
+                                              # model verifier prompt + policy
 
-   ```text
-   summarize style='must be [concise] and [relevant]'
-   ```
+publish gate={editor signed off}:skip
+                                              # human verifier prompt + policy
 
-3. **CEL expression** — deterministic boolean predicate over the call's kwargs. Use for mechanical checks (string prefix, regex, set membership). Built in; no API key. Backtick-delimited:
+Bash command=`command.startsWith("grep ")`
+                                              # CEL expression
+```
 
-   ```text
-   Bash command=`command.startsWith("grep ")`
-   Read file_path=`file_path.matches("^src/.*\\.py$")`
-   send_email to=`to in ["team@x.com", "ops@x.com"]`
-   ```
+CEL expressions see all sibling kwargs as variables and can reference any kwarg by name. Standard CEL ops: `startsWith`, `endsWith`, `matches` (regex), `size`, `in`, `&&`, `||`, `!`. The constraint text appears in the agent's next-actions hint so it can self-correct without a verifier round-trip.
 
-   CEL expressions see all sibling kwargs as variables; reference any kwarg by name. Standard CEL ops: `startsWith`, `endsWith`, `matches` (regex), `size`, `in`, `&&`, `||`, `!`. The expression text appears in the next-actions hint so the agent can self-correct without a verifier round-trip.
-
-   Prefer CEL over prose for anything mechanical. Reserve prose-with-checks for truly fuzzy semantic predicates.
+Prefer CEL for mechanical checks (string ops, regex, set membership). Reserve model/human prompts for genuinely semantic checks. Use `(hint)` when you want the agent to read guidance but you don't want to enforce it.
 
 ### Runtime Meaning
 

@@ -17,7 +17,8 @@ start: _NL* item (_NL* item)* _NL*
 
 item: guarantee | workflow
 
-guarantee: "guarantee" IDENT prose_guard
+guarantee: "guarantee" IDENT verified_constraint
+?verified_constraint: model_prompt | human_prompt | cel_expression
 
 workflow: "workflow" STRING workflow_attr* _NL _INDENT step+ _DEDENT
 workflow_attr: always_clause | ambient_clause
@@ -62,13 +63,18 @@ param: IDENT "=" param_value
             | TRUE            -> true_value
             | FALSE           -> false_value
             | NULL            -> null_value
-            | prose_guard
+            | hint_prompt
+            | model_prompt
+            | human_prompt
             | cel_expression
 
-prose_guard: PROSE_STRING
-           | PROSE_STRING ":" check_policy
-
+hint_prompt: HINT_STRING
+model_prompt: MODEL_STRING
+            | MODEL_STRING ":" check_policy
+human_prompt: HUMAN_STRING
+            | HUMAN_STRING ":" check_policy
 cel_expression: CEL_STRING
+              | CEL_STRING ":" check_policy
 
 check_policy: HALT -> halt_policy
             | SKIP -> skip_policy
@@ -90,7 +96,9 @@ SKIP: "skip"
 TRUE: "true"
 FALSE: "false"
 NULL: "null"
-PROSE_STRING: "'" /[^']*/ "'"
+HINT_STRING: "(" /[^)]*/ ")"
+MODEL_STRING: "[" /[^\]]*/ "]"
+HUMAN_STRING: "{" /[^}]*/ "}"
 CEL_STRING: "`" /[^`]*/ "`"
 
 _NL: /(\r?\n[ \t]*)+/

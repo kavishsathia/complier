@@ -3,7 +3,7 @@
 import unittest
 
 from complier.contract.model import Contract
-from complier.verification import Verifier
+from complier.verification import ModelVerifier
 from complier.session import Session, get_current_session
 
 
@@ -18,18 +18,9 @@ class SessionCreationTests(unittest.TestCase):
 
     def test_contract_create_session_binds_verifiers(self) -> None:
         contract = Contract(name="demo")
-
-        class StubVerifier(Verifier):
-            def verify(self, prompt: str, output_schema: dict[str, type]) -> dict[str, object]:
-                return {}
-
-        model = StubVerifier()
-        human = StubVerifier()
-
-        session = contract.create_session(model=model, human=human)
-
-        self.assertIs(session.model, model)
-        self.assertIs(session.human, human)
+        model = ModelVerifier(verify_fn=lambda p, v, c: True)
+        session = contract.create_session(verifiers=[model])
+        self.assertIn(model, session.verifiers)
 
 
 class SessionActivationTests(unittest.IsolatedAsyncioTestCase):

@@ -17,12 +17,12 @@ from .ast import (
     Param,
     ParamValue,
     Program,
-    ProseGuard,
     Step,
     SubworkflowStep,
     ToolStep,
     UnorderedCase,
     UnorderedStep,
+    VerifiedConstraint,
     WhenArm,
     Workflow,
 )
@@ -57,7 +57,7 @@ class CompileResult:
 class WorkflowCompiler:
     """Compiles workflow AST nodes into runtime graphs."""
 
-    guarantees: dict[str, ProseGuard]
+    guarantees: dict[str, VerifiedConstraint]
     workflow_name: str
     nodes: dict[str, object] = field(default_factory=dict)
     counter: int = 0
@@ -85,7 +85,7 @@ class WorkflowCompiler:
         )
 
     def _compile_steps(
-        self, steps: list[Step], inherited_guards: list[ProseGuard]
+        self, steps: list[Step], inherited_guards: list[VerifiedConstraint]
     ) -> CompileResult:
         compiled_steps = [self._compile_step(step, inherited_guards) for step in steps]
 
@@ -99,7 +99,7 @@ class WorkflowCompiler:
         return CompileResult(entry_id=entry_id, exit_ids=list(pending))
 
     def _compile_step(
-        self, step: Step, inherited_guards: list[ProseGuard]
+        self, step: Step, inherited_guards: list[VerifiedConstraint]
     ) -> CompileResult:
         if isinstance(step, ToolStep):
             node = self._add_node(
@@ -177,7 +177,7 @@ class WorkflowCompiler:
         raise TypeError(f"Unsupported step type: {type(step)!r}")
 
     def _compile_branch(
-        self, step: BranchStep, inherited_guards: list[ProseGuard]
+        self, step: BranchStep, inherited_guards: list[VerifiedConstraint]
     ) -> CompileResult:
         back = self._add_node(BranchBackNode(id=self._new_id("branch_back")))
         branch = self._add_node(
@@ -204,7 +204,7 @@ class WorkflowCompiler:
         return CompileResult(entry_id=branch.id, exit_ids=[back.id])
 
     def _compile_loop(
-        self, step: LoopStep, inherited_guards: list[ProseGuard]
+        self, step: LoopStep, inherited_guards: list[VerifiedConstraint]
     ) -> CompileResult:
         back = self._add_node(BranchBackNode(id=self._new_id("loop_back")))
         branch = self._add_node(
@@ -226,7 +226,7 @@ class WorkflowCompiler:
         return CompileResult(entry_id=branch.id, exit_ids=[back.id])
 
     def _compile_unordered(
-        self, step: UnorderedStep, inherited_guards: list[ProseGuard]
+        self, step: UnorderedStep, inherited_guards: list[VerifiedConstraint]
     ) -> CompileResult:
         back = self._add_node(UnorderedBackNode(id=self._new_id("unordered_back")))
         unordered = self._add_node(
@@ -247,9 +247,9 @@ class WorkflowCompiler:
     def _resolve_param_value(self, value: ParamValue) -> ParamValue:
         if isinstance(value, (str, int, bool)) or value is None:
             return value
-        return value  # ProseGuard — no resolution needed
+        return value  # VerifiedConstraint — no resolution needed
 
-    def _resolve_guarantee(self, name: str) -> ProseGuard:
+    def _resolve_guarantee(self, name: str) -> VerifiedConstraint:
         if name not in self.guarantees:
             raise ValueError(f"Unknown guarantee reference: {name}")
         return self.guarantees[name]

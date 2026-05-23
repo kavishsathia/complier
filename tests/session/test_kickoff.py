@@ -4,7 +4,6 @@ import unittest
 
 from complier.contract.model import Contract
 from complier.session.decisions import NextActions, NextActionDescriptor
-from complier.contract.ast import ProseGuard, ModelCheck, RetryPolicy
 
 
 def _session(source: str, **kwargs):
@@ -22,22 +21,21 @@ workflow "research"
         result = session.kickoff()
         self.assertIn("search_web", result)
 
-    def test_kickoff_includes_param_prose(self) -> None:
+    def test_kickoff_includes_param_prompt(self) -> None:
         session = _session(
             """
 workflow "research"
-    | search_web query='must return [verified sources]'
+    | search_web query=[must return verified sources]
 """
         )
         result = session.kickoff()
         self.assertIn("search_web", result)
         self.assertIn("verified sources", result)
-        self.assertNotIn("[", result)
 
-    def test_kickoff_includes_workflow_guard_prose(self) -> None:
+    def test_kickoff_includes_workflow_guard_prompt(self) -> None:
         session = _session(
             """
-guarantee safe 'must not contain [harmful content]':halt
+guarantee safe [must not contain harmful content]:halt
 
 workflow "research" @always safe
     | search_web
@@ -46,7 +44,6 @@ workflow "research" @always safe
         result = session.kickoff()
         self.assertIn("search_web", result)
         self.assertIn("harmful content", result)
-        self.assertNotIn("[", result)
 
     def test_kickoff_lists_all_branch_arms(self) -> None:
         session = _session(
