@@ -8,3 +8,4 @@ htmlcov/
 .env
 .claude
 .DS_Store
+.pytest_cache/
