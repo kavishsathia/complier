@@ -2,15 +2,22 @@
 
 from .contract.model import Contract
 from .integration.function import FunctionWrapper, wrap_function
-from .memory.model import Memory
 from .session.session import Session
-from .verification import CelVerifier, Verifier
+from .verification import (
+    CelVerifier,
+    EvaluationResult,
+    HumanVerifier,
+    ModelVerifier,
+    Verifier,
+)
 
 __all__ = [
     "CelVerifier",
     "Contract",
+    "EvaluationResult",
     "FunctionWrapper",
-    "Memory",
+    "HumanVerifier",
+    "ModelVerifier",
     "Session",
     "Verifier",
     "wrap_function",

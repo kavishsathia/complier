@@ -5,7 +5,14 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
-from complier.contract.ast import CelExpression, ParamValue, ProseGuard
+from complier.contract.ast import (
+    CelExpression,
+    HintPrompt,
+    HumanPrompt,
+    ModelPrompt,
+    ParamValue,
+    VerifiedConstraint,
+)
 
 
 @dataclass(slots=True)
@@ -14,7 +21,7 @@ class NextActionDescriptor:
 
     tool_name: str
     params: dict[str, ParamValue] = field(default_factory=dict)
-    guards: list[ProseGuard] = field(default_factory=list)
+    guards: list[VerifiedConstraint] = field(default_factory=list)
     choice_label: str | None = None
 
 
@@ -27,12 +34,16 @@ class NextActions:
     is_unordered_possible: bool = False
 
 
-import re as _re
-_ANNOTATION_RE = _re.compile(r"#?\{[^}]+\}|\[[^\]]+\]")
-
-
-def _strip_annotations(prose: str) -> str:
-    return _ANNOTATION_RE.sub(lambda m: m.group(0).lstrip("#{}[]").strip("{}[]"), prose)
+def _render_constraint(value: ParamValue) -> str:
+    if isinstance(value, HintPrompt):
+        return f"({value.text})"
+    if isinstance(value, ModelPrompt):
+        return f"[{value.text}]"
+    if isinstance(value, HumanPrompt):
+        return "{" + value.text + "}"
+    if isinstance(value, CelExpression):
+        return f"`{value.text}`"
+    return repr(value)
 
 
 def default_next_actions_formatter(next_actions: NextActions) -> list[str]:
@@ -42,16 +53,14 @@ def default_next_actions_formatter(next_actions: NextActions) -> list[str]:
 
         param_strs = []
         for name, value in desc.params.items():
-            if isinstance(value, ProseGuard):
-                param_strs.append(f"{name}: {_strip_annotations(value.prose)}")
-            elif isinstance(value, CelExpression):
-                param_strs.append(f"{name}: `{value.text}`")
+            if isinstance(value, (HintPrompt, ModelPrompt, HumanPrompt, CelExpression)):
+                param_strs.append(f"{name}: {_render_constraint(value)}")
             else:
                 param_strs.append(f"{name}={value!r}")
         if param_strs:
             parts.append(f"({', '.join(param_strs)})")
 
-        guard_strs = [_strip_annotations(g.prose) for g in desc.guards if g.prose]
+        guard_strs = [_render_constraint(g) for g in desc.guards]
         if guard_strs:
             parts.append(f"— requires: {'; '.join(guard_strs)}")
 

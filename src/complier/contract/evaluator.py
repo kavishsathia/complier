@@ -1,89 +1,54 @@
-"""Evaluation helpers for compiled prose guards and param constraints."""
+"""Constraint evaluation: dispatch a typed value to its verifier."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Mapping, Sequence
 
-from complier.memory.model import Memory
-
-from .ast import CelExpression, HumanCheck, LearnedCheck, ModelCheck, Policy, ProseGuard
+from .ast import (
+    CelExpression,
+    HintPrompt,
+    HumanPrompt,
+    ModelPrompt,
+    ParamValue,
+)
 
 if TYPE_CHECKING:
-    from complier.verification import CelVerifier, Verifier
-
-
-@dataclass(slots=True)
-class EvaluationResult:
-    """Result of evaluating a prose guard."""
-
-    passed: bool
-    reasons: list[str] = field(default_factory=list)
-    policy: Policy | None = None
-
-
-def evaluate_contract_expression(
-    expression: ProseGuard,
-    value: Any,
-    *,
-    model: "Verifier | None" = None,
-    human: "Verifier | None" = None,
-    memory: Memory | None = None,
-) -> EvaluationResult:
-    """Evaluate a prose guard against a specific input value."""
-    model_checks = [c for c in expression.checks if isinstance(c, ModelCheck)]
-    human_checks = [c for c in expression.checks if isinstance(c, HumanCheck)]
-    learned_checks = [c for c in expression.checks if isinstance(c, LearnedCheck)]
-
-    model_results, model_reasons = _run_model_checks(model_checks, expression.prose, value, model)
-    human_results, human_reasons = _run_human_checks(human_checks, expression.prose, value, human)
-    learned_results, learned_reasons = _run_learned_checks(
-        learned_checks, expression.prose, value, model=model, human=human, memory=memory
-    )
-
-    all_results = {**model_results, **human_results, **learned_results}
-    passed = all(all_results.get(c.name, False) for c in expression.checks) if expression.checks else True
-
-    return EvaluationResult(
-        passed=passed,
-        reasons=[*model_reasons, *human_reasons, *learned_reasons],
-        policy=None if passed else expression.policy,
-    )
+    from complier.verification import EvaluationResult, Verifier
 
 
 def evaluate_constraint(
-    constraint: ProseGuard | Any,
+    constraint: ParamValue,
     value: Any,
     *,
-    model: "Verifier | None" = None,
-    human: "Verifier | None" = None,
-    cel: "CelVerifier | None" = None,
-    memory: Memory | None = None,
-    context: dict[str, Any] | None = None,
-) -> EvaluationResult:
-    """Evaluate a declared param constraint against a specific input value.
+    verifiers: "Sequence[Verifier]" = (),
+    context: Mapping[str, Any] | None = None,
+) -> "EvaluationResult":
+    """Evaluate a single typed constraint against a value.
 
-    For CEL expressions, ``context`` (all sibling kwargs) is the variable
-    binding; the expression can reference any kwarg by name.
+    Dispatch by constraint type:
+      - HintPrompt: always passes (guidance, no verification)
+      - ModelPrompt / HumanPrompt / CelExpression: walk ``verifiers``,
+        ask the first verifier that ``handles()`` the constraint.
+      - literal (str/int/bool/None): exact equality.
     """
-    if isinstance(constraint, ProseGuard):
-        return evaluate_contract_expression(constraint, value, model=model, human=human, memory=memory)
+    from complier.verification import EvaluationResult
 
-    if isinstance(constraint, CelExpression):
-        if cel is None:
-            return EvaluationResult(
-                passed=False,
-                reasons=["CEL verifier is required for backtick expressions."],
-            )
-        try:
-            passed = cel.evaluate(constraint.text, dict(context or {}))
-        except ValueError as exc:
-            return EvaluationResult(passed=False, reasons=[str(exc)])
-        if passed:
-            return EvaluationResult(passed=True)
+    ctx = dict(context or {})
+
+    if isinstance(constraint, HintPrompt):
+        return EvaluationResult(passed=True)
+
+    if isinstance(constraint, (ModelPrompt, HumanPrompt, CelExpression)):
+        for verifier in verifiers:
+            if verifier.handles(constraint):
+                return verifier.evaluate(constraint, value, context=ctx)
         return EvaluationResult(
             passed=False,
-            reasons=[f"CEL expression returned false: `{constraint.text}`"],
+            reasons=[
+                f"No verifier registered for {type(constraint).__name__}; "
+                f"add one to Session.verifiers."
+            ],
+            policy=constraint.policy,
         )
 
     if constraint == value:
@@ -93,84 +58,3 @@ def evaluate_constraint(
         passed=False,
         reasons=[f"Expected exact value {constraint!r}, got {value!r}."],
     )
-
-
-def _run_model_checks(
-    checks: list[ModelCheck],
-    prose: str,
-    value: Any,
-    model: "Verifier | None",
-) -> tuple[dict[str, bool], list[str]]:
-    if not checks:
-        return {}, []
-    if model is None:
-        return {}, ["Model verifier is required for model checks."]
-
-    schema = {c.name: bool for c in checks}
-    prompt = f"Criteria: {prose}\nValue: {value!r}"
-    response = model.verify(prompt, schema)
-    return {name: bool(response.get(name, False)) for name in schema}, []
-
-
-def _run_human_checks(
-    checks: list[HumanCheck],
-    prose: str,
-    value: Any,
-    human: "Verifier | None",
-) -> tuple[dict[str, bool], list[str]]:
-    if not checks:
-        return {}, []
-    if human is None:
-        return {}, ["Human verifier is required for human checks."]
-
-    schema = {c.name: bool for c in checks}
-    prompt = f"Criteria: {prose}\nValue: {value!r}"
-    response = human.verify(prompt, schema)
-    return {name: bool(response.get(name, False)) for name in schema}, []
-
-
-def _run_learned_checks(
-    checks: list[LearnedCheck],
-    prose: str,
-    value: Any,
-    *,
-    model: "Verifier | None",
-    human: "Verifier | None",
-    memory: Memory | None,
-) -> tuple[dict[str, bool], list[str]]:
-    if not checks:
-        return {}, []
-
-    reasons: list[str] = []
-    results: dict[str, bool] = {}
-    for check in checks:
-        if human is None:
-            reasons.append("Human verifier is required for learned checks.")
-            results[check.name] = False
-            continue
-        if model is None:
-            reasons.append("Model verifier is required for learned checks.")
-            results[check.name] = False
-            continue
-
-        human_feedback = human.verify(
-            f"Criteria: {prose}\nReview for '{check.name}'.\nValue: {value!r}",
-            {"comments": str, "edited": str},
-        )
-        memory_value = "" if memory is None else memory.get_check(check.name)
-        model_result = model.verify(
-            (
-                f"Criteria: {prose}\n"
-                f"Use learned-check memory and human feedback to evaluate '{check.name}'.\n"
-                f"Value: {value!r}\n"
-                f"Memory: {memory_value!r}\n"
-                f"Human comments: {human_feedback.get('comments', '')!r}\n"
-                f"Human edited: {human_feedback.get('edited', '')!r}"
-            ),
-            {"passed": bool, "memory": str},
-        )
-        results[check.name] = bool(model_result.get("passed", False))
-        if memory is not None and "memory" in model_result:
-            memory.update_check(check.name, str(model_result["memory"]))
-
-    return results, reasons

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from .ast import ParamValue, ProseGuard
+from .ast import ParamValue, VerifiedConstraint
 
 
 @dataclass(slots=True)
@@ -30,7 +30,7 @@ class RuntimeNode:
 class ExecutableNode(RuntimeNode):
     """Base node for executable steps."""
 
-    guards: list[ProseGuard] = field(default_factory=list)
+    guards: list[VerifiedConstraint] = field(default_factory=list)
 
 
 @dataclass(slots=True)

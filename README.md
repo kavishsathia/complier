@@ -37,7 +37,7 @@ The entire framework relies on these critical insights that you just read.
 
 - **Compiled runtime graph** — Your DSL compiles down (parse → AST → graph) into a directed node graph. At any point in execution, the graph knows what just happened and what's allowed next.
 
-- **Contract checks** — Guard expressions that gate steps before they run. Model checks (`[check]`), human checks (`{check}`), and learned checks (`#{check}`) can be composed with `&&`, `||`, `!`, then wrapped with an expression-level policy such as `([check] && !{other}):halt`. If no policy is written, the default is 3 retries.
+- **Typed constraints** — Each constraint is one delimiter form: `(hint)`, `[model prompt]`, `{human prompt}`, or `` `cel expression` ``. The delimiter binds to one verifier kind; verifiers do not compose. Each verified form accepts an optional policy: `:halt`, `:skip`, or `:N` retries (default 3).
 
 - **Guarantees** — Reusable contract expressions (`guarantee <name> <expr>`) that can be attached to entire workflows with `@always`, so certain invariants hold on every step.
 
@@ -45,27 +45,26 @@ The entire framework relies on these critical insights that you just read.
 
 - **Function wrapping** — `Session.wrap(func)` wraps any Python callable (sync or async) so that contract enforcement happens transparently at the function boundary.
 
-- **Memory** — A JSON-backed persistence layer for learned checks, allowing knowledge to carry across sessions.
-
 ## Installation
 
 ```bash
 pip install complier
 ```
 
-Requires Python 3.11+. The only runtime dependency is [Lark](https://github.com/lark-parser/lark).
+Requires Python 3.11+. Runtime dependencies: [Lark](https://github.com/lark-parser/lark) and [cel-python](https://github.com/cloud-custodian/cel-python).
 
 ## Quick Start
 
 Define a contract in a `.cpl` file:
 
 ```
-guarantee safe [no_harmful_content]:halt
+guarantee safe [must not contain harmful content]:halt
 
 workflow "research" @always safe
     | @human "What topic?"
-    | search_web
-    | summarize style=([relevant] && [concise]):halt
+    | search_web query=(prefer recent peer-reviewed sources)
+    | summarize style=[must be concise and relevant]:halt
+    | Bash command=`command.startsWith("rg ")`
     | @branch
         -when "technical"
             | @llm "Write detailed analysis"

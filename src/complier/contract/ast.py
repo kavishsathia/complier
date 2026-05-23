@@ -15,10 +15,10 @@ class Program:
 
 @dataclass(slots=True)
 class Guarantee:
-    """Named reusable contract expression."""
+    """Named reusable verified constraint."""
 
     name: str
-    expression: ProseGuard
+    expression: "VerifiedConstraint"
 
 
 @dataclass(slots=True)
@@ -157,44 +157,37 @@ Policy: TypeAlias = str | RetryPolicy
 
 
 @dataclass(slots=True)
-class ModelCheck:
-    """Square-bracket [name] check — evaluated by the model."""
+class HintPrompt:
+    """Paren-delimited (prompt) — guidance shown to the agent, no verification."""
 
-    name: str
-
-
-@dataclass(slots=True)
-class HumanCheck:
-    """Curly-brace {name} check — evaluated by a human."""
-
-    name: str
+    text: str
 
 
 @dataclass(slots=True)
-class LearnedCheck:
-    """Hash-brace #{name} check — evaluated from learned memory."""
+class ModelPrompt:
+    """Square-bracket [prompt] — verified by the model verifier."""
 
-    name: str
-
-
-Check: TypeAlias = ModelCheck | HumanCheck | LearnedCheck
+    text: str
+    policy: Policy = field(default_factory=lambda: RetryPolicy(attempts=3))
 
 
 @dataclass(slots=True)
-class ProseGuard:
-    """A natural-language guard with inline annotated checks and a failure policy."""
+class HumanPrompt:
+    """Curly-brace {prompt} — verified by the human verifier."""
 
-    prose: str
-    checks: list[Check] = field(default_factory=list)
+    text: str
     policy: Policy = field(default_factory=lambda: RetryPolicy(attempts=3))
 
 
 @dataclass(slots=True)
 class CelExpression:
-    """A deterministic CEL expression used as a param constraint."""
+    """Backtick `expression` — deterministic CEL evaluation."""
 
     text: str
+    policy: Policy = field(default_factory=lambda: RetryPolicy(attempts=3))
 
 
-ParamValue: TypeAlias = str | int | bool | None | ProseGuard | CelExpression
+Constraint: TypeAlias = HintPrompt | ModelPrompt | HumanPrompt | CelExpression
+VerifiedConstraint: TypeAlias = ModelPrompt | HumanPrompt | CelExpression
+ParamValue: TypeAlias = str | int | bool | None | Constraint
 CallType: TypeAlias = str

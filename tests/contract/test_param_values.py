@@ -4,9 +4,11 @@ import unittest
 
 from complier.contract.parser import ContractParser
 from complier.contract.ast import (
-    ModelCheck,
+    CelExpression,
+    HintPrompt,
+    HumanPrompt,
+    ModelPrompt,
     Param,
-    ProseGuard,
     RetryPolicy,
     ToolStep,
 )
@@ -33,39 +35,65 @@ workflow "params"
         self.assertIs(params["disabled"], False)
         self.assertIsNone(params["reviewer"])
 
-    def test_parses_prose_guard_as_param_value(self) -> None:
+    def test_parses_hint_prompt_as_param_value(self) -> None:
         program = parse_program(
             """
-workflow "checks"
-    | classify gate='must be [relevant] and [concise]':halt
+workflow "hints"
+    | classify gate=(must be relevant and concise)
 """
         )
-
-        tool = program.items[0].steps[0]
-        self.assertIsInstance(tool, ToolStep)
-        self.assertEqual(len(tool.params), 1)
-
-        gate = tool.params[0]
+        gate = program.items[0].steps[0].params[0]
         self.assertIsInstance(gate, Param)
         self.assertEqual(gate.name, "gate")
-        self.assertIsInstance(gate.value, ProseGuard)
-        self.assertEqual(gate.value.policy, "halt")
-        self.assertEqual(len(gate.value.checks), 2)
-        self.assertIsInstance(gate.value.checks[0], ModelCheck)
-        self.assertIsInstance(gate.value.checks[1], ModelCheck)
-        self.assertEqual(gate.value.checks[0].name, "relevant")
-        self.assertEqual(gate.value.checks[1].name, "concise")
+        self.assertIsInstance(gate.value, HintPrompt)
+        self.assertEqual(gate.value.text, "must be relevant and concise")
 
-    def test_prose_guards_default_to_retry_three_policy(self) -> None:
+    def test_parses_model_prompt_with_policy(self) -> None:
         program = parse_program(
             """
 workflow "checks"
-    | classify gate='must be [relevant]'
+    | classify gate=[must be relevant and concise]:halt
 """
         )
-
         gate = program.items[0].steps[0].params[0]
-        self.assertIsInstance(gate.value, ProseGuard)
+        self.assertIsInstance(gate.value, ModelPrompt)
+        self.assertEqual(gate.value.text, "must be relevant and concise")
+        self.assertEqual(gate.value.policy, "halt")
+
+    def test_parses_human_prompt_with_default_retry(self) -> None:
+        program = parse_program(
+            """
+workflow "checks"
+    | publish gate={editor approved this}
+"""
+        )
+        gate = program.items[0].steps[0].params[0]
+        self.assertIsInstance(gate.value, HumanPrompt)
+        self.assertEqual(gate.value.text, "editor approved this")
+        self.assertIsInstance(gate.value.policy, RetryPolicy)
+        self.assertEqual(gate.value.policy.attempts, 3)
+
+    def test_parses_cel_expression_with_policy(self) -> None:
+        program = parse_program(
+            """
+workflow "explore"
+    | Bash command=`command.startsWith("grep ")`:halt
+"""
+        )
+        command = program.items[0].steps[0].params[0]
+        self.assertIsInstance(command.value, CelExpression)
+        self.assertEqual(command.value.text, 'command.startsWith("grep ")')
+        self.assertEqual(command.value.policy, "halt")
+
+    def test_prompt_constraints_default_to_retry_three(self) -> None:
+        program = parse_program(
+            """
+workflow "checks"
+    | classify gate=[must be relevant]
+"""
+        )
+        gate = program.items[0].steps[0].params[0]
+        self.assertIsInstance(gate.value, ModelPrompt)
         self.assertIsInstance(gate.value.policy, RetryPolicy)
         self.assertEqual(gate.value.policy.attempts, 3)
 

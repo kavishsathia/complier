@@ -19,8 +19,7 @@ from complier.contract.runtime import (
     UnorderedBackNode,
     UnorderedNode,
 )
-from complier.memory.model import Memory
-from complier.verification import CelVerifier, Verifier
+from complier.verification import Verifier, default_verifiers
 
 from .context import activate_session
 from .decisions import (
@@ -40,14 +39,11 @@ if TYPE_CHECKING:
 
 @dataclass(slots=True)
 class Session:
-    """One live execution session against a contract and memory."""
+    """One live execution session against a contract."""
 
     contract: "Contract"
     workflow: str | None = None
-    memory: Memory | None = None
-    model: Verifier | None = None
-    human: Verifier | None = None
-    cel: CelVerifier = field(default_factory=CelVerifier)
+    verifiers: list[Verifier] = field(default_factory=default_verifiers)
     formatter: NextActionsFormatter = field(default=default_next_actions_formatter)
     state: SessionState = field(default_factory=SessionState)
     server: SessionServer = field(init=False)
@@ -55,9 +51,6 @@ class Session:
     _remote_wrapper_base_url: str | None = field(init=False, default=None, repr=False)
 
     def __post_init__(self) -> None:
-        """Detach session-owned memory from the caller's original instance."""
-        if self.memory is not None:
-            self.memory = Memory(checks=dict(self.memory.checks))
         if self.workflow is not None:
             if self.workflow not in self.contract.workflows:
                 available = ", ".join(self.contract.workflows)
@@ -203,17 +196,6 @@ class Session:
             }
         )
 
-    def snapshot_memory(self) -> Memory:
-        """Produce the updated memory after a session run."""
-        if self.memory is None:
-            return Memory.empty()
-
-        return Memory(checks=dict(self.memory.checks))
-
-    def get_memory(self) -> str:
-        """Return the current session memory as a serialized string."""
-        return self.snapshot_memory().to_json()
-
     def register_managed_process(self, process: subprocess.Popen[str]) -> None:
         self._managed_processes.append(process)
 
@@ -330,7 +312,7 @@ class Session:
     def _params_match(self, node: ToolNode, kwargs: dict[str, Any]):
         for name, constraint in node.params.items():
             if name not in kwargs:
-                from complier.contract.evaluator import EvaluationResult
+                from complier.verification import EvaluationResult
 
                 return EvaluationResult(
                     passed=False,
@@ -339,15 +321,12 @@ class Session:
             result = evaluate_constraint(
                 constraint,
                 kwargs[name],
-                model=self.model,
-                human=self.human,
-                cel=self.cel,
-                memory=self.memory,
+                verifiers=self.verifiers,
                 context=kwargs,
             )
             if not result.passed:
                 return result
-        from complier.contract.evaluator import EvaluationResult
+        from complier.verification import EvaluationResult
 
         return EvaluationResult(passed=True)
 

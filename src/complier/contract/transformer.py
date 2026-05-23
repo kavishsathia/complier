@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 from typing import Any
 
 from lark import Token, Transformer
@@ -13,16 +12,15 @@ from .ast import (
     ElseArm,
     ForkStep,
     Guarantee,
-    HumanCheck,
+    HintPrompt,
+    HumanPrompt,
     HumanStep,
     JoinStep,
-    LearnedCheck,
     LlmStep,
     LoopStep,
-    ModelCheck,
+    ModelPrompt,
     Param,
     Program,
-    ProseGuard,
     RetryPolicy,
     SubworkflowStep,
     ToolStep,
@@ -31,8 +29,6 @@ from .ast import (
     WhenArm,
     Workflow,
 )
-
-_CHECK_PATTERN = re.compile(r"#\{([^}]+)\}|\{([^}]+)\}|\[([^\]]+)\]")
 
 
 def _strip_string(token: str) -> str:
@@ -173,22 +169,24 @@ class ContractTransformer(Transformer[Token, Any]):
     def null_value(self, _items: list[Any]) -> None:
         return None
 
-    def cel_expression(self, items: list[Any]) -> CelExpression:
+    def hint_prompt(self, items: list[Any]) -> HintPrompt:
         token = str(items[0])
-        return CelExpression(text=token[1:-1])  # strip surrounding backticks
+        return HintPrompt(text=token[1:-1])  # strip surrounding parens
 
-    def prose_guard(self, items: list[Any]) -> ProseGuard:
-        prose = str(items[0])[1:-1]  # strip surrounding single quotes
+    def model_prompt(self, items: list[Any]) -> ModelPrompt:
+        text = str(items[0])[1:-1]  # strip surrounding brackets
         policy = items[1] if len(items) > 1 else RetryPolicy(attempts=3)
-        checks = []
-        for m in _CHECK_PATTERN.finditer(prose):
-            if m.group(1):
-                checks.append(LearnedCheck(name=m.group(1)))
-            elif m.group(2):
-                checks.append(HumanCheck(name=m.group(2)))
-            elif m.group(3):
-                checks.append(ModelCheck(name=m.group(3)))
-        return ProseGuard(prose=prose, checks=checks, policy=policy)
+        return ModelPrompt(text=text, policy=policy)
+
+    def human_prompt(self, items: list[Any]) -> HumanPrompt:
+        text = str(items[0])[1:-1]  # strip surrounding braces
+        policy = items[1] if len(items) > 1 else RetryPolicy(attempts=3)
+        return HumanPrompt(text=text, policy=policy)
+
+    def cel_expression(self, items: list[Any]) -> CelExpression:
+        text = str(items[0])[1:-1]  # strip surrounding backticks
+        policy = items[1] if len(items) > 1 else RetryPolicy(attempts=3)
+        return CelExpression(text=text, policy=policy)
 
     def halt_policy(self, _items: list[Any]) -> str:
         return "halt"
