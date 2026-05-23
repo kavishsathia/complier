@@ -215,13 +215,31 @@ Example:
 
 ### Parameters
 
-Tool calls may include named parameters.
+Tool calls may include named parameters with three constraint forms:
 
-Example:
+1. **Literal** — exact-equality match.
 
-```text
-draft_post channel="blog" audience="developers"
-```
+   ```text
+   draft_post channel="blog" audience="developers"
+   ```
+
+2. **Prose with checks** — fuzzy semantic constraint evaluated by a model/human verifier. Use when the check is genuinely semantic (`[safe]`, `[concise]`, `{approved}`).
+
+   ```text
+   summarize style='must be [concise] and [relevant]'
+   ```
+
+3. **CEL expression** — deterministic boolean predicate over the call's kwargs. Use for mechanical checks (string prefix, regex, set membership). Built in; no API key. Backtick-delimited:
+
+   ```text
+   Bash command=`command.startsWith("grep ")`
+   Read file_path=`file_path.matches("^src/.*\\.py$")`
+   send_email to=`to in ["team@x.com", "ops@x.com"]`
+   ```
+
+   CEL expressions see all sibling kwargs as variables; reference any kwarg by name. Standard CEL ops: `startsWith`, `endsWith`, `matches` (regex), `size`, `in`, `&&`, `||`, `!`. The expression text appears in the next-actions hint so the agent can self-correct without a verifier round-trip.
+
+   Prefer CEL over prose for anything mechanical. Reserve prose-with-checks for truly fuzzy semantic predicates.
 
 ### Memory-Backed Syntax
 
