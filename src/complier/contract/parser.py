@@ -63,9 +63,12 @@ param: IDENT "=" param_value
             | FALSE           -> false_value
             | NULL            -> null_value
             | prose_guard
+            | cel_expression
 
 prose_guard: PROSE_STRING
            | PROSE_STRING ":" check_policy
+
+cel_expression: CEL_STRING
 
 check_policy: HALT -> halt_policy
             | SKIP -> skip_policy
@@ -88,6 +91,7 @@ TRUE: "true"
 FALSE: "false"
 NULL: "null"
 PROSE_STRING: "'" /[^']*/ "'"
+CEL_STRING: "`" /[^`]*/ "`"
 
 _NL: /(\r?\n[ \t]*)+/
 

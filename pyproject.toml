@@ -29,6 +29,7 @@ classifiers = [
   "Topic :: Software Development :: Libraries :: Python Modules",
 ]
 dependencies = [
+  "cel-python>=0.5",
   "lark>=1.2.2",
 ]
 

@@ -189,5 +189,12 @@ class ProseGuard:
     policy: Policy = field(default_factory=lambda: RetryPolicy(attempts=3))
 
 
-ParamValue: TypeAlias = str | int | bool | None | ProseGuard
+@dataclass(slots=True)
+class CelExpression:
+    """A deterministic CEL expression used as a param constraint."""
+
+    text: str
+
+
+ParamValue: TypeAlias = str | int | bool | None | ProseGuard | CelExpression
 CallType: TypeAlias = str

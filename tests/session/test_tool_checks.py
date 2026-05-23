@@ -236,6 +236,62 @@ workflow "research"
         self.assertEqual(session.state.history[-1]["tool_name"], "search_web")
         self.assertEqual(session.state.history[-1]["result"], {"status": "ok"})
 
+    def test_cel_expression_param_allows_when_predicate_true(self) -> None:
+        session = Contract.from_source(
+            """
+workflow "explore"
+    | Bash command=`command.startsWith("grep ")`
+"""
+        ).create_session()
+
+        decision = session.check_tool_call("Bash", (), {"command": "grep -n foo bar"})
+        self.assertTrue(decision.allowed)
+
+    def test_cel_expression_param_blocks_when_predicate_false(self) -> None:
+        session = Contract.from_source(
+            """
+workflow "explore"
+    | Bash command=`command.startsWith("grep ")`
+"""
+        ).create_session()
+
+        decision = session.check_tool_call("Bash", (), {"command": "cat foo"})
+        self.assertFalse(decision.allowed)
+        # The deny reason should surface the expression so the agent can correct.
+        joined = " ".join(decision.remediation.missing_requirements)
+        self.assertIn("command.startsWith", joined)
+
+    def test_cel_expression_appears_in_initial_next_action_hint(self) -> None:
+        from complier.session.decisions import default_next_actions_formatter
+
+        session = Contract.from_source(
+            """
+workflow "explore"
+    | Bash command=`command.startsWith("grep ")`
+"""
+        ).create_session()
+
+        next_actions = session.kickoff()
+        self.assertIn("`command.startsWith(\"grep \")`", next_actions)
+
+    def test_cel_expression_sees_sibling_kwargs_in_context(self) -> None:
+        session = Contract.from_source(
+            """
+workflow "explore"
+    | send_email to=`to in allowed`
+"""
+        ).create_session()
+
+        allowed = session.check_tool_call(
+            "send_email", (), {"to": "a@x.com", "allowed": ["a@x.com", "b@x.com"]}
+        )
+        self.assertTrue(allowed.allowed)
+
+        blocked = session.check_tool_call(
+            "send_email", (), {"to": "c@x.com", "allowed": ["a@x.com", "b@x.com"]}
+        )
+        self.assertFalse(blocked.allowed)
+
     def test_ambient_tool_is_allowed_at_any_position_without_advancing(self) -> None:
         session = Contract.from_source(
             """

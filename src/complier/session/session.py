@@ -20,7 +20,7 @@ from complier.contract.runtime import (
     UnorderedNode,
 )
 from complier.memory.model import Memory
-from complier.verification import Verifier
+from complier.verification import CelVerifier, Verifier
 
 from .context import activate_session
 from .decisions import (
@@ -47,6 +47,7 @@ class Session:
     memory: Memory | None = None
     model: Verifier | None = None
     human: Verifier | None = None
+    cel: CelVerifier = field(default_factory=CelVerifier)
     formatter: NextActionsFormatter = field(default=default_next_actions_formatter)
     state: SessionState = field(default_factory=SessionState)
     server: SessionServer = field(init=False)
@@ -340,7 +341,9 @@ class Session:
                 kwargs[name],
                 model=self.model,
                 human=self.human,
+                cel=self.cel,
                 memory=self.memory,
+                context=kwargs,
             )
             if not result.passed:
                 return result
