@@ -43,6 +43,21 @@ workflow "ops" @always safe @always approved
         self.assertIsInstance(workflow.steps[4], ForkStep)
         self.assertIsInstance(workflow.steps[5], JoinStep)
 
+    def test_parses_backtick_cel_expression_as_param_value(self) -> None:
+        from complier.contract.ast import CelExpression
+
+        program = parse_program(
+            """
+workflow "explore"
+    | Bash command=`command.startsWith("grep ")`
+"""
+        )
+        workflow = program.items[0]
+        tool = workflow.steps[0]
+        self.assertEqual(tool.params[0].name, "command")
+        self.assertIsInstance(tool.params[0].value, CelExpression)
+        self.assertEqual(tool.params[0].value.text, 'command.startsWith("grep ")')
+
     def test_parses_ambient_clause_mixed_with_always(self) -> None:
         program = parse_program(
             """
