@@ -4,7 +4,7 @@ import unittest
 
 from complier.contract.model import Contract
 from complier.session.decisions import BlockedToolResponse, Decision, Remediation
-from complier.wrappers.function import wrap_function
+from complier.integration.function import wrap_function
 
 
 class FunctionWrapperTests(unittest.TestCase):

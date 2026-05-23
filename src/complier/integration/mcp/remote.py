@@ -33,7 +33,7 @@ def wrap_remote_mcp(
     auth_token: str | None = None,
 ) -> RemoteMCPDetails:
     """Register and return connection details for a namespaced remote HTTP MCP wrapper."""
-    from .local_mcp import _normalize_namespace
+    from .local import _normalize_namespace
 
     normalized_namespace = _normalize_namespace(namespace)
     base_url = _ensure_remote_wrapper_host(session, host=host, port=port)
@@ -49,7 +49,7 @@ def _ensure_remote_wrapper_host(session: Session, *, host: str, port: int) -> st
     wrapper_command = [
         sys.executable,
         "-m",
-        "complier.wrappers.remote_http_proxy",
+        "complier.integration.mcp.remote_http_proxy",
         "--session-host",
         str(server_details["host"]),
         "--session-port",

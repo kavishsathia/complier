@@ -14,7 +14,7 @@ from mcp.client.stdio import StdioServerParameters, stdio_client
 from mcp.server import NotificationOptions, Server
 from mcp.server.stdio import stdio_server
 
-from .local_mcp import normalize_tool_name, public_tool_name
+from .local import normalize_tool_name, public_tool_name
 from complier.session.decisions import BlockedToolResponse
 from complier.session.server import SessionServerClient
 

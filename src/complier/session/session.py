@@ -80,7 +80,7 @@ class Session:
 
     def wrap(self, func: Any) -> Any:
         """Bind a callable into this session's enforcement flow."""
-        from complier.wrappers.function import wrap_function
+        from complier.integration.function import wrap_function
 
         return wrap_function(self, func)
 

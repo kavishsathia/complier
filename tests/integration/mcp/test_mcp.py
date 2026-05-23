@@ -11,9 +11,10 @@ from starlette.requests import Request
 
 from complier.contract.model import Contract
 from complier.session.decisions import Decision, Remediation
-from complier.wrappers import local_stdio_proxy, remote_http_proxy, remote_mcp
-from complier.wrappers.local_mcp import normalize_tool_name, public_tool_name, wrap_local_mcp
-from complier.wrappers.local_stdio_proxy import (
+from complier.integration.mcp import local_stdio_proxy, remote_http_proxy
+from complier.integration.mcp import remote as remote_mcp
+from complier.integration.mcp.local import normalize_tool_name, public_tool_name, wrap_local_mcp
+from complier.integration.mcp.local_stdio_proxy import (
     ProxyState,
     _build_server_params,
     _list_tools,
@@ -21,14 +22,14 @@ from complier.wrappers.local_stdio_proxy import (
     _resolve_downstream_tool_name,
     _with_choice_param,
 )
-from complier.wrappers.remote_http_proxy import (
+from complier.integration.mcp.remote_http_proxy import (
     RemoteRegistry,
     _authorization_header,
     _downstream_url,
     _namespace_from_request,
     _parse_args as parse_remote_proxy_args,
 )
-from complier.wrappers.remote_mcp import wrap_remote_mcp
+from complier.integration.mcp.remote import wrap_remote_mcp
 
 
 class FakeSession:
@@ -52,7 +53,7 @@ class MCPWrapperTests(unittest.TestCase):
             [
                 sys.executable,
                 "-m",
-                "complier.wrappers.local_stdio_proxy",
+                "complier.integration.mcp.local_stdio_proxy",
                 "--namespace",
                 "notion",
             ],
@@ -77,9 +78,9 @@ class MCPWrapperTests(unittest.TestCase):
     def test_wrap_remote_mcp_returns_wrapper_url(self) -> None:
         session = Contract(name="demo").create_session()
         with (
-            patch("complier.wrappers.remote_mcp.subprocess.Popen") as popen,
-            patch("complier.wrappers.remote_mcp._wait_for_port"),
-            patch("complier.wrappers.remote_mcp.httpx.post") as post,
+            patch("complier.integration.mcp.remote.subprocess.Popen") as popen,
+            patch("complier.integration.mcp.remote._wait_for_port"),
+            patch("complier.integration.mcp.remote.httpx.post") as post,
         ):
             process = MagicMock()
             popen.return_value = process
@@ -115,7 +116,7 @@ class MCPWrapperTests(unittest.TestCase):
     def test_wrap_remote_mcp_reuses_existing_wrapper_host(self) -> None:
         session = Contract(name="demo").create_session()
         session._remote_wrapper_base_url = "http://127.0.0.1:5555"
-        with patch("complier.wrappers.remote_mcp.httpx.post") as post:
+        with patch("complier.integration.mcp.remote.httpx.post") as post:
             details = wrap_remote_mcp(
                 session,
                 "Notion",
@@ -309,9 +310,9 @@ class RemoteHttpProxyTests(unittest.IsolatedAsyncioTestCase):
             return FakeHttpClientContext()
 
         with (
-            patch("complier.wrappers.remote_http_proxy.httpx.AsyncClient", side_effect=fake_async_client),
-            patch("complier.wrappers.remote_http_proxy.streamable_http_client", side_effect=fake_streamable_http_client),
-            patch("complier.wrappers.remote_http_proxy.ClientSession", FakeClientSession),
+            patch("complier.integration.mcp.remote_http_proxy.httpx.AsyncClient", side_effect=fake_async_client),
+            patch("complier.integration.mcp.remote_http_proxy.streamable_http_client", side_effect=fake_streamable_http_client),
+            patch("complier.integration.mcp.remote_http_proxy.ClientSession", FakeClientSession),
         ):
             async with remote_http_proxy._downstream_session(
                 "https://downstream.example.com/mcp",
@@ -355,9 +356,9 @@ class RemoteHttpProxyTests(unittest.IsolatedAsyncioTestCase):
             return FakeHttpClientContext()
 
         with (
-            patch("complier.wrappers.remote_http_proxy.httpx.AsyncClient", side_effect=fake_async_client),
-            patch("complier.wrappers.remote_http_proxy.streamable_http_client", side_effect=fake_streamable_http_client),
-            patch("complier.wrappers.remote_http_proxy.ClientSession", FakeClientSession),
+            patch("complier.integration.mcp.remote_http_proxy.httpx.AsyncClient", side_effect=fake_async_client),
+            patch("complier.integration.mcp.remote_http_proxy.streamable_http_client", side_effect=fake_streamable_http_client),
+            patch("complier.integration.mcp.remote_http_proxy.ClientSession", FakeClientSession),
         ):
             async with remote_http_proxy._downstream_session("https://downstream.example.com/mcp", None):
                 pass

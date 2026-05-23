@@ -26,7 +26,7 @@ from complier.session.decisions import BlockedToolResponse
 from complier.session.server import SessionServerClient
 
 from .local_stdio_proxy import _resolve_downstream_tool_name, _tool_update, ProxyState
-from .local_mcp import normalize_tool_name, public_tool_name
+from .local import normalize_tool_name, public_tool_name
 
 
 @dataclass(slots=True)

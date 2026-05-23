@@ -28,7 +28,7 @@ def wrap_local_mcp(session: Session, namespace: str, command: str | Sequence[str
     wrapper_command = [
         sys.executable,
         "-m",
-        "complier.wrappers.local_stdio_proxy",
+        "complier.integration.mcp.local_stdio_proxy",
         "--namespace",
         normalized_namespace,
         "--session-host",

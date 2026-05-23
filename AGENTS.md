@@ -56,7 +56,7 @@ The package should be designed so that developers can adopt it with low friction
 - `src/complier/contract/`: contract parsing, compilation, validation, and runtime model
 - `src/complier/memory/`: persistent learned knowledge
 - `src/complier/session/`: live execution state and compliance decisions
-- `src/complier/wrappers/`: function and MCP wrappers
+- `src/complier/integration/`: function and MCP integrations (tool-side wrappers)
 - `src/complier/runtime/`: runtime support types such as events and remediation messages
 - `src/complier/errors/`: package-specific exceptions
 
@@ -241,8 +241,8 @@ If you need to explain flow, prefer plain language, numbered steps, or short bul
 
 ## Implementation Guidance
 
-- Keep runtime enforcement logic separate from wrappers as much as possible
-- wrappers should stay thin and delegate decision-making to session-level logic
+- Keep runtime enforcement logic separate from integration wrappers as much as possible
+- integration wrappers should stay thin and delegate decision-making to session-level logic
 - keep `Memory` distinct from per-run session state
 - preserve a clear boundary between authored source, compiled contract, and runtime execution
 - do not reintroduce the old Rust prototype as the main implementation path
