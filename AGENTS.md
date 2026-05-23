@@ -124,7 +124,22 @@ A workflow consists of:
 
 - a name
 - zero or more `@always` guarantees
+- zero or more `@ambient` tool allowances
 - a series of pipe-prefixed steps
+
+### Ambient tools
+
+`@ambient` declares tools the agent is allowed to call at any position in the workflow without advancing the graph. Useful for meta-tools that harnesses use as substrate (Claude Code's `ToolSearch`, `LS`, `Skill`; deferred-tool loaders; etc.). Example:
+
+```text
+workflow "fix-bug" @ambient ToolSearch LS
+    | Read
+    | Grep
+    | Edit
+    | Bash
+```
+
+Ambient calls are allowed regardless of current position, do not change `active_step`, and do not satisfy any procedural step. Guards on the workflow's procedural nodes do not run for ambient calls. Multiple tools can be listed after a single `@ambient`, and `@ambient` clauses may be repeated.
 
 ### Step Types
 

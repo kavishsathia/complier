@@ -59,6 +59,17 @@ workflow "research" @always safe
         self.assertEqual(tool.guards[0].checks[0].name, "no_harmful_content")
         self.assertEqual(tool.guards[0].policy, "halt")
 
+    def test_ambient_tools_are_carried_onto_compiled_workflow(self) -> None:
+        contract = Contract.from_source(
+            """
+workflow "research" @ambient ToolSearch LS
+    | search_web
+"""
+        )
+
+        workflow = contract.workflows["research"]
+        self.assertEqual(workflow.ambient, frozenset({"ToolSearch", "LS"}))
+
     def test_inlines_guarantee_references_inside_param_expressions(self) -> None:
         contract = Contract.from_source(
             """

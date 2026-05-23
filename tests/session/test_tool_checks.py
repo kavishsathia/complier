@@ -236,6 +236,48 @@ workflow "research"
         self.assertEqual(session.state.history[-1]["tool_name"], "search_web")
         self.assertEqual(session.state.history[-1]["result"], {"status": "ok"})
 
+    def test_ambient_tool_is_allowed_at_any_position_without_advancing(self) -> None:
+        session = Contract.from_source(
+            """
+workflow "fix-bug" @ambient ToolSearch LS
+    | Read
+    | Grep
+    | Edit
+"""
+        ).create_session()
+
+        first = session.check_tool_call("ToolSearch", (), {"q": "hi"})
+        self.assertTrue(first.allowed)
+        self.assertIsNone(session.state.active_step)
+        self.assertEqual(session.state.completed_steps, [])
+        self.assertEqual(
+            first.remediation.allowed_next_actions,
+            ["Read"],
+        )
+
+        advance = session.check_tool_call("Read", (), {})
+        self.assertTrue(advance.allowed)
+        self.assertIsNotNone(session.state.active_step)
+        self.assertEqual(advance.remediation.allowed_next_actions, ["Grep"])
+
+        ambient_again = session.check_tool_call("LS", (), {})
+        self.assertTrue(ambient_again.allowed)
+        self.assertEqual(ambient_again.remediation.allowed_next_actions, ["Grep"])
+        self.assertEqual(len(session.state.completed_steps), 1)
+
+    def test_non_ambient_tool_still_blocks_at_wrong_position(self) -> None:
+        session = Contract.from_source(
+            """
+workflow "fix-bug" @ambient ToolSearch
+    | Read
+    | Grep
+"""
+        ).create_session()
+
+        decision = session.check_tool_call("Bash", (), {})
+        self.assertFalse(decision.allowed)
+        self.assertEqual(decision.remediation.allowed_next_actions, ["Read"])
+
     def test_allows_dotted_tool_names(self) -> None:
         session = Contract.from_source(
             """

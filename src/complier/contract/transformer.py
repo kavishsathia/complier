@@ -39,6 +39,14 @@ def _strip_string(token: str) -> str:
     return _ast.literal_eval(token)
 
 
+class _AlwaysAttr(str):
+    """Internal marker for an @always clause name."""
+
+
+class _AmbientAttr(tuple):
+    """Internal marker for an @ambient clause tool list."""
+
+
 class ContractTransformer(Transformer[Token, Any]):
     """Transforms a parse tree into the contract AST."""
 
@@ -62,12 +70,26 @@ class ContractTransformer(Transformer[Token, Any]):
 
     def workflow(self, items: list[Any]) -> Workflow:
         name = items[0]
-        always = [item for item in items[1:] if isinstance(item, str)]
-        steps = [item for item in items[1:] if not isinstance(item, str)]
-        return Workflow(name=name, always=always, steps=steps)
+        always: list[str] = []
+        ambient: list[str] = []
+        steps: list[Any] = []
+        for item in items[1:]:
+            if isinstance(item, _AlwaysAttr):
+                always.append(str(item))
+            elif isinstance(item, _AmbientAttr):
+                ambient.extend(item)
+            else:
+                steps.append(item)
+        return Workflow(name=name, always=always, ambient=ambient, steps=steps)
 
-    def always_clause(self, items: list[Any]) -> str:
+    def workflow_attr(self, items: list[Any]) -> Any:
         return items[0]
+
+    def always_clause(self, items: list[Any]) -> _AlwaysAttr:
+        return _AlwaysAttr(items[0])
+
+    def ambient_clause(self, items: list[Any]) -> _AmbientAttr:
+        return _AmbientAttr(str(item) for item in items)
 
     def step(self, items: list[Any]) -> Any:
         filtered = self._without_tokens(items, {"PIPE"})

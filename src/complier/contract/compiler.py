@@ -81,6 +81,7 @@ class WorkflowCompiler:
             start_node_id=start.id,
             end_node_id=end.id,
             nodes=self.nodes,
+            ambient=frozenset(workflow.ambient),
         )
 
     def _compile_steps(

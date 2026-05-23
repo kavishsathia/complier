@@ -19,8 +19,10 @@ item: guarantee | workflow
 
 guarantee: "guarantee" IDENT prose_guard
 
-workflow: "workflow" STRING always_clause* _NL _INDENT step+ _DEDENT
+workflow: "workflow" STRING workflow_attr* _NL _INDENT step+ _DEDENT
+workflow_attr: always_clause | ambient_clause
 always_clause: "@always" IDENT
+ambient_clause: "@ambient" IDENT+
 
 step: PIPE inline_step _NL
     | PIPE block_step

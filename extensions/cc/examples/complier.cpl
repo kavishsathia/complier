@@ -1,4 +1,4 @@
-workflow "edit_with_review"
+workflow "edit_with_review" @ambient ToolSearch LS Skill Glob
     | Read
     | Edit
     | Bash command='must run the project test command'

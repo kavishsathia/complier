@@ -27,6 +27,7 @@ class Workflow:
 
     name: str
     always: list[str] = field(default_factory=list)
+    ambient: list[str] = field(default_factory=list)
     steps: list[Step] = field(default_factory=list)
 
 
