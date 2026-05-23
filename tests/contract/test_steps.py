@@ -43,6 +43,20 @@ workflow "ops" @always safe @always approved
         self.assertIsInstance(workflow.steps[4], ForkStep)
         self.assertIsInstance(workflow.steps[5], JoinStep)
 
+    def test_parses_ambient_clause_mixed_with_always(self) -> None:
+        program = parse_program(
+            """
+workflow "ops" @always safe @ambient ToolSearch LS @always approved
+    | Read
+    | Grep
+"""
+        )
+
+        workflow = program.items[0]
+        self.assertEqual(workflow.always, ["safe", "approved"])
+        self.assertEqual(workflow.ambient, ["ToolSearch", "LS"])
+        self.assertEqual(len(workflow.steps), 2)
+
     def test_parses_use_inline_and_fork_join_details(self) -> None:
         program = parse_program(
             """

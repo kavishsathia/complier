@@ -15,6 +15,7 @@ class CompiledWorkflow:
     start_node_id: str
     end_node_id: str
     nodes: dict[str, RuntimeNode] = field(default_factory=dict)
+    ambient: frozenset[str] = field(default_factory=frozenset)
 
 
 @dataclass(slots=True)

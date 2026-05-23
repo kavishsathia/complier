@@ -108,6 +108,19 @@ class Session:
             )
 
         workflow = self.contract.workflows[workflow_name]
+
+        if tool_name in workflow.ambient:
+            self.state.active_workflow = workflow.name
+            frontier = self._collect_next_tool_nodes(workflow_name, choice)
+            next_actions = sorted({node.tool_name for node in frontier})
+            return Decision(
+                allowed=True,
+                remediation=Remediation(
+                    message="Ambient tool call. Workflow position unchanged.",
+                    allowed_next_actions=next_actions,
+                ) if next_actions else None,
+            )
+
         candidate_nodes = self._collect_next_tool_nodes(workflow_name, choice)
 
         matching_name_nodes = [
