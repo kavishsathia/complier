@@ -9,6 +9,7 @@ from lark import Token, Transformer
 
 from .ast import (
     BranchStep,
+    CelExpression,
     ElseArm,
     ForkStep,
     Guarantee,
@@ -171,6 +172,10 @@ class ContractTransformer(Transformer[Token, Any]):
 
     def null_value(self, _items: list[Any]) -> None:
         return None
+
+    def cel_expression(self, items: list[Any]) -> CelExpression:
+        token = str(items[0])
+        return CelExpression(text=token[1:-1])  # strip surrounding backticks
 
     def prose_guard(self, items: list[Any]) -> ProseGuard:
         prose = str(items[0])[1:-1]  # strip surrounding single quotes
