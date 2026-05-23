@@ -30,13 +30,16 @@ classifiers = [
 ]
 dependencies = [
   "lark>=1.2.2",
-  "mcp>=1.27.0",
 ]
 
 [project.optional-dependencies]
+mcp = [
+  "mcp>=1.27.0",
+]
 dev = [
   "coverage>=7.6",
   "coverage-badge>=1.1",
+  "mcp>=1.27.0",
   "pytest>=8.0",
   "ruff>=0.11",
 ]

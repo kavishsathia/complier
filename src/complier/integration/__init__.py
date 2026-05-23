@@ -3,23 +3,16 @@
 These are for the harness-integration path, where a developer is
 building the harness and wraps individual tools with contract
 enforcement.
+
+MCP integration lives under `complier.integration.mcp` and is gated
+behind the `mcp` optional dependency. Import it explicitly:
+
+    from complier.integration.mcp import wrap_local_mcp
 """
 
 from .function import FunctionWrapper, wrap_function
-from .mcp import (
-    LocalMCPDetails,
-    RemoteMCPDetails,
-    normalize_tool_name,
-    wrap_local_mcp,
-    wrap_remote_mcp,
-)
 
 __all__ = [
     "FunctionWrapper",
-    "LocalMCPDetails",
-    "RemoteMCPDetails",
-    "normalize_tool_name",
     "wrap_function",
-    "wrap_local_mcp",
-    "wrap_remote_mcp",
 ]
