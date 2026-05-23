@@ -19,7 +19,6 @@ from complier.contract.runtime import (
     UnorderedBackNode,
     UnorderedNode,
 )
-from complier.memory.model import Memory
 from complier.verification import CelVerifier, Verifier
 
 from .context import activate_session
@@ -40,11 +39,10 @@ if TYPE_CHECKING:
 
 @dataclass(slots=True)
 class Session:
-    """One live execution session against a contract and memory."""
+    """One live execution session against a contract."""
 
     contract: "Contract"
     workflow: str | None = None
-    memory: Memory | None = None
     model: Verifier | None = None
     human: Verifier | None = None
     cel: CelVerifier = field(default_factory=CelVerifier)
@@ -55,9 +53,6 @@ class Session:
     _remote_wrapper_base_url: str | None = field(init=False, default=None, repr=False)
 
     def __post_init__(self) -> None:
-        """Detach session-owned memory from the caller's original instance."""
-        if self.memory is not None:
-            self.memory = Memory(checks=dict(self.memory.checks))
         if self.workflow is not None:
             if self.workflow not in self.contract.workflows:
                 available = ", ".join(self.contract.workflows)
@@ -203,17 +198,6 @@ class Session:
             }
         )
 
-    def snapshot_memory(self) -> Memory:
-        """Produce the updated memory after a session run."""
-        if self.memory is None:
-            return Memory.empty()
-
-        return Memory(checks=dict(self.memory.checks))
-
-    def get_memory(self) -> str:
-        """Return the current session memory as a serialized string."""
-        return self.snapshot_memory().to_json()
-
     def register_managed_process(self, process: subprocess.Popen[str]) -> None:
         self._managed_processes.append(process)
 
@@ -342,7 +326,6 @@ class Session:
                 model=self.model,
                 human=self.human,
                 cel=self.cel,
-                memory=self.memory,
                 context=kwargs,
             )
             if not result.passed:

@@ -16,7 +16,6 @@ from .ast import (
     HumanCheck,
     HumanStep,
     JoinStep,
-    LearnedCheck,
     LlmStep,
     LoopStep,
     ModelCheck,
@@ -32,7 +31,7 @@ from .ast import (
     Workflow,
 )
 
-_CHECK_PATTERN = re.compile(r"#\{([^}]+)\}|\{([^}]+)\}|\[([^\]]+)\]")
+_CHECK_PATTERN = re.compile(r"\{([^}]+)\}|\[([^\]]+)\]")
 
 
 def _strip_string(token: str) -> str:
@@ -183,11 +182,9 @@ class ContractTransformer(Transformer[Token, Any]):
         checks = []
         for m in _CHECK_PATTERN.finditer(prose):
             if m.group(1):
-                checks.append(LearnedCheck(name=m.group(1)))
+                checks.append(HumanCheck(name=m.group(1)))
             elif m.group(2):
-                checks.append(HumanCheck(name=m.group(2)))
-            elif m.group(3):
-                checks.append(ModelCheck(name=m.group(3)))
+                checks.append(ModelCheck(name=m.group(2)))
         return ProseGuard(prose=prose, checks=checks, policy=policy)
 
     def halt_policy(self, _items: list[Any]) -> str:

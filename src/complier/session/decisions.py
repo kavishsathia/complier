@@ -28,11 +28,11 @@ class NextActions:
 
 
 import re as _re
-_ANNOTATION_RE = _re.compile(r"#?\{[^}]+\}|\[[^\]]+\]")
+_ANNOTATION_RE = _re.compile(r"\{[^}]+\}|\[[^\]]+\]")
 
 
 def _strip_annotations(prose: str) -> str:
-    return _ANNOTATION_RE.sub(lambda m: m.group(0).lstrip("#{}[]").strip("{}[]"), prose)
+    return _ANNOTATION_RE.sub(lambda m: m.group(0).strip("{}[]"), prose)
 
 
 def default_next_actions_formatter(next_actions: NextActions) -> list[str]:

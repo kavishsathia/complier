@@ -170,14 +170,7 @@ class HumanCheck:
     name: str
 
 
-@dataclass(slots=True)
-class LearnedCheck:
-    """Hash-brace #{name} check — evaluated from learned memory."""
-
-    name: str
-
-
-Check: TypeAlias = ModelCheck | HumanCheck | LearnedCheck
+Check: TypeAlias = ModelCheck | HumanCheck
 
 
 @dataclass(slots=True)

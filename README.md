@@ -37,15 +37,13 @@ The entire framework relies on these critical insights that you just read.
 
 - **Compiled runtime graph** — Your DSL compiles down (parse → AST → graph) into a directed node graph. At any point in execution, the graph knows what just happened and what's allowed next.
 
-- **Contract checks** — Guard expressions that gate steps before they run. Model checks (`[check]`), human checks (`{check}`), and learned checks (`#{check}`) can be composed with `&&`, `||`, `!`, then wrapped with an expression-level policy such as `([check] && !{other}):halt`. If no policy is written, the default is 3 retries.
+- **Contract checks** — Guard expressions that gate steps before they run. Model checks (`[check]`) and human checks (`{check}`) can be composed with `&&`, `||`, `!`, then wrapped with an expression-level policy such as `([check] && !{other}):halt`. If no policy is written, the default is 3 retries.
 
 - **Guarantees** — Reusable contract expressions (`guarantee <name> <expr>`) that can be attached to entire workflows with `@always`, so certain invariants hold on every step.
 
 - **Session tracking** — A `Session` binds a compiled contract to mutable runtime state, tracking the active workflow, completed steps, branch conditions, and a full event history. When a tool call is blocked, the agent gets a structured `BlockedToolResponse` with remediation info.
 
 - **Function wrapping** — `Session.wrap(func)` wraps any Python callable (sync or async) so that contract enforcement happens transparently at the function boundary.
-
-- **Memory** — A JSON-backed persistence layer for learned checks, allowing knowledge to carry across sessions.
 
 ## Installation
 

@@ -4,7 +4,7 @@ complier exposes three verification channels:
 
 - ``Verifier`` — abstract base for fuzzy semantic checks. Implementations
   call an LLM (model verifier) or surface a question to a human (human
-  verifier). Used by ``[name]``, ``{name}``, and ``#{name}`` checks.
+  verifier). Used by ``[name]`` and ``{name}`` checks.
 
 - ``CelVerifier`` — concrete, deterministic CEL evaluator for mechanical
   constraints (string ops, regex, set membership, boolean composition).

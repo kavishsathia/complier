@@ -7,7 +7,6 @@ from pathlib import Path
 from typing import Any
 
 from complier.verification import CelVerifier, Verifier
-from complier.memory.model import Memory
 
 from .ast import ProseGuard
 from .runtime import CompiledWorkflow
@@ -55,20 +54,18 @@ class Contract:
     def create_session(
         self,
         workflow: str | None = None,
-        memory: Memory | None = None,
         model: Verifier | None = None,
         human: Verifier | None = None,
         cel: CelVerifier | None = None,
         formatter=None,
     ) -> "Session":
-        """Create a stateful session for this contract and optional memory."""
+        """Create a stateful session for this contract."""
         from complier.session.session import Session
         from complier.session.decisions import default_next_actions_formatter
 
         kwargs: dict[str, Any] = {
             "contract": self,
             "workflow": workflow,
-            "memory": memory,
             "model": model,
             "human": human,
             "formatter": formatter if formatter is not None else default_next_actions_formatter,

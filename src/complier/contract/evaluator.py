@@ -5,9 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
-from complier.memory.model import Memory
-
-from .ast import CelExpression, HumanCheck, LearnedCheck, ModelCheck, Policy, ProseGuard
+from .ast import CelExpression, HumanCheck, ModelCheck, Policy, ProseGuard
 
 if TYPE_CHECKING:
     from complier.verification import CelVerifier, Verifier
@@ -28,25 +26,20 @@ def evaluate_contract_expression(
     *,
     model: "Verifier | None" = None,
     human: "Verifier | None" = None,
-    memory: Memory | None = None,
 ) -> EvaluationResult:
     """Evaluate a prose guard against a specific input value."""
     model_checks = [c for c in expression.checks if isinstance(c, ModelCheck)]
     human_checks = [c for c in expression.checks if isinstance(c, HumanCheck)]
-    learned_checks = [c for c in expression.checks if isinstance(c, LearnedCheck)]
 
     model_results, model_reasons = _run_model_checks(model_checks, expression.prose, value, model)
     human_results, human_reasons = _run_human_checks(human_checks, expression.prose, value, human)
-    learned_results, learned_reasons = _run_learned_checks(
-        learned_checks, expression.prose, value, model=model, human=human, memory=memory
-    )
 
-    all_results = {**model_results, **human_results, **learned_results}
+    all_results = {**model_results, **human_results}
     passed = all(all_results.get(c.name, False) for c in expression.checks) if expression.checks else True
 
     return EvaluationResult(
         passed=passed,
-        reasons=[*model_reasons, *human_reasons, *learned_reasons],
+        reasons=[*model_reasons, *human_reasons],
         policy=None if passed else expression.policy,
     )
 
@@ -58,7 +51,6 @@ def evaluate_constraint(
     model: "Verifier | None" = None,
     human: "Verifier | None" = None,
     cel: "CelVerifier | None" = None,
-    memory: Memory | None = None,
     context: dict[str, Any] | None = None,
 ) -> EvaluationResult:
     """Evaluate a declared param constraint against a specific input value.
@@ -67,7 +59,7 @@ def evaluate_constraint(
     binding; the expression can reference any kwarg by name.
     """
     if isinstance(constraint, ProseGuard):
-        return evaluate_contract_expression(constraint, value, model=model, human=human, memory=memory)
+        return evaluate_contract_expression(constraint, value, model=model, human=human)
 
     if isinstance(constraint, CelExpression):
         if cel is None:
@@ -129,48 +121,3 @@ def _run_human_checks(
     return {name: bool(response.get(name, False)) for name in schema}, []
 
 
-def _run_learned_checks(
-    checks: list[LearnedCheck],
-    prose: str,
-    value: Any,
-    *,
-    model: "Verifier | None",
-    human: "Verifier | None",
-    memory: Memory | None,
-) -> tuple[dict[str, bool], list[str]]:
-    if not checks:
-        return {}, []
-
-    reasons: list[str] = []
-    results: dict[str, bool] = {}
-    for check in checks:
-        if human is None:
-            reasons.append("Human verifier is required for learned checks.")
-            results[check.name] = False
-            continue
-        if model is None:
-            reasons.append("Model verifier is required for learned checks.")
-            results[check.name] = False
-            continue
-
-        human_feedback = human.verify(
-            f"Criteria: {prose}\nReview for '{check.name}'.\nValue: {value!r}",
-            {"comments": str, "edited": str},
-        )
-        memory_value = "" if memory is None else memory.get_check(check.name)
-        model_result = model.verify(
-            (
-                f"Criteria: {prose}\n"
-                f"Use learned-check memory and human feedback to evaluate '{check.name}'.\n"
-                f"Value: {value!r}\n"
-                f"Memory: {memory_value!r}\n"
-                f"Human comments: {human_feedback.get('comments', '')!r}\n"
-                f"Human edited: {human_feedback.get('edited', '')!r}"
-            ),
-            {"passed": bool, "memory": str},
-        )
-        results[check.name] = bool(model_result.get("passed", False))
-        if memory is not None and "memory" in model_result:
-            memory.update_check(check.name, str(model_result["memory"]))
-
-    return results, reasons

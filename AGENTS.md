@@ -28,8 +28,7 @@ This repo is building the first version of that enforcement layer as a proper Py
 The current intended architecture is:
 
 - `Contract`: the compiled runtime representation of the authored spec
-- `Memory`: optional learned knowledge that can influence evaluation over time
-- `Session`: one live execution against a contract and optional memory
+- `Session`: one live execution against a contract
 - `FunctionWrapper`: wraps Python callables so they are enforced through a session
 - `MCPWrapper`: wraps MCP tool boundaries so they are enforced through a session
 
@@ -63,7 +62,6 @@ The repo has four top-level concerns:
 Layout inside the pip-installable library:
 
 - `src/complier/contract/`: contract parsing, compilation, validation, and runtime model
-- `src/complier/memory/`: persistent learned knowledge
 - `src/complier/session/`: live execution state and compliance decisions
 - `src/complier/integration/`: function and MCP integrations (tool-side wrappers)
 - `src/complier/runtime/`: runtime support types such as events and remediation messages
@@ -93,7 +91,6 @@ The current syntax supports checks such as:
 
 - `[check]` for model-style checks
 - `{check}` for human checks
-- `#{check}` for learned human checks backed by memory
 
 Checks may also include failure policies such as:
 
@@ -241,17 +238,6 @@ Tool calls may include named parameters with three constraint forms:
 
    Prefer CEL over prose for anything mechanical. Reserve prose-with-checks for truly fuzzy semantic predicates.
 
-### Memory-Backed Syntax
-
-The long-term model of the language includes optional memory.
-
-Current and planned forms:
-
-- `#{polite}` means a learned check whose meaning comes from memory
-- `#workflow_name` is intended to mean a learned workflow fragment whose meaning comes from memory
-
-The authored contract remains fixed. Memory can evolve across runs.
-
 ### Runtime Meaning
 
 The contract is not meant to replace an agent framework.
@@ -286,7 +272,6 @@ If you need to explain flow, prefer plain language, numbered steps, or short bul
 
 - Keep runtime enforcement logic separate from integration wrappers as much as possible
 - integration wrappers should stay thin and delegate decision-making to session-level logic
-- keep `Memory` distinct from per-run session state
 - preserve a clear boundary between authored source, compiled contract, and runtime execution
 - do not reintroduce the old Rust prototype as the main implementation path
 - prefer simple, explicit Python APIs over clever abstractions
@@ -300,6 +285,6 @@ If you need to explain flow, prefer plain language, numbered steps, or short bul
 ## Notes For Future Agents
 
 - treat the current stubs as intentional scaffolding
-- preserve the names `Contract`, `Memory`, `Session`, `FunctionWrapper`, and `MCPWrapper` unless there is a strong reason to change them
+- preserve the names `Contract`, `Session`, `FunctionWrapper`, and `MCPWrapper` unless there is a strong reason to change them
 - if packaging or structure changes are needed, keep the repo as a proper Python package
 - when in doubt, optimize for clarity, adoption, and maintainability

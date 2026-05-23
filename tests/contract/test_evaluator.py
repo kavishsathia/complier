@@ -5,7 +5,6 @@ import unittest
 from complier import Verifier
 from complier.contract.ast import (
     HumanCheck,
-    LearnedCheck,
     ModelCheck,
     ProseGuard,
     RetryPolicy,
@@ -14,7 +13,6 @@ from complier.contract.evaluator import (
     EvaluationResult,
     evaluate_contract_expression,
 )
-from complier.memory.model import Memory
 
 
 class ContractEvaluatorTests(unittest.TestCase):
@@ -44,43 +42,6 @@ class ContractEvaluatorTests(unittest.TestCase):
         self.assertEqual(len(model.calls), 1)
         self.assertEqual(model.calls[0][1], {"safe": bool, "relevant": bool})
 
-    def test_evaluate_contract_expression_uses_human_then_model_for_learned_check(self) -> None:
-        class StubHuman(Verifier):
-            def __init__(self) -> None:
-                self.calls = []
-
-            def verify(self, prompt: str, output_schema: dict[str, type]) -> dict[str, object]:
-                self.calls.append((prompt, output_schema))
-                return {"comments": "Looks good", "edited": "edited value"}
-
-        class StubModel(Verifier):
-            def __init__(self) -> None:
-                self.calls = []
-
-            def verify(self, prompt: str, output_schema: dict[str, type]) -> dict[str, object]:
-                self.calls.append((prompt, output_schema))
-                return {"passed": True, "memory": "Updated learned preference"}
-
-        human = StubHuman()
-        model = StubModel()
-        memory = Memory(checks={"tone": "Prefer calm, concise answers."})
-        result = evaluate_contract_expression(
-            ProseGuard(
-                prose="must match #{tone}",
-                checks=[LearnedCheck(name="tone")],
-                policy=RetryPolicy(attempts=3),
-            ),
-            "draft answer",
-            model=model,
-            human=human,
-            memory=memory,
-        )
-
-        self.assertTrue(result.passed)
-        self.assertEqual(human.calls[0][1], {"comments": str, "edited": str})
-        self.assertEqual(model.calls[0][1], {"passed": bool, "memory": str})
-        self.assertEqual(memory.get_check("tone"), "Updated learned preference")
-
     def test_model_checks_fail_cleanly_without_model_verifier(self) -> None:
         result = evaluate_contract_expression(
             ProseGuard(
@@ -108,18 +69,6 @@ class ContractEvaluatorTests(unittest.TestCase):
         self.assertFalse(result.passed)
         self.assertEqual(result.reasons, ["Human verifier is required for human checks."])
         self.assertEqual(result.policy, "halt")
-
-    def test_learned_checks_report_missing_human_or_model(self) -> None:
-        guard = ProseGuard(
-            prose="must match #{tone}",
-            checks=[LearnedCheck(name="tone")],
-            policy=RetryPolicy(attempts=3),
-        )
-        missing_human = evaluate_contract_expression(guard, "draft answer", model=Verifier())
-        missing_model = evaluate_contract_expression(guard, "draft answer", human=Verifier())
-
-        self.assertIn("Human verifier is required for learned checks.", missing_human.reasons)
-        self.assertIn("Model verifier is required for learned checks.", missing_model.reasons)
 
     def test_all_checks_must_pass(self) -> None:
         class StubModel(Verifier):
