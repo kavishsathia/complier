@@ -200,12 +200,6 @@ class Session:
         """Return the current session memory as a serialized string."""
         return self.snapshot_memory().to_json()
 
-    def visualize(self, host: str = "127.0.0.1", port: int = 8765):
-        """Start a local visualizer server for this live session."""
-        from complier.visualizer import serve_contract
-
-        return serve_contract(self.contract, host=host, port=port)
-
     def register_managed_process(self, process: subprocess.Popen[str]) -> None:
         self._managed_processes.append(process)
 

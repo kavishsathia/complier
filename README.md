@@ -45,8 +45,6 @@ The entire framework relies on these critical insights that you just read.
 
 - **Function wrapping** — `Session.wrap(func)` wraps any Python callable (sync or async) so that contract enforcement happens transparently at the function boundary.
 
-- **Visualizer** — A local web server (`Session.visualize()`) that serves your compiled contract as an interactive graph, so you can see the workflow topology and node types at a glance.
-
 - **Memory** — A JSON-backed persistence layer for learned checks, allowing knowledge to carry across sessions.
 
 ## Installation
@@ -87,10 +85,6 @@ session = contract.create_session()
 # wrap your tools — contract enforcement happens transparently
 safe_search = wrap_function(session, search_web)
 safe_summarize = wrap_function(session, summarize)
-
-# fire up the visualizer to see the workflow graph
-server = session.visualize()
-print(f"Visualizer running at {server.url}")
 ```
 
 Wrapped functions behave exactly like the originals, except the session checks each call against the compiled graph. If a call isn't allowed at that point in the workflow, the agent gets a `BlockedToolResponse` with remediation info instead.
@@ -103,10 +97,9 @@ graph LR
     B -->|Transformer| C["AST"]
     C -->|Compiler| D["Runtime Graph"]
     D --> E["Session"]
-    D --> F["Visualizer"]
-    E -->|wraps| G["Your Tools"]
-    G -->|tool call| E
-    E -->|allowed / blocked| G
+    E -->|wraps| F["Your Tools"]
+    F -->|tool call| E
+    E -->|allowed / blocked| F
 ```
 
 The pipeline has three compilation stages and a runtime layer:
@@ -118,8 +111,6 @@ The pipeline has three compilation stages and a runtime layer:
 3. **Compiler** — Converts the AST into a directed graph of `RuntimeNode`s. Each workflow becomes a `CompiledWorkflow` with a node lookup table and execution edges. Control flow constructs (branches, loops, unordered blocks, fork/join) get their own node types with merge points. `@always` guarantees are inlined as guards on every executable node.
 
 4. **Session** — Binds a compiled `Contract` to mutable state (active workflow, completed steps, event history). When a wrapped tool is called, the session checks it against the graph: is this tool allowed at this point? And either lets it through or returns a `BlockedToolResponse` with remediation info. And this part is inspired by HATEOAS: the graph always knows what can happen next, and the agent is told.
-
-5. The **Visualizer** taps into the same compiled graph, serializing it as JSON and serving it over a local HTTP server so you can see the workflow topology in your browser.
 
 ## Contributing
 
