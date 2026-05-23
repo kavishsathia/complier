@@ -59,7 +59,6 @@ The package should be designed so that developers can adopt it with low friction
 - `src/complier/wrappers/`: function and MCP wrappers
 - `src/complier/runtime/`: runtime support types such as events and remediation messages
 - `src/complier/errors/`: package-specific exceptions
-- `demo/contract_demo.cpl`: reference DSL sample preserved from the earlier prototype
 
 ## Contract Syntax
 
