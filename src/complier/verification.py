@@ -1,4 +1,4 @@
-"""Integration abstraction for external verification processes."""
+"""Verifier abstraction for resolving contract checks at runtime."""
 
 from __future__ import annotations
 
@@ -7,8 +7,8 @@ from typing import Any
 
 
 @dataclass(slots=True)
-class Integration:
-    """Base interface for structured verification integrations."""
+class Verifier:
+    """Base interface for structured verification backends."""
 
     def verify(self, prompt: str, output_schema: dict[str, type]) -> dict[str, Any]:
         """Return structured data matching the requested output schema."""

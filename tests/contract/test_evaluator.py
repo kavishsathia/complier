@@ -2,7 +2,7 @@
 
 import unittest
 
-from complier import Integration
+from complier import Verifier
 from complier.contract.ast import (
     HumanCheck,
     LearnedCheck,
@@ -18,8 +18,8 @@ from complier.memory.model import Memory
 
 
 class ContractEvaluatorTests(unittest.TestCase):
-    def test_evaluate_contract_expression_uses_model_integration_for_tool_input(self) -> None:
-        class StubModel(Integration):
+    def test_evaluate_contract_expression_uses_model_verifier_for_tool_input(self) -> None:
+        class StubModel(Verifier):
             def __init__(self) -> None:
                 self.calls = []
 
@@ -45,7 +45,7 @@ class ContractEvaluatorTests(unittest.TestCase):
         self.assertEqual(model.calls[0][1], {"safe": bool, "relevant": bool})
 
     def test_evaluate_contract_expression_uses_human_then_model_for_learned_check(self) -> None:
-        class StubHuman(Integration):
+        class StubHuman(Verifier):
             def __init__(self) -> None:
                 self.calls = []
 
@@ -53,7 +53,7 @@ class ContractEvaluatorTests(unittest.TestCase):
                 self.calls.append((prompt, output_schema))
                 return {"comments": "Looks good", "edited": "edited value"}
 
-        class StubModel(Integration):
+        class StubModel(Verifier):
             def __init__(self) -> None:
                 self.calls = []
 
@@ -81,7 +81,7 @@ class ContractEvaluatorTests(unittest.TestCase):
         self.assertEqual(model.calls[0][1], {"passed": bool, "memory": str})
         self.assertEqual(memory.get_check("tone"), "Updated learned preference")
 
-    def test_model_checks_fail_cleanly_without_model_integration(self) -> None:
+    def test_model_checks_fail_cleanly_without_model_verifier(self) -> None:
         result = evaluate_contract_expression(
             ProseGuard(
                 prose="must be [safe]",
@@ -92,10 +92,10 @@ class ContractEvaluatorTests(unittest.TestCase):
         )
 
         self.assertFalse(result.passed)
-        self.assertEqual(result.reasons, ["Model integration is required for model checks."])
+        self.assertEqual(result.reasons, ["Model verifier is required for model checks."])
         self.assertIsInstance(result.policy, RetryPolicy)
 
-    def test_human_checks_fail_cleanly_without_human_integration(self) -> None:
+    def test_human_checks_fail_cleanly_without_human_verifier(self) -> None:
         result = evaluate_contract_expression(
             ProseGuard(
                 prose="must be {approved}",
@@ -106,7 +106,7 @@ class ContractEvaluatorTests(unittest.TestCase):
         )
 
         self.assertFalse(result.passed)
-        self.assertEqual(result.reasons, ["Human integration is required for human checks."])
+        self.assertEqual(result.reasons, ["Human verifier is required for human checks."])
         self.assertEqual(result.policy, "halt")
 
     def test_learned_checks_report_missing_human_or_model(self) -> None:
@@ -115,14 +115,14 @@ class ContractEvaluatorTests(unittest.TestCase):
             checks=[LearnedCheck(name="tone")],
             policy=RetryPolicy(attempts=3),
         )
-        missing_human = evaluate_contract_expression(guard, "draft answer", model=Integration())
-        missing_model = evaluate_contract_expression(guard, "draft answer", human=Integration())
+        missing_human = evaluate_contract_expression(guard, "draft answer", model=Verifier())
+        missing_model = evaluate_contract_expression(guard, "draft answer", human=Verifier())
 
-        self.assertIn("Human integration is required for learned checks.", missing_human.reasons)
-        self.assertIn("Model integration is required for learned checks.", missing_model.reasons)
+        self.assertIn("Human verifier is required for learned checks.", missing_human.reasons)
+        self.assertIn("Model verifier is required for learned checks.", missing_model.reasons)
 
     def test_all_checks_must_pass(self) -> None:
-        class StubModel(Integration):
+        class StubModel(Verifier):
             def verify(self, prompt: str, output_schema: dict[str, type]) -> dict[str, object]:
                 return {"safe": True, "relevant": False}
 

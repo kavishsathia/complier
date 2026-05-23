@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from complier.integration import Integration
+from complier.verification import Verifier
 from complier.memory.model import Memory
 
 from .ast import ProseGuard
@@ -56,8 +56,8 @@ class Contract:
         self,
         workflow: str | None = None,
         memory: Memory | None = None,
-        model: Integration | None = None,
-        human: Integration | None = None,
+        model: Verifier | None = None,
+        human: Verifier | None = None,
         formatter=None,
     ) -> "Session":
         """Create a stateful session for this contract and optional memory."""

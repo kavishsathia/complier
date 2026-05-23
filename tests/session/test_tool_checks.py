@@ -3,7 +3,7 @@
 import unittest
 
 from complier.contract.model import Contract
-from complier.integration import Integration
+from complier.verification import Verifier
 from complier.session.server import SessionServerClient
 
 
@@ -98,8 +98,8 @@ workflow "research"
 
         self.assertTrue(decision.allowed)
 
-    def test_expression_params_use_integrations_during_validation(self) -> None:
-        class StubModel(Integration):
+    def test_expression_params_use_verifiers_during_validation(self) -> None:
+        class StubModel(Verifier):
             def verify(self, prompt: str, output_schema: dict[str, type]) -> dict[str, object]:
                 return {"safe": True}
 
@@ -203,7 +203,7 @@ workflow "research"
         self.assertEqual(decision.reason, "Tool 'search_web' is not allowed next.")
 
     def test_retry_policy_tracks_attempts_and_blocks_until_exhausted(self) -> None:
-        class RejectingModel(Integration):
+        class RejectingModel(Verifier):
             def verify(self, prompt: str, output_schema: dict[str, type]) -> dict[str, object]:
                 return {"safe": False}
 
@@ -249,7 +249,7 @@ workflow "research"
         self.assertTrue(decision.allowed)
 
     def test_halt_policy_terminates_session(self) -> None:
-        class RejectingModel(Integration):
+        class RejectingModel(Verifier):
             def verify(self, prompt: str, output_schema: dict[str, type]) -> dict[str, object]:
                 return {"safe": False}
 
@@ -267,7 +267,7 @@ workflow "research"
         self.assertTrue(session.state.terminated)
 
     def test_halted_session_blocks_future_calls_immediately(self) -> None:
-        class RejectingModel(Integration):
+        class RejectingModel(Verifier):
             def verify(self, prompt: str, output_schema: dict[str, type]) -> dict[str, object]:
                 return {"safe": False}
 
@@ -285,7 +285,7 @@ workflow "research"
         self.assertEqual(decision.reason, "The session has been halted.")
 
     def test_skip_policy_advances_past_node_and_uses_branch_choice(self) -> None:
-        class RejectingModel(Integration):
+        class RejectingModel(Verifier):
             def verify(self, prompt: str, output_schema: dict[str, type]) -> dict[str, object]:
                 return {"safe": False}
 
@@ -317,7 +317,7 @@ workflow "research"
         self.assertEqual(decision.remediation.allowed_next_actions, ["finalize_technical"])
 
     def test_skip_policy_on_unordered_step_uses_choice_for_next_actions(self) -> None:
-        class RejectingModel(Integration):
+        class RejectingModel(Verifier):
             def verify(self, prompt: str, output_schema: dict[str, type]) -> dict[str, object]:
                 return {"safe": False}
 

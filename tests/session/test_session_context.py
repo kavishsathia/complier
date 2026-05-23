@@ -4,7 +4,7 @@ import unittest
 import json
 
 from complier.contract.model import Contract
-from complier.integration import Integration
+from complier.verification import Verifier
 from complier.memory.model import Memory
 from complier.session import Session, get_current_session
 
@@ -22,15 +22,15 @@ class SessionCreationTests(unittest.TestCase):
         self.assertIsNot(session.memory, memory)
         self.assertIsNone(session.state.active_workflow)
 
-    def test_contract_create_session_binds_integrations(self) -> None:
+    def test_contract_create_session_binds_verifiers(self) -> None:
         contract = Contract(name="demo")
 
-        class StubIntegration(Integration):
+        class StubVerifier(Verifier):
             def verify(self, prompt: str, output_schema: dict[str, type]) -> dict[str, object]:
                 return {}
 
-        model = StubIntegration()
-        human = StubIntegration()
+        model = StubVerifier()
+        human = StubVerifier()
 
         session = contract.create_session(model=model, human=human)
 

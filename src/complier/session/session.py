@@ -19,8 +19,8 @@ from complier.contract.runtime import (
     UnorderedBackNode,
     UnorderedNode,
 )
-from complier.integration import Integration
 from complier.memory.model import Memory
+from complier.verification import Verifier
 
 from .context import activate_session
 from .decisions import (
@@ -45,8 +45,8 @@ class Session:
     contract: "Contract"
     workflow: str | None = None
     memory: Memory | None = None
-    model: Integration | None = None
-    human: Integration | None = None
+    model: Verifier | None = None
+    human: Verifier | None = None
     formatter: NextActionsFormatter = field(default=default_next_actions_formatter)
     state: SessionState = field(default_factory=SessionState)
     server: SessionServer = field(init=False)

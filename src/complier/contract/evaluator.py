@@ -10,7 +10,7 @@ from complier.memory.model import Memory
 from .ast import HumanCheck, LearnedCheck, ModelCheck, Policy, ProseGuard
 
 if TYPE_CHECKING:
-    from complier.integration import Integration
+    from complier.verification import Verifier
 
 
 @dataclass(slots=True)
@@ -26,8 +26,8 @@ def evaluate_contract_expression(
     expression: ProseGuard,
     value: Any,
     *,
-    model: "Integration | None" = None,
-    human: "Integration | None" = None,
+    model: "Verifier | None" = None,
+    human: "Verifier | None" = None,
     memory: Memory | None = None,
 ) -> EvaluationResult:
     """Evaluate a prose guard against a specific input value."""
@@ -55,8 +55,8 @@ def evaluate_constraint(
     constraint: ProseGuard | Any,
     value: Any,
     *,
-    model: "Integration | None" = None,
-    human: "Integration | None" = None,
+    model: "Verifier | None" = None,
+    human: "Verifier | None" = None,
     memory: Memory | None = None,
 ) -> EvaluationResult:
     """Evaluate a declared param constraint against a specific input value."""
@@ -76,12 +76,12 @@ def _run_model_checks(
     checks: list[ModelCheck],
     prose: str,
     value: Any,
-    model: "Integration | None",
+    model: "Verifier | None",
 ) -> tuple[dict[str, bool], list[str]]:
     if not checks:
         return {}, []
     if model is None:
-        return {}, ["Model integration is required for model checks."]
+        return {}, ["Model verifier is required for model checks."]
 
     schema = {c.name: bool for c in checks}
     prompt = f"Criteria: {prose}\nValue: {value!r}"
@@ -93,12 +93,12 @@ def _run_human_checks(
     checks: list[HumanCheck],
     prose: str,
     value: Any,
-    human: "Integration | None",
+    human: "Verifier | None",
 ) -> tuple[dict[str, bool], list[str]]:
     if not checks:
         return {}, []
     if human is None:
-        return {}, ["Human integration is required for human checks."]
+        return {}, ["Human verifier is required for human checks."]
 
     schema = {c.name: bool for c in checks}
     prompt = f"Criteria: {prose}\nValue: {value!r}"
@@ -111,8 +111,8 @@ def _run_learned_checks(
     prose: str,
     value: Any,
     *,
-    model: "Integration | None",
-    human: "Integration | None",
+    model: "Verifier | None",
+    human: "Verifier | None",
     memory: Memory | None,
 ) -> tuple[dict[str, bool], list[str]]:
     if not checks:
@@ -122,11 +122,11 @@ def _run_learned_checks(
     results: dict[str, bool] = {}
     for check in checks:
         if human is None:
-            reasons.append("Human integration is required for learned checks.")
+            reasons.append("Human verifier is required for learned checks.")
             results[check.name] = False
             continue
         if model is None:
-            reasons.append("Model integration is required for learned checks.")
+            reasons.append("Model verifier is required for learned checks.")
             results[check.name] = False
             continue
 
