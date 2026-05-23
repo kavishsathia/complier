@@ -53,12 +53,22 @@ The package should be designed so that developers can adopt it with low friction
 
 ## Current Repo Shape
 
+The repo has four top-level concerns:
+
+1. **complier** — the state machine (pip-installable as `complier`).
+2. **integration** — tool-side wrappers for the harness-integration path. Lives at `src/complier/integration/` (function wrappers in core; MCP behind the optional `[mcp]` extra).
+3. **daemon** — multi-session sidecar process. Lives at `daemon/`. Not pip-installable; run via `python -m daemon serve`. The desktop app will own its lifecycle.
+4. **extensions** — per-harness adapters that talk to the daemon. Live at `extensions/<name>/`. Not pip-installable. Each is a thin script keyed by `<extension>:<session_id>` against the daemon.
+
+Layout inside the pip-installable library:
+
 - `src/complier/contract/`: contract parsing, compilation, validation, and runtime model
 - `src/complier/memory/`: persistent learned knowledge
 - `src/complier/session/`: live execution state and compliance decisions
 - `src/complier/integration/`: function and MCP integrations (tool-side wrappers)
 - `src/complier/runtime/`: runtime support types such as events and remediation messages
 - `src/complier/errors/`: package-specific exceptions
+- `src/complier/verification.py`: abstract `Verifier` base for check resolution
 
 ## Contract Syntax
 

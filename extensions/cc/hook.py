@@ -1,7 +1,8 @@
-"""Per-hook subprocess: translates between Claude Code hooks and the sidecar.
+"""Claude Code hook handler.
 
 Reads a Claude Code hook event JSON from stdin, dispatches based on
-`hook_event_name`, and writes the hook's structured response on stdout.
+`hook_event_name`, talks to the complier daemon, writes the hook's
+structured response on stdout.
 """
 
 from __future__ import annotations
@@ -10,7 +11,9 @@ import json
 import sys
 from typing import Any
 
-from . import discovery, protocol
+from daemon.client import DaemonClient
+
+from .contract import contract_path
 
 
 def _emit(payload: dict[str, Any]) -> None:
@@ -24,20 +27,24 @@ def _format_next_actions(actions: list[str]) -> str:
     return "Allowed next actions:\n" + "\n".join(f"- {a}" for a in actions)
 
 
-def _handle_pre_tool_use(event: dict[str, Any], sock: str) -> dict[str, Any]:
+def _session_name(event: dict[str, Any]) -> str:
+    return f"cc:{event.get('session_id', 'default')}"
+
+
+def _ensure_attached(client: DaemonClient, event: dict[str, Any]) -> dict[str, Any]:
+    cwd = event.get("cwd", ".")
+    return client.attach(contract_path=str(contract_path(cwd)))
+
+
+def _handle_pre_tool_use(event: dict[str, Any], client: DaemonClient) -> dict[str, Any]:
     tool_name = event.get("tool_name", "")
     tool_input = event.get("tool_input") or {}
-    response = protocol.request(
-        sock,
-        "check_tool_call",
-        {"tool_name": tool_name, "args": [], "kwargs": tool_input},
-    )
+    response = client.check_tool_call(tool_name, [], tool_input)
     if "error" in response:
-        # Fail open with a warning so the hook doesn't break Claude Code.
         return {
             "hookSpecificOutput": {
                 "hookEventName": "PreToolUse",
-                "additionalContext": f"cc sidecar error: {response['error']}",
+                "additionalContext": f"cc daemon error: {response['error']}",
             }
         }
 
@@ -79,21 +86,15 @@ def _handle_pre_tool_use(event: dict[str, Any], sock: str) -> dict[str, Any]:
     }
 
 
-def _handle_post_tool_use(event: dict[str, Any], sock: str) -> dict[str, Any]:
+def _handle_post_tool_use(event: dict[str, Any], client: DaemonClient) -> dict[str, Any]:
     tool_name = event.get("tool_name", "")
     tool_response = event.get("tool_response")
-    protocol.request(
-        sock,
-        "record_result",
-        {"tool_name": tool_name, "result": tool_response},
-    )
+    client.record_result(tool_name, tool_response)
     return {}
 
 
-def _handle_session_start(event: dict[str, Any], sock: str) -> dict[str, Any]:
-    # Sidecar is already spawned by discovery.ensure_sidecar; ensure it has
-    # a fresh kickoff so the first PreToolUse sees the right next-actions.
-    response = protocol.request(sock, "kickoff", {})
+def _handle_session_start(event: dict[str, Any], client: DaemonClient) -> dict[str, Any]:
+    response = client.kickoff()
     kickoff = (response.get("result") or {}).get("kickoff", "")
     if kickoff:
         return {
@@ -112,28 +113,25 @@ def main() -> int:
         return 0
     event = json.loads(raw)
 
-    session_id = event.get("session_id", "default")
-    cwd = event.get("cwd", ".")
     hook_name = event.get("hook_event_name", "")
-
     try:
-        sock = str(discovery.ensure_sidecar(session_id, cwd))
-    except Exception as e:
-        # Fail open: don't block Claude Code if cc is misconfigured.
+        client = DaemonClient(session_name=_session_name(event))
+        _ensure_attached(client, event)
+    except Exception as exc:
         _emit({
             "hookSpecificOutput": {
                 "hookEventName": hook_name,
-                "additionalContext": f"cc sidecar unavailable: {e}",
+                "additionalContext": f"cc daemon unavailable: {exc}",
             }
         })
         return 0
 
     if hook_name == "PreToolUse":
-        _emit(_handle_pre_tool_use(event, sock))
+        _emit(_handle_pre_tool_use(event, client))
     elif hook_name == "PostToolUse":
-        _emit(_handle_post_tool_use(event, sock))
+        _emit(_handle_post_tool_use(event, client))
     elif hook_name == "SessionStart":
-        _emit(_handle_session_start(event, sock))
+        _emit(_handle_session_start(event, client))
     else:
         _emit({})
     return 0
