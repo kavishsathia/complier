@@ -7,10 +7,10 @@ from typing import TYPE_CHECKING, Any
 
 from complier.memory.model import Memory
 
-from .ast import HumanCheck, LearnedCheck, ModelCheck, Policy, ProseGuard
+from .ast import CelExpression, HumanCheck, LearnedCheck, ModelCheck, Policy, ProseGuard
 
 if TYPE_CHECKING:
-    from complier.verification import Verifier
+    from complier.verification import CelVerifier, Verifier
 
 
 @dataclass(slots=True)
@@ -57,11 +57,34 @@ def evaluate_constraint(
     *,
     model: "Verifier | None" = None,
     human: "Verifier | None" = None,
+    cel: "CelVerifier | None" = None,
     memory: Memory | None = None,
+    context: dict[str, Any] | None = None,
 ) -> EvaluationResult:
-    """Evaluate a declared param constraint against a specific input value."""
+    """Evaluate a declared param constraint against a specific input value.
+
+    For CEL expressions, ``context`` (all sibling kwargs) is the variable
+    binding; the expression can reference any kwarg by name.
+    """
     if isinstance(constraint, ProseGuard):
         return evaluate_contract_expression(constraint, value, model=model, human=human, memory=memory)
+
+    if isinstance(constraint, CelExpression):
+        if cel is None:
+            return EvaluationResult(
+                passed=False,
+                reasons=["CEL verifier is required for backtick expressions."],
+            )
+        try:
+            passed = cel.evaluate(constraint.text, dict(context or {}))
+        except ValueError as exc:
+            return EvaluationResult(passed=False, reasons=[str(exc)])
+        if passed:
+            return EvaluationResult(passed=True)
+        return EvaluationResult(
+            passed=False,
+            reasons=[f"CEL expression returned false: `{constraint.text}`"],
+        )
 
     if constraint == value:
         return EvaluationResult(passed=True)

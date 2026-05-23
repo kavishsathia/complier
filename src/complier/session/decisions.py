@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
-from complier.contract.ast import ParamValue, ProseGuard
+from complier.contract.ast import CelExpression, ParamValue, ProseGuard
 
 
 @dataclass(slots=True)
@@ -44,6 +44,8 @@ def default_next_actions_formatter(next_actions: NextActions) -> list[str]:
         for name, value in desc.params.items():
             if isinstance(value, ProseGuard):
                 param_strs.append(f"{name}: {_strip_annotations(value.prose)}")
+            elif isinstance(value, CelExpression):
+                param_strs.append(f"{name}: `{value.text}`")
             else:
                 param_strs.append(f"{name}={value!r}")
         if param_strs:
