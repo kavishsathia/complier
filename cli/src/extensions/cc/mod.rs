@@ -6,11 +6,10 @@
 
 mod contract;
 mod hook;
+mod setup;
 
 pub fn setup() -> i32 {
-    // TODO: implemented in the install commit.
-    eprintln!("complier install cc: not yet implemented");
-    1
+    setup::run()
 }
 
 pub fn run_hook() -> i32 {
