@@ -111,7 +111,13 @@ async def _run_proxy(argv: list[str] | None) -> None:
                 message=_unwrap(exc),
             )) from None
         registry.tool_maps[namespace] = state.exposed_to_downstream
-        registry.session_client.record_result(internal_tool_name, result.model_dump(mode="json"))
+        registry.session_client.record_tool_call(
+            internal_tool_name,
+            (),
+            forwarded_arguments,
+            result.model_dump(mode="json"),
+            choice=choice,
+        )
         if decision.remediation and decision.remediation.allowed_next_actions:
             next_hint = "Next allowed actions: " + ", ".join(decision.remediation.allowed_next_actions)
             result = result.model_copy(update={

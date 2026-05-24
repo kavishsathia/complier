@@ -64,8 +64,10 @@ class Session:
         if workflow_name is None:
             raise RuntimeError("Multiple workflows defined — call select_workflow() first.")
         start_node_id = self.contract.workflows[workflow_name].start_node_id
-        actions = self._next_actions_after_node(workflow_name, start_node_id, None)
-        return "\n".join(actions)
+        return self._hint(workflow_name, start_node_id, None)
+
+    def _hint(self, workflow_name: str, node_id: str, choice: str | None) -> str:
+        return "\n".join(self._next_actions_after_node(workflow_name, node_id, choice))
 
 
     def activate(self) -> AbstractAsyncContextManager["Session"]:
@@ -104,7 +106,6 @@ class Session:
         workflow = self.contract.workflows[workflow_name]
 
         if tool_name in workflow.ambient:
-            self.state.active_workflow = workflow.name
             frontier = self._collect_next_tool_nodes(workflow_name, choice)
             next_actions = sorted({node.tool_name for node in frontier})
             return Decision(
@@ -153,9 +154,6 @@ class Session:
                 choice,
             )
 
-        self.state.active_workflow = workflow.name
-        self.state.active_step = valid_node.id
-        self.state.completed_steps.append(valid_node.id)
         next_actions = self._next_actions_after_node(workflow_name, valid_node.id, choice)
         return Decision(
             allowed=True,
@@ -165,26 +163,54 @@ class Session:
             ) if next_actions else None,
         )
 
-    def record_allowed_call(self, tool_name: str, args: tuple[Any, ...], kwargs: dict[str, Any]) -> None:
-        """Record that a tool call was allowed."""
+    def record_tool_call(
+        self,
+        tool_name: str,
+        args: tuple[Any, ...],
+        kwargs: dict[str, Any],
+        result: Any,
+        *,
+        choice: str | None = None,
+    ) -> str:
+        """Log a completed tool call and advance state past the matched node.
+
+        Returns the post-advance next-action hint as a single newline-joined string.
+        Trusts the caller to only invoke this after a successful check_tool_call.
+        """
         self.state.history.append(
             {
-                "event": "tool_call_allowed",
+                "event": "tool_call_completed",
                 "tool_name": tool_name,
                 "args": args,
                 "kwargs": kwargs,
-            }
-        )
-
-    def record_result(self, tool_name: str, result: Any) -> None:
-        """Record the result of an executed tool call."""
-        self.state.history.append(
-            {
-                "event": "tool_result_recorded",
-                "tool_name": tool_name,
                 "result": result,
             }
         )
+
+        if self.state.terminated or not self.contract.workflows:
+            return ""
+
+        workflow_name = self._get_or_choose_workflow()
+        if workflow_name is None:
+            return ""
+
+        workflow = self.contract.workflows[workflow_name]
+
+        if tool_name in workflow.ambient:
+            node_id = self.state.active_step or workflow.start_node_id
+            return self._hint(workflow_name, node_id, choice)
+
+        candidate_nodes = self._collect_next_tool_nodes(workflow_name, choice)
+        matching = [n for n in candidate_nodes if n.tool_name == tool_name]
+        if len(matching) != 1:
+            node_id = self.state.active_step or workflow.start_node_id
+            return self._hint(workflow_name, node_id, choice)
+
+        node = matching[0]
+        self.state.active_workflow = workflow.name
+        self.state.active_step = node.id
+        self.state.completed_steps.append(node.id)
+        return self._hint(workflow_name, node.id, choice)
 
     def record_blocked_call(self, tool_name: str, decision: Decision) -> None:
         """Record that a tool call was blocked."""
@@ -223,12 +249,6 @@ class Session:
                     dict(params.get("kwargs", {})),
                     choice=params.get("choice"),
                 )
-                if decision.allowed:
-                    self.record_allowed_call(
-                        str(params["tool_name"]),
-                        tuple(params.get("args", [])),
-                        dict(params.get("kwargs", {})),
-                    )
                 return {"decision": decision.to_dict()}
 
             if method == "record_blocked_call":
@@ -236,9 +256,15 @@ class Session:
                 self.record_blocked_call(str(params["tool_name"]), decision)
                 return {"ok": True}
 
-            if method == "record_result":
-                self.record_result(str(params["tool_name"]), params.get("result"))
-                return {"ok": True}
+            if method == "record_tool_call":
+                hint = self.record_tool_call(
+                    str(params["tool_name"]),
+                    tuple(params.get("args", [])),
+                    dict(params.get("kwargs", {})),
+                    params.get("result"),
+                    choice=params.get("choice"),
+                )
+                return {"hint": hint}
         except Exception as exc:
             return {"error": str(exc)}
 

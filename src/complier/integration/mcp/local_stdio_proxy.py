@@ -83,7 +83,13 @@ async def _run_proxy(argv: list[str] | None) -> None:
                 isError=True,
             )
         result = await session.call_tool(downstream_tool_name, forwarded_arguments)
-        state.session_client.record_result(internal_tool_name, result.model_dump(mode="json"))
+        state.session_client.record_tool_call(
+            internal_tool_name,
+            (),
+            forwarded_arguments,
+            result.model_dump(mode="json"),
+            choice=choice,
+        )
         if decision.remediation and decision.remediation.allowed_next_actions:
             next_hint = "Next allowed actions: " + ", ".join(decision.remediation.allowed_next_actions)
             result = result.model_copy(update={
