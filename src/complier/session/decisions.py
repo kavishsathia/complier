@@ -34,7 +34,7 @@ class NextActions:
     is_unordered_possible: bool = False
 
 
-def _render_constraint(value: ParamValue) -> str:
+def render_constraint_value(value: ParamValue) -> str:
     if isinstance(value, HintPrompt):
         return f"({value.text})"
     if isinstance(value, ModelPrompt):
@@ -54,13 +54,13 @@ def default_next_actions_formatter(next_actions: NextActions) -> list[str]:
         param_strs = []
         for name, value in desc.params.items():
             if isinstance(value, (HintPrompt, ModelPrompt, HumanPrompt, CelExpression)):
-                param_strs.append(f"{name}: {_render_constraint(value)}")
+                param_strs.append(f"{name}: {render_constraint_value(value)}")
             else:
                 param_strs.append(f"{name}={value!r}")
         if param_strs:
             parts.append(f"({', '.join(param_strs)})")
 
-        guard_strs = [_render_constraint(g) for g in desc.guards]
+        guard_strs = [render_constraint_value(g) for g in desc.guards]
         if guard_strs:
             parts.append(f"— requires: {'; '.join(guard_strs)}")
 

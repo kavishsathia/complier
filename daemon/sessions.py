@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from complier.contract.model import Contract
 from complier.session.session import Session
 
+from .formatting import cli_choose_formatter
+
 
 @dataclass(slots=True)
 class SessionEntry:
@@ -37,7 +39,11 @@ class SessionRegistry:
         contract = Contract.from_file(contract_path)
         if workflow is None and len(contract.workflows) == 1:
             workflow = next(iter(contract.workflows))
-        session = Session(contract=contract, workflow=workflow)
+        session = Session(
+            contract=contract,
+            workflow=workflow,
+            formatter=cli_choose_formatter,
+        )
         entry = SessionEntry(
             name=name,
             contract_path=str(contract_path),
