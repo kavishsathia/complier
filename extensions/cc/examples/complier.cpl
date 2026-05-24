@@ -1,4 +1,0 @@
-workflow "edit_with_review" @ambient ToolSearch LS Skill Glob
-    | Read
-    | Edit
-    | Bash command=`command.startsWith("pytest") || command.startsWith("npm test")`
