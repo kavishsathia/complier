@@ -14,6 +14,7 @@ class SessionEntry:
     contract_path: str
     workflow: str | None
     session: Session
+    pending_choice: str | None = None
 
 
 class SessionRegistry:

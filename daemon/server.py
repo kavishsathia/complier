@@ -139,7 +139,7 @@ class Daemon:
         if method == "check":
             tool = str(params["tool"])
             call_params = dict(params.get("params") or {})
-            choice = params.get("choice") or session.state.pending_choice
+            choice = params.get("choice") or entry.pending_choice
             decision = session.check_tool_call(tool, (), call_params, choice=choice)
             remediation = decision.remediation
             hint_actions = remediation.allowed_next_actions if remediation else []
@@ -157,14 +157,14 @@ class Daemon:
             tool = str(params["tool"])
             call_params = dict(params.get("params") or {})
             result = params.get("result")
-            choice = params.get("choice") or session.state.pending_choice
+            choice = params.get("choice") or entry.pending_choice
             hint = session.record_tool_call(tool, (), call_params, result, choice=choice)
             # Clear the pending choice once consumed by a recorded call.
-            session.state.pending_choice = None
+            entry.pending_choice = None
             return {"result": {"hint": hint}}
 
         if method == "choose":
-            session.state.pending_choice = str(params["arm"])
+            entry.pending_choice = str(params["arm"])
             return {"result": {}}
 
         return {"error": f"unknown method: {method!r}"}
