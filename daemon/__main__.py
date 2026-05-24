@@ -34,7 +34,7 @@ def main() -> int:
         if not sock.exists():
             print("daemon not running", file=sys.stderr)
             return 1
-        response = protocol.request(str(sock), "list_sessions", {})
+        response = protocol.request(str(sock), "list", {})
         print(json.dumps(response, indent=2))
         return 0
     return 1

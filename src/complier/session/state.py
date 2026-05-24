@@ -17,6 +17,7 @@ class SessionState:
     branches: dict[str, str] = field(default_factory=dict)
     retry_counts: dict[str, int] = field(default_factory=dict)
     history: list[Any] = field(default_factory=list)
+    pending_choice: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -27,6 +28,7 @@ class SessionState:
             "branches": dict(self.branches),
             "retry_counts": dict(self.retry_counts),
             "history": list(self.history),
+            "pending_choice": self.pending_choice,
         }
 
     @classmethod
@@ -39,4 +41,5 @@ class SessionState:
             branches={str(key): str(value) for key, value in data.get("branches", {}).items()},
             retry_counts={str(key): int(value) for key, value in data.get("retry_counts", {}).items()},
             history=list(data.get("history", [])),
+            pending_choice=data.get("pending_choice"),
         )
