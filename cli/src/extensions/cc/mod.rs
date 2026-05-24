@@ -1,17 +1,18 @@
 //! Claude Code extension.
 //!
-//! Exposes two entry points for the top-level CLI:
-//! - `setup()`: writes hook entries into Claude Code's settings.json.
-//! - `run_hook()`: reads a hook event JSON from stdin and dispatches.
+//! Top-level commands dispatch into:
+//! - `setup()`:    writes hook entries into Claude Code's settings.json
+//! - `run_hook()`: handles a hook event read from stdin
+
+mod contract;
+mod hook;
 
 pub fn setup() -> i32 {
-    // TODO: write hook entries into Claude Code settings.json.
+    // TODO: implemented in the install commit.
     eprintln!("complier install cc: not yet implemented");
     1
 }
 
 pub fn run_hook() -> i32 {
-    // TODO: read stdin, dispatch PreToolUse/PostToolUse/SessionStart.
-    eprintln!("complier hook cc: not yet implemented");
-    1
+    hook::run()
 }
