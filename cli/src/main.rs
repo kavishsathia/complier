@@ -1,6 +1,7 @@
 use clap::{Parser, Subcommand};
 
 mod commands;
+#[allow(dead_code)]
 mod daemon;
 mod extensions;
 
