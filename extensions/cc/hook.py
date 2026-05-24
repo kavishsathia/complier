@@ -22,12 +22,19 @@ def _emit(payload: dict[str, Any]) -> None:
 
 
 def _format_hint_block(hint: str) -> str:
+    """Surface the daemon's hint verbatim under a header.
+
+    The daemon's formatter already produces structured output (plain
+    lines for linear contracts, indented arm lists for branching
+    contracts), so the hook just adds the header and passes the rest
+    through.
+    """
     if not hint:
         return ""
-    lines = [line for line in hint.splitlines() if line.strip()]
-    if not lines:
+    body = hint.rstrip()
+    if not body:
         return ""
-    return "Allowed next actions:\n" + "\n".join(f"- {line}" for line in lines)
+    return f"Allowed next actions:\n{body}"
 
 
 def _session_id(event: dict[str, Any]) -> str:
