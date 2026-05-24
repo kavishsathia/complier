@@ -26,10 +26,18 @@ class NextActionDescriptor:
 
 
 @dataclass(slots=True)
+class HumanAction:
+    """A pending @human step the agent must satisfy before tool calls resume."""
+
+    prompt: str
+
+
+@dataclass(slots=True)
 class NextActions:
     """All reachable next actions from the current workflow position."""
 
     actions: list[NextActionDescriptor] = field(default_factory=list)
+    humans: list[HumanAction] = field(default_factory=list)
     is_branch_possible: bool = False
     is_unordered_possible: bool = False
 
@@ -48,6 +56,8 @@ def render_constraint_value(value: ParamValue) -> str:
 
 def default_next_actions_formatter(next_actions: NextActions) -> list[str]:
     results = []
+    for human in next_actions.humans:
+        results.append(f'@human "{human.prompt}" — ask the human before continuing')
     for desc in next_actions.actions:
         parts = []
 

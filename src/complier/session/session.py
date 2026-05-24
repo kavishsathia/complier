@@ -13,6 +13,7 @@ from complier.contract.runtime import (
     BranchBackNode,
     BranchNode,
     EndNode,
+    HumanNode,
     JoinNode,
     StartNode,
     ToolNode,
@@ -24,6 +25,7 @@ from complier.verification import Verifier, default_verifiers
 from .context import activate_session
 from .decisions import (
     Decision,
+    HumanAction,
     NextActionDescriptor,
     NextActions,
     NextActionsFormatter,
@@ -106,7 +108,7 @@ class Session:
         workflow = self.contract.workflows[workflow_name]
 
         if tool_name in workflow.ambient:
-            frontier = self._collect_next_tool_nodes(workflow_name, choice)
+            frontier, _ = self._collect_frontier(workflow_name, choice)
             next_actions = sorted({node.tool_name for node in frontier})
             return Decision(
                 allowed=True,
@@ -116,7 +118,20 @@ class Session:
                 ) if next_actions else None,
             )
 
-        candidate_nodes = self._collect_next_tool_nodes(workflow_name, choice)
+        candidate_nodes, pending_humans = self._collect_frontier(workflow_name, choice)
+
+        if pending_humans:
+            human_hint = self.formatter(NextActions(
+                humans=[HumanAction(prompt=h.prompt) for h in pending_humans],
+            ))
+            return Decision(
+                allowed=False,
+                reason=f"Tool '{tool_name}' blocked — an @human step is pending.",
+                remediation=Remediation(
+                    message="Satisfy the pending @human step before any further tool call.",
+                    allowed_next_actions=human_hint,
+                ),
+            )
 
         matching_name_nodes = [
             node
@@ -162,6 +177,38 @@ class Session:
                 allowed_next_actions=next_actions,
             ) if next_actions else None,
         )
+
+    def satisfy_human_step(self, *, choice: str | None = None) -> tuple[str, str]:
+        """Advance state past the next pending @human step. Returns
+        (prompt, hint) where hint is the post-advance next-action string.
+
+        Raises ValueError if there's no pending @human node to satisfy
+        (the caller is invoking this at the wrong time).
+        """
+        if self.state.terminated:
+            raise ValueError("session has been halted")
+        if not self.contract.workflows:
+            raise ValueError("no workflows in contract")
+        workflow_name = self._get_or_choose_workflow()
+        if workflow_name is None:
+            raise ValueError("no active workflow")
+
+        _, humans = self._collect_frontier(workflow_name, choice)
+        if not humans:
+            raise ValueError("no pending @human step to satisfy")
+
+        node = humans[0]
+        workflow = self.contract.workflows[workflow_name]
+        self.state.active_workflow = workflow.name
+        self.state.active_step = node.id
+        self.state.completed_steps.append(node.id)
+        self.state.history.append(
+            {
+                "event": "human_step_satisfied",
+                "prompt": node.prompt,
+            }
+        )
+        return node.prompt, self._hint(workflow_name, node.id, choice)
 
     def record_tool_call(
         self,
@@ -282,6 +329,25 @@ class Session:
         workflow_name: str,
         choice: str | None,
     ) -> list[ToolNode]:
+        return self._collect_frontier(workflow_name, choice)[0]
+
+    def _collect_pending_humans(
+        self,
+        workflow_name: str,
+        choice: str | None,
+    ) -> list[HumanNode]:
+        return self._collect_frontier(workflow_name, choice)[1]
+
+    def _collect_frontier(
+        self,
+        workflow_name: str,
+        choice: str | None,
+    ) -> tuple[list[ToolNode], list[HumanNode]]:
+        """Find the reachable executable frontier from the current cursor.
+
+        Returns (tool_candidates, pending_humans). Traversal stops at any
+        executable (tool or @human); HumanNode is no longer pass-through.
+        """
         workflow = self.contract.workflows[workflow_name]
         if self.state.active_step is None:
             frontier = [workflow.start_node_id]
@@ -293,7 +359,8 @@ class Session:
             pending.extend(workflow.nodes[node_id].next_ids)
 
         seen: set[str] = set()
-        candidates: list[ToolNode] = []
+        tools: list[ToolNode] = []
+        humans: list[HumanNode] = []
 
         while pending:
             node_id = pending.pop(0)
@@ -303,7 +370,11 @@ class Session:
 
             node = workflow.nodes[node_id]
             if isinstance(node, ToolNode):
-                candidates.append(node)
+                tools.append(node)
+                continue
+
+            if isinstance(node, HumanNode):
+                humans.append(node)
                 continue
 
             if isinstance(node, (StartNode, BranchBackNode, UnorderedBackNode, JoinNode)):
@@ -333,7 +404,7 @@ class Session:
 
             pending.extend(node.next_ids)
 
-        return candidates
+        return tools, humans
 
     def _params_match(self, node: ToolNode, kwargs: dict[str, Any]):
         for name, constraint in node.params.items():
@@ -441,6 +512,7 @@ class Session:
         ]
         seen: set[str] = set()
         descriptors: list[NextActionDescriptor] = []
+        humans: list[HumanAction] = []
         is_branch_possible = False
         is_unordered_possible = False
 
@@ -458,6 +530,9 @@ class Session:
                     guards=list(current.guards),
                     choice_label=choice_label,
                 ))
+                continue
+            if isinstance(current, HumanNode):
+                humans.append(HumanAction(prompt=current.prompt))
                 continue
             if isinstance(current, EndNode):
                 continue
@@ -491,6 +566,7 @@ class Session:
 
         next_actions = NextActions(
             actions=descriptors,
+            humans=humans,
             is_branch_possible=is_branch_possible,
             is_unordered_possible=is_unordered_possible,
         )
