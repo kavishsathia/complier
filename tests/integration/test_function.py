@@ -18,11 +18,11 @@ class FunctionWrapperTests(unittest.TestCase):
         result = wrapped("agent workflows")
 
         self.assertEqual(result, "results for agent workflows")
-        self.assertEqual(len(session.state.history), 2)
-        self.assertEqual(session.state.history[0]["event"], "tool_call_allowed")
+        self.assertEqual(len(session.state.history), 1)
+        self.assertEqual(session.state.history[0]["event"], "tool_call_completed")
         self.assertEqual(session.state.history[0]["tool_name"], "search_web")
-        self.assertEqual(session.state.history[1]["event"], "tool_result_recorded")
-        self.assertEqual(session.state.history[1]["result"], result)
+        self.assertEqual(session.state.history[0]["result"], result)
+        self.assertEqual(session.state.history[0]["args"], ("agent workflows",))
 
     def test_session_wrap_delegates_to_function_wrapper(self) -> None:
         session = Contract(name="demo").create_session()
@@ -53,7 +53,7 @@ class FunctionWrapperTests(unittest.TestCase):
             def __init__(self) -> None:
                 self.history = []
 
-            def check_tool_call(self, tool_name, args, kwargs):
+            def check_tool_call(self, tool_name, args, kwargs, choice=None):
                 return Decision(
                     allowed=False,
                     reason="blocked",
@@ -96,11 +96,10 @@ class FunctionWrapperTests(unittest.TestCase):
                 captured["choice"] = choice
                 return Decision(allowed=True)
 
-            def record_allowed_call(self, tool_name, args, kwargs):
-                return None
-
-            def record_result(self, tool_name, result):
-                return None
+            def record_tool_call(self, tool_name, args, kwargs, result, *, choice=None):
+                captured["recorded_result"] = result
+                captured["recorded_choice"] = choice
+                return ""
 
         session = ChoiceSession()
 
@@ -127,16 +126,16 @@ class AsyncFunctionWrapperTests(unittest.IsolatedAsyncioTestCase):
         result = await wrapped("agent workflows")
 
         self.assertEqual(result, "results for agent workflows")
-        self.assertEqual(len(session.state.history), 2)
-        self.assertEqual(session.state.history[0]["event"], "tool_call_allowed")
-        self.assertEqual(session.state.history[1]["event"], "tool_result_recorded")
+        self.assertEqual(len(session.state.history), 1)
+        self.assertEqual(session.state.history[0]["event"], "tool_call_completed")
+        self.assertEqual(session.state.history[0]["result"], result)
 
     async def test_async_wrap_function_returns_blocked_response_when_disallowed(self) -> None:
         class BlockingSession:
             def __init__(self) -> None:
                 self.history = []
 
-            def check_tool_call(self, tool_name, args, kwargs):
+            def check_tool_call(self, tool_name, args, kwargs, choice=None):
                 return Decision(
                     allowed=False,
                     reason="blocked",
@@ -173,11 +172,10 @@ class AsyncFunctionWrapperTests(unittest.IsolatedAsyncioTestCase):
                 captured["choice"] = choice
                 return Decision(allowed=True)
 
-            def record_allowed_call(self, tool_name, args, kwargs):
-                return None
-
-            def record_result(self, tool_name, result):
-                return None
+            def record_tool_call(self, tool_name, args, kwargs, result, *, choice=None):
+                captured["recorded_result"] = result
+                captured["recorded_choice"] = choice
+                return ""
 
         session = ChoiceSession()
 

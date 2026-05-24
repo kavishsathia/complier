@@ -1,16 +1,19 @@
 """Multi-session complier daemon over a Unix socket.
 
-Methods (daemon-level):
-    attach_session  params={session_name, contract_path, workflow?}
-    detach_session  params={session_name}
-    list_sessions   params={}
-    stop            params={}
+Daemon-level methods (infrastructure):
+    attach     params={session, contract_path, workflow?}   -> {hint}
+    detach     params={session}                              -> {ok}
+    list       params={}                                     -> {sessions: [...]}
+    stop       params={}                                     -> {ok}
 
-Methods (per-session; require session_name in params):
-    kickoff
-    check_tool_call    {tool_name, args, kwargs, choice?}
-    record_blocked_call {tool_name, decision}
-    record_result      {tool_name, result}
+Per-session methods (the lean contract):
+    check      params={session, tool, params}                -> {allowed, reason?, missing?, hint}
+    record     params={session, tool, result}                -> {hint}
+    choose     params={session, arm}                         -> {}
+
+All requests/responses are single-line JSON with the envelope
+    {"method": "...", "params": {...}}
+    {"result": {...}} | {"error": "..."}
 """
 
 from __future__ import annotations
@@ -81,47 +84,29 @@ class Daemon:
             daemon_response = self._dispatch_daemon_method(method, params)
             if daemon_response is not None:
                 return daemon_response
-
-            session_name = params.get("session_name")
-            if session_name is None:
-                return {"error": "session_name is required for this method"}
-            entry = self.registry.get(session_name)
-            if entry is None:
-                return {"error": f"unknown session: {session_name!r}"}
-
-            if method == "kickoff":
-                return {"result": {"kickoff": entry.session.kickoff()}}
-
-            inner_params = {k: v for k, v in params.items() if k != "session_name"}
-            inner = entry.session.handle_server_request(
-                {"method": method, "params": inner_params}
-            )
-            if "error" in inner:
-                return {"error": inner["error"]}
-            return {"result": inner}
+            return self._dispatch_session_method(method, params)
         except Exception as exc:
             return {"error": f"{type(exc).__name__}: {exc}"}
 
     def _dispatch_daemon_method(
         self, method: str | None, params: dict[str, Any]
     ) -> dict[str, Any] | None:
-        if method == "attach_session":
+        if method == "attach":
             entry = self.registry.attach(
-                name=params["session_name"],
+                name=params["session"],
                 contract_path=params["contract_path"],
                 workflow=params.get("workflow"),
             )
-            return {
-                "result": {
-                    "session_name": entry.name,
-                    "workflow": entry.workflow,
-                    "contract_path": entry.contract_path,
-                }
-            }
-        if method == "detach_session":
-            ok = self.registry.detach(params["session_name"])
+            try:
+                hint = entry.session.kickoff()
+            except RuntimeError:
+                # Multi-workflow contract without an explicit selection — empty hint.
+                hint = ""
+            return {"result": {"hint": hint}}
+        if method == "detach":
+            ok = self.registry.detach(params["session"])
             return {"result": {"ok": ok}}
-        if method == "list_sessions":
+        if method == "list":
             return {
                 "result": {
                     "sessions": [
@@ -138,6 +123,51 @@ class Daemon:
             self._shutdown.set()
             return {"result": {"ok": True}}
         return None
+
+    def _dispatch_session_method(
+        self, method: str | None, params: dict[str, Any]
+    ) -> dict[str, Any]:
+        session_name = params.get("session")
+        if session_name is None:
+            return {"error": "'session' is required for this method"}
+        entry = self.registry.get(session_name)
+        if entry is None:
+            return {"error": f"unknown session: {session_name!r}"}
+
+        session = entry.session
+
+        if method == "check":
+            tool = str(params["tool"])
+            call_params = dict(params.get("params") or {})
+            choice = params.get("choice") or entry.pending_choice
+            decision = session.check_tool_call(tool, (), call_params, choice=choice)
+            remediation = decision.remediation
+            hint_actions = remediation.allowed_next_actions if remediation else []
+            missing = remediation.missing_requirements if remediation else []
+            return {
+                "result": {
+                    "allowed": decision.allowed,
+                    "reason": decision.reason or "",
+                    "missing": list(missing),
+                    "hint": "\n".join(hint_actions),
+                }
+            }
+
+        if method == "record":
+            tool = str(params["tool"])
+            call_params = dict(params.get("params") or {})
+            result = params.get("result")
+            choice = params.get("choice") or entry.pending_choice
+            hint = session.record_tool_call(tool, (), call_params, result, choice=choice)
+            # Clear the pending choice once consumed by a recorded call.
+            entry.pending_choice = None
+            return {"result": {"hint": hint}}
+
+        if method == "choose":
+            entry.pending_choice = str(params["arm"])
+            return {"result": {}}
+
+        return {"error": f"unknown method: {method!r}"}
 
 
 def run() -> None:

@@ -104,14 +104,26 @@ class SessionServerClient:
             },
         )
 
-    def record_result(self, tool_name: str, result: Any) -> None:
-        self._request(
-            "record_result",
+    def record_tool_call(
+        self,
+        tool_name: str,
+        args: tuple[Any, ...],
+        kwargs: dict[str, Any],
+        result: Any,
+        *,
+        choice: str | None = None,
+    ) -> str:
+        response = self._request(
+            "record_tool_call",
             {
                 "tool_name": tool_name,
+                "args": list(args),
+                "kwargs": kwargs,
                 "result": result,
+                "choice": choice,
             },
         )
+        return str(response.get("hint", ""))
 
     def _request(self, method: str, params: dict[str, Any]) -> dict[str, Any]:
         payload = {"method": method, "params": params}

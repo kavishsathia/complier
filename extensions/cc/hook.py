@@ -1,8 +1,8 @@
 """Claude Code hook handler.
 
 Reads a Claude Code hook event JSON from stdin, dispatches based on
-`hook_event_name`, talks to the complier daemon, writes the hook's
-structured response on stdout.
+`hook_event_name`, talks to the complier daemon over its lean four-method
+protocol, writes the hook's structured response on stdout.
 """
 
 from __future__ import annotations
@@ -21,17 +21,20 @@ def _emit(payload: dict[str, Any]) -> None:
     sys.stdout.flush()
 
 
-def _format_next_actions(actions: list[str]) -> str:
-    if not actions:
+def _format_hint_block(hint: str) -> str:
+    if not hint:
         return ""
-    return "Allowed next actions:\n" + "\n".join(f"- {a}" for a in actions)
+    lines = [line for line in hint.splitlines() if line.strip()]
+    if not lines:
+        return ""
+    return "Allowed next actions:\n" + "\n".join(f"- {line}" for line in lines)
 
 
-def _session_name(event: dict[str, Any]) -> str:
+def _session_id(event: dict[str, Any]) -> str:
     return f"cc:{event.get('session_id', 'default')}"
 
 
-def _ensure_attached(client: DaemonClient, event: dict[str, Any]) -> dict[str, Any]:
+def _attach(client: DaemonClient, event: dict[str, Any]) -> dict[str, Any]:
     cwd = event.get("cwd", ".")
     return client.attach(contract_path=str(contract_path(cwd)))
 
@@ -39,7 +42,7 @@ def _ensure_attached(client: DaemonClient, event: dict[str, Any]) -> dict[str, A
 def _handle_pre_tool_use(event: dict[str, Any], client: DaemonClient) -> dict[str, Any]:
     tool_name = event.get("tool_name", "")
     tool_input = event.get("tool_input") or {}
-    response = client.check_tool_call(tool_name, [], tool_input)
+    response = client.check(tool_name, tool_input)
     if "error" in response:
         return {
             "hookSpecificOutput": {
@@ -48,34 +51,28 @@ def _handle_pre_tool_use(event: dict[str, Any], client: DaemonClient) -> dict[st
             }
         }
 
-    decision = (response.get("result") or {}).get("decision") or {}
-    allowed = decision.get("allowed", False)
-    reason = decision.get("reason") or ""
-    remediation = decision.get("remediation") or {}
-    next_actions = remediation.get("allowed_next_actions") or []
-    missing = remediation.get("missing_requirements") or []
-    message = remediation.get("message") or ""
+    result = response.get("result") or {}
+    allowed = result.get("allowed", False)
+    reason = result.get("reason") or ""
+    missing = result.get("missing") or []
+    hint_block = _format_hint_block(result.get("hint") or "")
 
     if allowed:
-        hint = _format_next_actions(next_actions)
         out: dict[str, Any] = {
             "hookSpecificOutput": {
                 "hookEventName": "PreToolUse",
                 "permissionDecision": "allow",
             }
         }
-        if hint:
-            out["hookSpecificOutput"]["additionalContext"] = hint
+        if hint_block:
+            out["hookSpecificOutput"]["additionalContext"] = hint_block
         return out
 
     parts = [reason] if reason else []
-    if message:
-        parts.append(message)
     if missing:
         parts.append("Missing: " + "; ".join(missing))
-    hint = _format_next_actions(next_actions)
-    if hint:
-        parts.append(hint)
+    if hint_block:
+        parts.append(hint_block)
     deny_reason = "\n\n".join(p for p in parts if p) or "Blocked by complier contract."
     return {
         "hookSpecificOutput": {
@@ -88,19 +85,30 @@ def _handle_pre_tool_use(event: dict[str, Any], client: DaemonClient) -> dict[st
 
 def _handle_post_tool_use(event: dict[str, Any], client: DaemonClient) -> dict[str, Any]:
     tool_name = event.get("tool_name", "")
+    tool_input = event.get("tool_input") or {}
     tool_response = event.get("tool_response")
-    client.record_result(tool_name, tool_response)
+    response = client.record(tool_name, tool_input, tool_response)
+    hint = (response.get("result") or {}).get("hint", "")
+    hint_block = _format_hint_block(hint)
+    if hint_block:
+        return {
+            "hookSpecificOutput": {
+                "hookEventName": "PostToolUse",
+                "additionalContext": hint_block,
+            }
+        }
     return {}
 
 
 def _handle_session_start(event: dict[str, Any], client: DaemonClient) -> dict[str, Any]:
-    response = client.kickoff()
-    kickoff = (response.get("result") or {}).get("kickoff", "")
-    if kickoff:
+    response = _attach(client, event)
+    hint = (response.get("result") or {}).get("hint", "")
+    hint_block = _format_hint_block(hint)
+    if hint_block:
         return {
             "hookSpecificOutput": {
                 "hookEventName": "SessionStart",
-                "additionalContext": f"complier contract active.\n\n{kickoff}",
+                "additionalContext": f"complier contract active.\n\n{hint_block}",
             }
         }
     return {}
@@ -115,8 +123,11 @@ def main() -> int:
 
     hook_name = event.get("hook_event_name", "")
     try:
-        client = DaemonClient(session_name=_session_name(event))
-        _ensure_attached(client, event)
+        client = DaemonClient(session=_session_id(event))
+        # PreToolUse and PostToolUse rely on the session already being attached;
+        # SessionStart does it explicitly to surface the kickoff hint.
+        if hook_name != "SessionStart":
+            _attach(client, event)
     except Exception as exc:
         _emit({
             "hookSpecificOutput": {

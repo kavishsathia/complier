@@ -8,6 +8,35 @@ from complier.session.server import SessionServerClient
 
 
 class SessionToolCheckTests(unittest.TestCase):
+    def test_check_is_read_only_until_record(self) -> None:
+        session = Contract.from_source(
+            """
+workflow "research"
+    | search_web
+    | summarize
+"""
+        ).create_session()
+
+        # Repeated checks do not advance the cursor.
+        for _ in range(3):
+            decision = session.check_tool_call("search_web", (), {})
+            self.assertTrue(decision.allowed)
+
+        self.assertIsNone(session.state.active_step)
+        self.assertEqual(session.state.completed_steps, [])
+        self.assertEqual(session.state.history, [])
+
+        # record advances and logs once.
+        session.record_tool_call("search_web", (), {}, "ok")
+        self.assertIsNotNone(session.state.active_step)
+        self.assertEqual(len(session.state.completed_steps), 1)
+        self.assertEqual(session.state.history[-1]["event"], "tool_call_completed")
+        self.assertEqual(session.state.history[-1]["result"], "ok")
+
+        # Next check sees the advanced cursor and allows the following step.
+        next_decision = session.check_tool_call("summarize", (), {})
+        self.assertTrue(next_decision.allowed)
+
     def test_rejects_when_multiple_workflows_exist_without_active_workflow(self) -> None:
         session = Contract.from_source(
             """
@@ -35,6 +64,10 @@ workflow "research"
         decision = session.check_tool_call("search_web", (), {})
 
         self.assertTrue(decision.allowed)
+        # check is read-only: state does not advance until record_tool_call.
+        self.assertIsNone(session.state.active_step)
+
+        session.record_tool_call("search_web", (), {}, "result")
         self.assertEqual(session.state.active_workflow, "research")
         self.assertIsNotNone(session.state.active_step)
 
@@ -228,11 +261,12 @@ workflow "research"
         client = SessionServerClient(**session.server.to_dict())
 
         decision = client.check_tool_call("search_web", (), {})
-        client.record_result("search_web", {"status": "ok"})
+        hint = client.record_tool_call("search_web", (), {}, {"status": "ok"})
 
         self.assertTrue(decision.allowed)
         self.assertEqual(session.state.history[-1]["tool_name"], "search_web")
         self.assertEqual(session.state.history[-1]["result"], {"status": "ok"})
+        self.assertIsInstance(hint, str)
 
     def test_cel_expression_param_allows_when_predicate_true(self) -> None:
         session = Contract.from_source(
@@ -302,6 +336,8 @@ workflow "fix-bug" @ambient ToolSearch LS
 
         first = session.check_tool_call("ToolSearch", (), {"q": "hi"})
         self.assertTrue(first.allowed)
+        session.record_tool_call("ToolSearch", (), {"q": "hi"}, "ok")
+        # Ambient calls never advance state.
         self.assertIsNone(session.state.active_step)
         self.assertEqual(session.state.completed_steps, [])
         self.assertEqual(
@@ -311,11 +347,13 @@ workflow "fix-bug" @ambient ToolSearch LS
 
         advance = session.check_tool_call("Read", (), {})
         self.assertTrue(advance.allowed)
+        session.record_tool_call("Read", (), {}, "ok")
         self.assertIsNotNone(session.state.active_step)
         self.assertEqual(advance.remediation.allowed_next_actions, ["Grep"])
 
         ambient_again = session.check_tool_call("LS", (), {})
         self.assertTrue(ambient_again.allowed)
+        session.record_tool_call("LS", (), {}, "ok")
         self.assertEqual(ambient_again.remediation.allowed_next_actions, ["Grep"])
         self.assertEqual(len(session.state.completed_steps), 1)
 

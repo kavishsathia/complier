@@ -39,15 +39,9 @@ class FunctionWrapper:
         @wraps(func)
         def wrapped(*args: Any, **kwargs: Any) -> Any:
             choice = kwargs.pop("choice", None)
-            if choice is None:
-                decision = self.session.check_tool_call(func.__name__, args, kwargs)
-            else:
-                decision = self.session.check_tool_call(
-                    func.__name__,
-                    args,
-                    kwargs,
-                    choice=choice,
-                )
+            decision = self.session.check_tool_call(
+                func.__name__, args, kwargs, choice=choice,
+            )
             if not decision.allowed:
                 self.session.record_blocked_call(func.__name__, decision)
                 return BlockedToolResponse(
@@ -56,9 +50,8 @@ class FunctionWrapper:
                     remediation=decision.remediation,
                 )
 
-            self.session.record_allowed_call(func.__name__, args, kwargs)
             result = func(*args, **kwargs)
-            self.session.record_result(func.__name__, result)
+            self.session.record_tool_call(func.__name__, args, kwargs, result, choice=choice)
             if decision.remediation and decision.remediation.allowed_next_actions:
                 next_hint = "Next allowed actions: " + ", ".join(decision.remediation.allowed_next_actions)
                 return f"{result}\n{next_hint}" if isinstance(result, str) else result
@@ -70,15 +63,9 @@ class FunctionWrapper:
         @wraps(func)
         async def wrapped(*args: Any, **kwargs: Any) -> Any:
             choice = kwargs.pop("choice", None)
-            if choice is None:
-                decision = self.session.check_tool_call(func.__name__, args, kwargs)
-            else:
-                decision = self.session.check_tool_call(
-                    func.__name__,
-                    args,
-                    kwargs,
-                    choice=choice,
-                )
+            decision = self.session.check_tool_call(
+                func.__name__, args, kwargs, choice=choice,
+            )
             if not decision.allowed:
                 self.session.record_blocked_call(func.__name__, decision)
                 return BlockedToolResponse(
@@ -87,9 +74,8 @@ class FunctionWrapper:
                     remediation=decision.remediation,
                 )
 
-            self.session.record_allowed_call(func.__name__, args, kwargs)
             result = await func(*args, **kwargs)
-            self.session.record_result(func.__name__, result)
+            self.session.record_tool_call(func.__name__, args, kwargs, result, choice=choice)
             if decision.remediation and decision.remediation.allowed_next_actions:
                 next_hint = "Next allowed actions: " + ", ".join(decision.remediation.allowed_next_actions)
                 return f"{result}\n{next_hint}" if isinstance(result, str) else result
