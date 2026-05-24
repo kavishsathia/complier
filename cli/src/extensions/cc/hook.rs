@@ -86,14 +86,16 @@ fn session_key(event: &HookEvent) -> String {
 }
 
 fn handle_pre_tool_use(client: &DaemonClient, event: &HookEvent) -> Value {
-    // Intercept `complier choose <arm>` Bash calls: the hook has the
-    // session_id, the agent's CLI subprocess does not. We stage the choice
-    // here and let Bash run the no-op binary so the agent sees a normal
-    // tool result.
+    // Intercept agent-callable complier verbs: the hook has the session_id,
+    // the agent's CLI subprocess does not. We do the daemon RPC here and let
+    // Bash run the placeholder binary so the agent sees a normal tool result.
     if event.tool_name == "Bash" {
         if let Some(cmd) = event.tool_input.get("command").and_then(Value::as_str) {
             if let Some(arm) = parse_complier_choose(cmd) {
                 return handle_choose_intercept(client, arm);
+            }
+            if is_complier_human(cmd) {
+                return handle_human_intercept(client);
             }
         }
     }
@@ -195,6 +197,34 @@ fn handle_choose_intercept(client: &DaemonClient, arm: &str) -> Value {
     })
 }
 
+fn handle_human_intercept(client: &DaemonClient) -> Value {
+    let context = match client.human() {
+        Ok(res) => format!(
+            "An @human step is being satisfied. STOP YOUR TURN NOW. \
+             Ask the human exactly this question and wait for their reply \
+             before any further tool call:\n\n  \"{}\"\n\n\
+             Do not call any more tools. The next message you see will be \
+             the human's response.{}",
+            res.prompt,
+            if res.hint.is_empty() {
+                String::new()
+            } else {
+                format!("\n\nAfter their reply, your allowed next actions:\n{}", res.hint)
+            },
+        ),
+        Err(e) => format!(
+            "complier human failed: {e}. Ask the human directly and proceed once they reply."
+        ),
+    };
+    json!({
+        "hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "allow",
+            "additionalContext": context,
+        }
+    })
+}
+
 fn parse_complier_choose(command: &str) -> Option<&str> {
     let trimmed = command.trim();
     let prefix = "complier choose ";
@@ -205,6 +235,13 @@ fn parse_complier_choose(command: &str) -> Option<&str> {
     } else {
         Some(arm)
     }
+}
+
+fn is_complier_human(command: &str) -> bool {
+    let trimmed = command.trim();
+    trimmed == "complier human"
+        || trimmed.starts_with("complier human ")
+        || trimmed.starts_with("complier human\t")
 }
 
 fn format_hint_block(hint: &str) -> String {
