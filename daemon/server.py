@@ -10,6 +10,7 @@ Per-session methods (the lean contract):
     check      params={session, tool, params}                -> {allowed, reason?, missing?, hint}
     record     params={session, tool, result}                -> {hint}
     choose     params={session, arm}                         -> {}
+    human      params={session}                              -> {prompt, hint}
 
 All requests/responses are single-line JSON with the envelope
     {"method": "...", "params": {...}}
@@ -166,6 +167,15 @@ class Daemon:
         if method == "choose":
             entry.pending_choice = str(params["arm"])
             return {"result": {}}
+
+        if method == "human":
+            choice = params.get("choice") or entry.pending_choice
+            try:
+                prompt, hint = session.satisfy_human_step(choice=choice)
+            except ValueError as exc:
+                return {"error": str(exc)}
+            entry.pending_choice = None
+            return {"result": {"prompt": prompt, "hint": hint}}
 
         return {"error": f"unknown method: {method!r}"}
 
