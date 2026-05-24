@@ -82,6 +82,14 @@ pub struct HintResult {
     pub hint: String,
 }
 
+#[derive(Deserialize, Debug, Default)]
+pub struct HumanResult {
+    #[serde(default)]
+    pub prompt: String,
+    #[serde(default)]
+    pub hint: String,
+}
+
 impl DaemonClient {
     pub fn new(session: impl Into<String>) -> Result<Self, DaemonError> {
         let sock_path = socket_path();
@@ -150,6 +158,12 @@ impl DaemonClient {
         params.insert("session".into(), Value::String(self.session.clone()));
         params.insert("arm".into(), Value::String(arm.into()));
         self.request_raw("choose", Value::Object(params))
+    }
+
+    pub fn human(&self) -> Result<HumanResult, DaemonError> {
+        let mut params = Map::new();
+        params.insert("session".into(), Value::String(self.session.clone()));
+        self.request("human", Value::Object(params))
     }
 
     /// Typed request: parse the `result` field into T.

@@ -29,6 +29,9 @@ enum Command {
         /// Arm label, matching one of the workflow's branch / unordered arms.
         arm: String,
     },
+    /// Signal that you're asking the human for input. The hook intercepts
+    /// this and instructs you to ask the question and wait for their reply.
+    Human,
     /// Install hook entries for the given extension into its harness's settings.
     Install {
         /// Extension name (e.g. "cc" for Claude Code).
@@ -41,6 +44,7 @@ fn main() {
     let exit = match cli.command {
         Command::Hook { extension } => commands::hook::run(&extension),
         Command::Choose { arm } => commands::choose::run(&arm),
+        Command::Human => commands::human::run(),
         Command::Install { extension } => commands::install::run(&extension),
     };
     std::process::exit(exit);

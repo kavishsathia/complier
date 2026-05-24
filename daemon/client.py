@@ -85,3 +85,10 @@ class DaemonClient:
             "choose",
             {"session": self.session, "arm": arm},
         )
+
+    def human(self) -> dict[str, Any]:
+        return protocol.request(
+            self.sock,
+            "human",
+            {"session": self.session},
+        )

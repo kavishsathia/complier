@@ -7,6 +7,59 @@ from complier.verification import Verifier
 from complier.session.server import SessionServerClient
 
 
+class HumanStepTests(unittest.TestCase):
+    def _contract(self) -> str:
+        return """
+workflow "research"
+    | @human "What topic?"
+    | search_web
+"""
+
+    def test_pending_human_blocks_tool_calls(self) -> None:
+        session = Contract.from_source(self._contract()).create_session()
+
+        decision = session.check_tool_call("search_web", (), {})
+        self.assertFalse(decision.allowed)
+        self.assertIn("@human", decision.reason)
+        self.assertTrue(decision.remediation.allowed_next_actions)
+        self.assertIn("What topic?", "\n".join(decision.remediation.allowed_next_actions))
+
+    def test_satisfy_human_step_advances_and_returns_prompt(self) -> None:
+        session = Contract.from_source(self._contract()).create_session()
+
+        prompt, hint = session.satisfy_human_step()
+        self.assertEqual(prompt, "What topic?")
+        self.assertIn("search_web", hint)
+        self.assertIsNotNone(session.state.active_step)
+        self.assertEqual(len(session.state.completed_steps), 1)
+        self.assertEqual(session.state.history[-1]["event"], "human_step_satisfied")
+
+    def test_tool_call_allowed_after_satisfy(self) -> None:
+        session = Contract.from_source(self._contract()).create_session()
+
+        session.satisfy_human_step()
+        decision = session.check_tool_call("search_web", (), {})
+        self.assertTrue(decision.allowed)
+
+    def test_satisfy_when_no_pending_human_raises(self) -> None:
+        session = Contract.from_source(
+            """
+workflow "research"
+    | search_web
+"""
+        ).create_session()
+
+        with self.assertRaises(ValueError):
+            session.satisfy_human_step()
+
+    def test_kickoff_hint_surfaces_pending_human(self) -> None:
+        session = Contract.from_source(self._contract()).create_session()
+
+        hint = session.kickoff()
+        self.assertIn("@human", hint)
+        self.assertIn("What topic?", hint)
+
+
 class SessionToolCheckTests(unittest.TestCase):
     def test_check_is_read_only_until_record(self) -> None:
         session = Contract.from_source(

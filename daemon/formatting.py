@@ -25,10 +25,17 @@ from complier.session.decisions import (
 
 
 def cli_choose_formatter(next_actions: NextActions) -> list[str]:
-    """Render reachable actions, prepending a `complier choose` instruction
-    when a branch or unordered block is in play."""
-    has_choice = next_actions.is_branch_possible or next_actions.is_unordered_possible
+    """Render reachable actions, prepending CLI instructions when a branch /
+    unordered block or @human step is in play."""
+    if next_actions.humans:
+        lines: list[str] = []
+        for human in next_actions.humans:
+            lines.append(
+                f'@human step pending — run `complier human` to ask: "{human.prompt}"'
+            )
+        return lines
 
+    has_choice = next_actions.is_branch_possible or next_actions.is_unordered_possible
     if not has_choice:
         return [_render(desc) for desc in next_actions.actions]
 
