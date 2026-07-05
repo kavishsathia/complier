@@ -2,9 +2,9 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "complier — contract enforcement for AI agents",
+  title: "Complier: A Language for Encoding and Enforcing Agentic Workflows",
   description:
-    "A compiled DSL that enforces workflow contracts on tool-using AI agents at runtime. Define what your agent can do, and block everything else.",
+    "A single representation that unifies expressing and enforcing agentic workflows: contracts compile to a runtime graph enforced at the tool boundary.",
   icons: {
     icon: "/tab.png",
   },

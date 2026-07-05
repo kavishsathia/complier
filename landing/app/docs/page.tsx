@@ -1,7 +1,11 @@
 import type { Metadata } from "next";
+import { notFound } from "next/navigation";
 import { promises as fs } from "fs";
 import path from "path";
 import ContractPlayground from "../components/ContractPlayground";
+
+// Docs are temporarily unpublished while the project pivots to the research framing.
+const DOCS_ENABLED = false;
 
 export const metadata: Metadata = {
   title: "complier docs",
@@ -43,6 +47,9 @@ async function loadDocsPages() {
 }
 
 export default async function DocsPage() {
+  if (!DOCS_ENABLED) {
+    notFound();
+  }
   const docsPages = await loadDocsPages();
   return <ContractPlayground docsPages={docsPages} />;
 }
