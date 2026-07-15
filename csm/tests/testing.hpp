@@ -65,6 +65,18 @@ inline int run_all() {
         if (!(expr)) ::complier::testing::report_failure(__FILE__, __LINE__, #expr); \
     } while (0)
 
+#define CHECK_THROWS(expr)                                                    \
+    do {                                                                      \
+        bool threw_ = false;                                                  \
+        try {                                                                 \
+            (void)(expr);                                                     \
+        } catch (...) {                                                       \
+            threw_ = true;                                                    \
+        }                                                                     \
+        if (!threw_)                                                          \
+            ::complier::testing::report_failure(__FILE__, __LINE__, #expr " did not throw"); \
+    } while (0)
+
 #define CHECK_EQ(a, b)                                                        \
     do {                                                                      \
         if (!((a) == (b))) {                                                  \

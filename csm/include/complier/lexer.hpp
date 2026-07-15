@@ -2,58 +2,64 @@
 
 #include <string>
 #include <string_view>
-#include <variant>
 #include <vector>
 
 namespace complier::lex {
 
-struct Workflow {};
+enum class TokenKind {
+    Ident,
+    Number,
+    Str,
 
-struct Identifier {
-    std::string_view name;
+    // delimited prompt forms: (hint) [model] {human} `cel`
+    HintPrompt,
+    ModelPrompt,
+    HumanPrompt,
+    CelExpr,
+
+    Pipe,
+    Equals,
+    Colon,
+
+    Guarantee,
+    Workflow,
+    AtAlways,
+    AtAmbient,
+    AtLlm,
+    AtHuman,
+    AtFork,
+    AtJoin,
+    AtCall,
+    AtUse,
+    AtInline,
+    AtBranch,
+    AtLoop,
+    AtUnordered,
+    When,
+    Else,
+    Until,
+    StepKw,
+    Halt,
+    Skip,
+    True,
+    False,
+    Null,
+
+    Newline,
+    Indent,
+    Dedent,
+    Eof,
 };
-
-struct LeftBrace {};
-struct Equal {};
-struct Semicolon {};
-struct RightBrace {};
-
-struct LeftParen {};
-struct RightParen {};
-struct LeftBracket {};
-struct RightBracket {};
-
-struct Switch {};
-struct Case {};
-struct Default {};
-struct Loop {};
-struct While {};
-
-struct String {
-    std::string_view value;
-};
-struct Integer {
-    int value;
-};
-struct Double {
-    double value;
-};
-struct Boolean {
-    bool value;
-};
-struct Null {};
-
-using TokenId =
-    std::variant<Workflow, Identifier, LeftBrace, Equal, Semicolon, RightBrace,
-                 LeftParen, RightParen, LeftBracket, RightBracket, Switch, Case,
-                 Default, Loop, While, String, Integer, Double, Boolean, Null>;
 
 struct Token {
-    TokenId id;
-    int line;
-    int col;
+    TokenKind kind;
+    std::string text;  // ident/number spelling, decoded string, or prompt body
+    int line = 0;
+    int col = 0;
 };
 
-std::vector<Token> lex(std::string_view s);
+const char* token_name(TokenKind kind);
 
-} // namespace complier::lex
+std::vector<Token> lex(std::string_view source);
+
+}  // namespace complier::lex
