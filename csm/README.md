@@ -2,6 +2,12 @@
 
 Rewrite of the complier state machine as a portable C++20 static library.
 
+The pipeline mirrors the python implementation: `lex()` turns a contract
+into tokens (indentation becomes indent/dedent tokens), `parse()` builds
+the AST by recursive descent, and `compile()` lowers each workflow into a
+graph of runtime nodes wired by `next_ids`. `Contract::from_source()` runs
+all three and validates the graph.
+
 ## Layout
 
 ```
