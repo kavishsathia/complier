@@ -2,9 +2,9 @@ import "server-only";
 import { init } from "z3-solver";
 import { CspError, Program } from "./ast";
 import { paramTypes } from "./check";
-import { bmcNames, compileBmc, compileChc } from "./chc";
+import { bmcNames, compileBmc, compileChc, relevantLeaves, relevantParams } from "./chc";
 import { formatEvent, formatValue } from "./monitor";
-import { buildLeaves, buildMoves, Leaf, params, STOP } from "./moves";
+import { buildLeaves, buildMoves, collapse, Leaf, params, STOP } from "./moves";
 import { parse } from "./parser";
 import { prettyFacts } from "./pretty";
 
@@ -132,9 +132,22 @@ export async function prove(source: string): Promise<ProveResponse> {
     const results: AssertionResult[] = [];
     for (const a of prog.assertions) {
       const started = Date.now();
-      const chc = compileChc(prog, leaves, moves, a);
-      const out = await run(chc.script);
-      const verdict = firstLine(out);
+      // Try first with only the processes and parameters the assertion can
+      // depend on. That over-approximates the system, so "holds" is final;
+      // anything else is retried on the exact encoding.
+      const keep = relevantParams(prog, moves, a);
+      const live = relevantLeaves(prog, leaves, moves, a, keep);
+      const drop = new Set(leaves.map((_, i) => i).filter((i) => !live.has(i)));
+      const total = [...prog.procs.values()].reduce((n, d) => n + d.params.length, 0);
+      const small = collapse(leaves, moves, drop);
+      let chc = compileChc(prog, small.leaves, small.moves, a, keep);
+      let out = await run(chc.script);
+      let verdict = firstLine(out);
+      if (verdict !== "sat" && (keep.size < total || drop.size > 0)) {
+        chc = compileChc(prog, leaves, moves, a);
+        out = await run(chc.script);
+        verdict = firstLine(out);
+      }
       const base = { assertion: a.text, process: a.process, ms: 0 };
       if (verdict === "sat") {
         results.push({

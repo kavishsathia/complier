@@ -11,6 +11,10 @@ function namesIn(e: Expr, out: Set<string> = new Set()): Set<string> {
   else if (e.kind === "binary") {
     namesIn(e.left, out);
     namesIn(e.right, out);
+  } else if (e.kind === "if") {
+    namesIn(e.cond, out);
+    namesIn(e.then, out);
+    namesIn(e.else, out);
   }
   return out;
 }
@@ -72,7 +76,6 @@ export function check(prog: Program) {
           checkScope(prog, f.expr, scope, b.line);
         } else {
           if (f.range) {
-            if (type !== "Int") throw new CspError(`ranges only apply to Int fields`, b.line);
             checkScope(prog, f.range.lo, scope, b.line);
             checkScope(prog, f.range.hi, scope, b.line);
           }

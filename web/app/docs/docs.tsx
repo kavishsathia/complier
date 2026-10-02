@@ -2,7 +2,7 @@
 
 import { ReactNode, useRef, useState } from "react";
 import { heldAccount, naiveAccount } from "@/lib/csp/examples";
-import { Playground } from "./playground";
+import { Playground } from "../components/playground";
 import styles from "./docs.module.css";
 
 type Tab = "proof" | "run";
@@ -154,7 +154,7 @@ export function Docs() {
       </article>
 
       <div className={styles.pane} ref={pane}>
-        <Playground source={source} onSource={setSource} tab={tab} onTab={setTab} runKey={loads} />
+        <Playground source={source} onSource={setSource} tab={tab} onTab={setTab} runKey={loads} file="account.csp" />
       </div>
     </div>
   );

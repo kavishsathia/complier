@@ -24,6 +24,9 @@ export interface Leaf {
 }
 
 export const STOP = "STOP";
+// Location of a process the prover has abstracted away: it may take any of its
+// events at any time and holds no data.
+export const ANY = "*";
 const MAX_COMBOS = 512;
 
 function exprText(e: Expr): string {
@@ -32,6 +35,7 @@ function exprText(e: Expr): string {
     case "name": return e.name;
     case "unary": return e.op === "-" ? `-${exprText(e.arg)}` : `not ${exprText(e.arg)}`;
     case "binary": return `${exprText(e.left)} ${e.op} ${exprText(e.right)}`;
+    case "if": return `if ${exprText(e.cond)} then ${exprText(e.then)} else ${exprText(e.else)}`;
   }
 }
 
@@ -59,7 +63,33 @@ export function buildLeaves(prog: Program): Leaf[] {
 }
 
 export function params(prog: Program, loc: string): string[] {
-  return loc === STOP ? [] : prog.procs.get(loc)!.params;
+  return loc === STOP || loc === ANY ? [] : prog.procs.get(loc)!.params;
+}
+
+// Replace the given leaves by ANY stubs. Every branch they could ever take
+// stays available, but without its location, guard or data, so the result
+// over-approximates the system.
+export function collapse(leaves: Leaf[], moves: Move[], drop: Set<number>): { leaves: Leaf[]; moves: Move[] } {
+  const stub = { name: ANY, args: [] };
+  const seen = new Set<string>();
+  const out: Move[] = [];
+  for (const m of moves) {
+    // a move made only of stubs changes no tracked state, so it adds nothing
+    if (m.parts.every((p) => drop.has(p.leaf))) continue;
+    const parts = m.parts.map((p) =>
+      drop.has(p.leaf) ? { leaf: p.leaf, loc: ANY, branch: { ...p.branch, guard: undefined, target: stub } } : p,
+    );
+    const key = JSON.stringify(parts.map((p) => (drop.has(p.leaf) ? [p.leaf, m.channel, p.branch.fields] : [p.leaf, p.loc, p.branch.line, p.branch.channel, JSON.stringify(p.branch.fields), JSON.stringify(p.branch.target)])));
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ channel: m.channel, parts });
+  }
+  return {
+    leaves: leaves.map((l, i) =>
+      drop.has(i) ? { label: l.label, locations: [ANY], initial: { loc: ANY, args: [] } } : l,
+    ),
+    moves: out,
+  };
 }
 
 export function buildMoves(prog: Program, leaves: Leaf[]): Move[] {

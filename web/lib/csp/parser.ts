@@ -16,7 +16,9 @@ const SYMBOLS = [
   "&", "!", "?", ".", ":", ",", "(", ")", "{", "}", "[", "]", "=", "<", ">", "+", "-", "*", "|",
 ];
 
-const KEYWORDS = new Set(["datatype", "channel", "assert", "STOP", "and", "or", "not", "always"]);
+const KEYWORDS = new Set([
+  "datatype", "channel", "assert", "STOP", "and", "or", "not", "always", "if", "then", "else",
+]);
 
 export function lex(source: string): Token[] {
   const tokens: Token[] = [];
@@ -157,6 +159,16 @@ class Parser {
   }
 
   atom(): Expr {
+    if (this.isWord("if")) {
+      this.next();
+      const cond = this.expr();
+      if (!this.isWord("then")) throw new CspError("expected 'then'", this.peek().line);
+      this.next();
+      const then = this.expr();
+      if (!this.isWord("else")) throw new CspError("expected 'else'", this.peek().line);
+      this.next();
+      return { kind: "if", cond, then, else: this.expr() };
+    }
     const t = this.next();
     if (t.kind === "int") return { kind: "int", value: Number(t.text) };
     if (t.kind === "ident" && !KEYWORDS.has(t.text)) return { kind: "name", name: t.text };

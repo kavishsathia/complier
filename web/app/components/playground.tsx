@@ -20,8 +20,9 @@ export function Playground(props: {
   tab: Tab;
   onTab: (t: Tab) => void;
   runKey: number;
+  file: string;
 }) {
-  const { source, onSource, tab, onTab, runKey } = props;
+  const { source, onSource, tab, onTab, runKey, file } = props;
   const [proof, setProof] = useState<{ source: string; response: ProveResponse } | null>(null);
   const [proving, setProving] = useState(false);
 
@@ -54,7 +55,7 @@ export function Playground(props: {
   return (
     <div className={styles.playground}>
       <div className={styles.toolbar}>
-        <span className={styles.file}>account.csp</span>
+        <span className={styles.file}>{file}</span>
         <button className={styles.primary} onClick={runProof} disabled={proving || "error" in parsed}>
           {proving ? "Proving…" : "Prove"}
         </button>
@@ -250,7 +251,7 @@ function RunPanel({ prog }: { prog: Program }) {
           ref={field}
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          placeholder="an event, e.g. withdraw.Alice.80"
+          placeholder="type an event, or pick one above"
           spellCheck={false}
           autoCapitalize="off"
         />

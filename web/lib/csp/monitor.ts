@@ -39,6 +39,8 @@ export function evalExpr(prog: Program, e: Expr, env: Map<string, number>): numb
       if (c) return c.index;
       throw new CspError(`'${e.name}' has no value here`, 0);
     }
+    case "if":
+      return evalExpr(prog, e.cond, env) ? evalExpr(prog, e.then, env) : evalExpr(prog, e.else, env);
     case "unary": {
       const v = evalExpr(prog, e.arg, env);
       return e.op === "-" ? -v : v ? 0 : 1;

@@ -5,7 +5,8 @@ export type Expr =
   | { kind: "int"; value: number }
   | { kind: "name"; name: string }
   | { kind: "unary"; op: "-" | "not"; arg: Expr }
-  | { kind: "binary"; op: BinOp; left: Expr; right: Expr };
+  | { kind: "binary"; op: BinOp; left: Expr; right: Expr }
+  | { kind: "if"; cond: Expr; then: Expr; else: Expr };
 
 export type BinOp =
   | "+" | "-" | "*"
