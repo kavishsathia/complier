@@ -16,8 +16,9 @@ import { regulatory } from "./regulatory";
 import { inventory } from "./inventory";
 import { personalTax } from "./personal-tax";
 import { renovation } from "./renovation";
+import { autoopt } from "./autoopt";
 import { UseCase } from "./types";
 import { youtube } from "./youtube";
 import { wedding } from "./wedding";
 
-export const useCases: UseCase[] = [apMatching, soc2, nihR01, feedbackLoop, cvePatching, wedding, dealDesk, systematicReview, labAnalysis, landlord, monthEndClose, hiring, youtube, relocation, conference, regulatory, openSource, personalTax, renovation, inventory];
+export const useCases: UseCase[] = [apMatching, soc2, nihR01, feedbackLoop, cvePatching, wedding, dealDesk, systematicReview, labAnalysis, landlord, monthEndClose, hiring, youtube, relocation, conference, regulatory, openSource, personalTax, renovation, inventory, autoopt];

@@ -2,7 +2,8 @@ import "server-only";
 import { init } from "z3-solver";
 import { CspError, Program } from "./ast";
 import { paramTypes } from "./check";
-import { bmcNames, compileBmc, compileChc, relevantLeaves, relevantParams } from "./chc";
+import { bmcNames, Chc, compileBmc, compileChc, relevantLeaves, relevantParams, renderChc } from "./chc";
+import { inferEqualities } from "./houdini";
 import { formatEvent, formatValue } from "./monitor";
 import { buildLeaves, buildMoves, collapse, Leaf, params, STOP } from "./moves";
 import { parse } from "./parser";
@@ -10,6 +11,7 @@ import { prettyFacts } from "./pretty";
 
 const TIMEOUT_MS = 20000;
 const MAX_TRACE = 16;
+const INFER_BUDGET_MS = 8000;
 
 export interface TraceStep {
   event: string | null; // null for the initial state
@@ -115,6 +117,14 @@ async function findTrace(prog: Program, leaves: Leaf[], moves: ReturnType<typeof
   return null;
 }
 
+// Equalities between processes are inferred first and assumed in the
+// clauses; they are proven invariants, and they spare Spacer from
+// rediscovering, say, that an agent's count of the stock matches the shelf.
+async function solve(chc: Chc): Promise<string> {
+  const facts = await inferEqualities(chc, run, INFER_BUDGET_MS);
+  return run(renderChc(chc, facts));
+}
+
 export async function prove(source: string): Promise<ProveResponse> {
   let prog: Program;
   try {
@@ -141,11 +151,11 @@ export async function prove(source: string): Promise<ProveResponse> {
       const total = [...prog.procs.values()].reduce((n, d) => n + d.params.length, 0);
       const small = collapse(leaves, moves, drop);
       let chc = compileChc(prog, small.leaves, small.moves, a, keep);
-      let out = await run(chc.script);
+      let out = await solve(chc);
       let verdict = firstLine(out);
       if (verdict !== "sat" && (keep.size < total || drop.size > 0)) {
         chc = compileChc(prog, leaves, moves, a);
-        out = await run(chc.script);
+        out = await solve(chc);
         verdict = firstLine(out);
       }
       const base = { assertion: a.text, process: a.process, ms: 0 };

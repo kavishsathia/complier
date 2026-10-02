@@ -4,73 +4,85 @@ export const inventory: UseCase = {
   slug: "inventory",
   title: "Inventory management for a small e-commerce brand",
   summary:
-    "The dot handles reorders across about 150 SKUs and 4 suppliers.",
+    "The dot handles reorders across about 150 SKUs and 4 suppliers. The encoding shows one top-20 SKU with one supplier. Each process is exactly one participant: the world (the shelf and the supplier), the owner, or the agent.",
   constraints: [
     {
       text: "It reorders when stock falls to demand-during-lead-time plus safety stock.",
       how: "enforced",
-      detail: "With demand of at most 5 a day, a 3 day lead time and 5 of safety stock, the reorder point is 20. The day cannot be closed while stock is at or under 20 with nothing on order.",
+      detail: "With demand of at most 5 a day, a 3 day lead time and 5 of safety stock, the reorder point is 20. The agent keeps its own count of stock by watching sales and deliveries, and will not agree to close_day while its count is at or under 20 with nothing on order, or while a large PO is waiting on the owner.",
     },
     {
       text: "The top 20 SKUs never stock out.",
       how: "enforced",
-      detail: "This is a fact about the world, so it is proven under stated assumptions: demand of at most 5 a day and deliveries within the quoted 3 days. Under those, the proof shows stock never goes below zero. A late delivery breaks the assumption, which is what the slip flag is for.",
+      detail: "This is a fact about the world, so it is proven under the assumptions written into the world's processes: Shelf sells at most 5 a day and Supplier1 delivers within the quoted 3 days. Under those, the proof shows Shelf's real stock never goes below zero.",
     },
     {
       text: "POs over a set dollar amount need owner approval.",
       how: "enforced",
-      detail: "With a 2000 limit, a reorder over it waits for owner_approve. The proof shows large POs never exceed approvals.",
+      detail: "With a 2000 limit, the agent sends a larger PO to the owner and can only place exactly the approved amount after owner_approve. This is enforced by the agent's process; there is no assertion for it in this encoding.",
     },
     {
       text: "Actual supplier lead times are tracked against quoted ones, and suppliers slipping more than 20% get flagged.",
-      how: "enforced",
-      detail: "For the second supplier, nothing is assumed about delivery. Once an order is more than 20% past its quoted 5 days (6 or more), the day cannot close until flag_slip.",
+      how: "not-encoded",
+      detail: "This encoding assumes the supplier delivers on time, which is what the stock-out proof needs, so there is no slip to flag. Tracking slips needs a supplier without that assumption.",
     },
   ],
-  source: `-- Inventory for one top-20 SKU and one supplier we track for slips.
--- One close_day is the dot's end-of-day run. Demand: at most 5 a day.
--- Assumed for the top SKU: deliveries arrive within the quoted 3 days.
+  source: `-- Inventory for one top-20 SKU with one supplier.
+-- close_day is the end of the day. The agent must agree to it,
+-- so it can hold the day open until its job is done.
 
-channel sell : Int                 -- units sold (the world decides)
-channel reorder : Int              -- a PO goes out, value in dollars
-channel request_approval : Int     -- a PO over the limit goes to the owner first
-channel owner_approve
-channel deliver                    -- 50 units arrive
+channel sell : Int                 -- units sold
+channel deliver                    -- 50 units arrive from the supplier
 channel close_day
-channel order2, deliver2, flag_slip
+channel reorder : Int              -- a PO to the supplier, value in dollars
+channel request_approval : Int     -- a PO over 2000 goes to the owner first
+channel owner_approve
 
--- s: stock, o: 1 when an order is out, age: days it has been out,
--- sold: units sold today. Reorder point 20.
-Stock(s, o, age, sold) =
-     sell?q:{0..5 - sold} -> Stock(s - q, o, age, sold + q)
-  [] s <= 20 and o == 0 & reorder?v:{1..2000} -> Stock(s, 1, 0, sold)
-  [] s <= 20 and o == 0 & request_approval?v:{2001..100000} -> Approval(s, sold, v)
-  [] o == 1 & deliver -> Stock(s + 50, 0, 0, sold)
-  [] (s > 20 or o == 1) and (o == 0 or age < 3) & close_day -> Stock(s, o, age + o, 0)
-Approval(s, sold, v) =
-     owner_approve -> Placing(s, sold, v)
-  [] sell?q:{0..5 - sold} -> Approval(s - q, sold + q, v)
-Placing(s, sold, v) =
-     reorder!v -> Stock(s, 1, 0, sold)
-  [] sell?q:{0..5 - sold} -> Placing(s - q, sold + q, v)
+-- The world --------------------------------------------------------------
 
--- The second supplier quotes 5 days; 6 or more is a slip over 20%.
-Supplier(o, age, flagged) =
-     o == 0 & order2 -> Supplier(1, 0, 0)
-  [] o == 1 & deliver2 -> Supplier(0, 0, 0)
-  [] o == 1 and age >= 6 and flagged == 0 & flag_slip -> Supplier(o, age, 1)
-  [] o == 0 or age < 6 or flagged == 1 & close_day -> Supplier(o, age + o, flagged)
+-- Customers buy at most 5 a day. s is the real stock on the shelf.
+Shelf(s, sold) =
+     sell?q:{0..5 - sold} -> Shelf(s - q, sold + q)
+  [] deliver -> Shelf(s + 50, sold)
+  [] close_day -> Shelf(s, 0)
 
-POs(big, approvals) =
-     reorder?v -> POs(big + (if v > 2000 then 1 else 0), approvals)
-  [] owner_approve -> POs(big, approvals + 1)
+-- The supplier delivers within its quoted 3 days (assumed).
+Supplier1(o, age) =
+     reorder?v -> Supplier1(1, 0)
+  [] o == 1 & deliver -> Supplier1(0, 0)
+  [] o == 0 or age < 3 & close_day -> Supplier1(o, age + o)
+
+-- The owner ---------------------------------------------------------------
+
+Owner = request_approval?v -> Deciding(v)
+Deciding(v) = owner_approve -> Owner
+
+-- The agent ---------------------------------------------------------------
+-- It sees sales and deliveries, never blocks them, and keeps its own
+-- count of the stock. Reorder point 20.
+
+Agent(s, o) =
+     sell?q -> Agent(s - q, o)
+  [] deliver -> Agent(s + 50, 0)
+  [] s <= 20 and o == 0 & reorder?v:{1..2000} -> Agent(s, 1)
+  [] s <= 20 and o == 0 & request_approval?v:{2001..100000} -> Waiting(s, v)
+  [] s > 20 or o == 1 & close_day -> Agent(s, o)
+
+-- Waiting for the owner to approve a big PO. The day cannot close here.
+Waiting(s, v) =
+     sell?q -> Waiting(s - q, v)
+  [] owner_approve -> Placing(s, v)
+
+-- Approved: send exactly the approved PO. The day cannot close here.
+Placing(s, v) =
+     sell?q -> Placing(s - q, v)
+  [] reorder!v -> Agent(s, 1)
 
 System =
-  (Stock(40, 0, 0, 0) [| {| close_day |} |] Supplier(0, 0, 0))
-    [| {| reorder, owner_approve |} |]
-  POs(0, 0)
+  (Shelf(40, 0) [| {| deliver, close_day |} |] Supplier1(0, 0))
+    [| {| sell, deliver, reorder, close_day |} |]
+  (Agent(40, 0) [| {| request_approval, owner_approve |} |] Owner)
 
-assert Stock :[always s >= 0]
-assert POs :[always big <= approvals]
+assert Shelf :[always s >= 0]
 `,
 };

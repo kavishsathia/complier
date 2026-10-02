@@ -223,10 +223,45 @@ const forall = (vars: string[], body: string) =>
   vars.length ? `(forall (${vars.map((v) => `(${v} Int)`).join(" ")}) ${body})` : body;
 const sanitize = (s: string) => s.replace(/[^A-Za-z0-9_]/g, "_");
 
+// One Horn clause: for all vars, body predicate (if any) and constraints imply
+// the head predicate, or false when head is null.
+export interface Clause {
+  vars: string[];
+  body?: { pred: string; args: string[] };
+  constraints: string[];
+  head: { pred: string; args: string[] } | null;
+}
+
 export interface Chc {
-  script: string;
+  clauses: Clause[];
   // predicate name to its control state and readable argument names
   predicates: Map<string, { state: string; args: string[] }>;
+}
+
+// Facts known to hold of every reachable state, per predicate, as SMT terms
+// over the placeholders a0, a1, ... for the predicate's arguments.
+export type Facts = Map<string, string[]>;
+
+function instantiate(fact: string, args: string[]): string {
+  return fact.replace(/\ba(\d+)\b/g, (_, i) => args[Number(i)]);
+}
+
+// The SMT-LIB script for a clause system, with known facts assumed wherever
+// a predicate appears in a body.
+export function renderChc(chc: Chc, facts?: Facts): string {
+  const app = (pred: string, args: string[]) => (args.length ? `(${pred} ${args.join(" ")})` : pred);
+  const lines = ["(set-logic HORN)"];
+  for (const [name, info] of chc.predicates) {
+    lines.push(`(declare-fun ${name} (${info.args.map(() => "Int").join(" ")}) Bool)`);
+  }
+  for (const c of chc.clauses) {
+    const known = c.body ? (facts?.get(c.body.pred) ?? []).map((f) => instantiate(f, c.body!.args)) : [];
+    const body = and([...(c.body ? [app(c.body.pred, c.body.args)] : []), ...known, ...c.constraints]);
+    const head = c.head ? app(c.head.pred, c.head.args) : "false";
+    lines.push(`(assert ${forall(c.vars, body === "true" ? head : `(=> ${body} ${head})`)})`);
+  }
+  lines.push("(check-sat)", "(get-model)");
+  return lines.join("\n");
 }
 
 // Parameters that keep one value for the whole life of a leaf, such as the
@@ -299,15 +334,11 @@ export function compileChc(
   const evVar = (k: number) => `ev${k}`;
   const args = (combo: string[], name: (leaf: number, p: string) => string) =>
     combo.flatMap((loc, leaf) => vis(leaf, loc).map((p) => name(leaf, p)));
-  const app = (combo: string[], vars: string[]) =>
-    vars.length ? `(${predName(combo)} ${vars.join(" ")})` : predName(combo);
-
-  const lines = ["(set-logic HORN)"];
+  const clauses: Clause[] = [];
   const predicates = new Map<string, { state: string; args: string[] }>();
   for (const combo of combos) {
     const readable = combo.flatMap((loc, leaf) => vis(leaf, loc).map((p) => `${leaves[leaf].label}.${p}`));
     predicates.set(predName(combo), { state: combo.join(" ‖ "), args: readable });
-    lines.push(`(declare-fun ${predName(combo)} (${readable.map(() => "Int").join(" ")}) Bool)`);
   }
 
   const init = leaves.map((l) => l.initial.loc);
@@ -317,7 +348,7 @@ export function compileChc(
       kept.has(p) ? [smt(prog, l.initial.args[i], scoped(new Map()))] : [],
     );
   });
-  lines.push(`(assert ${app(init, initArgs)})`);
+  clauses.push({ vars: [], constraints: [], head: { pred: predName(init), args: initArgs } });
 
   for (const combo of combos) {
     for (const move of moves) {
@@ -334,8 +365,12 @@ export function compileChc(
         ...Array.from({ length: fieldCount }, (_, k) => evVar(k)),
         ...after.flatMap((loc, leaf) => (moving.has(leaf) ? vis(leaf, loc).map((p) => nxtVar(leaf, p)) : [])),
       ];
-      const body = and([app(combo, args(combo, curVar)), ...moveConstraints(prog, move, curVar, nxtVar, evVar, slot)]);
-      lines.push(`(assert ${forall(vars, `(=> ${body} ${app(after, headArgs)})`)})`);
+      clauses.push({
+        vars,
+        body: { pred: predName(combo), args: args(combo, curVar) },
+        constraints: moveConstraints(prog, move, curVar, nxtVar, evVar, slot),
+        head: { pred: predName(after), args: headArgs },
+      });
     }
   }
 
@@ -348,12 +383,11 @@ export function compileChc(
       }));
       const bad = smt(prog, assertion.property, scoped(scope));
       const vars = args(combo, curVar);
-      lines.push(`(assert ${forall(vars, `(=> (and ${app(combo, vars)} (not ${bad})) false)`)})`);
+      clauses.push({ vars, body: { pred: predName(combo), args: vars }, constraints: [`(not ${bad})`], head: null });
     });
   }
 
-  lines.push("(check-sat)", "(get-model)");
-  return { script: lines.join("\n"), predicates };
+  return { clauses, predicates };
 }
 
 // Bounded unrolling used only after Spacer reports a violation, to recover a
