@@ -48,3 +48,244 @@
   margin: 0.25rem 0 0;
   font-size: 1.05rem;
 }
+
+.motivation header h2 {
+  margin-top: 0.75rem;
+  max-width: 48rem;
+  font-size: clamp(1.5rem, 3vw, 2.1rem);
+  font-weight: 600;
+  line-height: 1.25;
+  letter-spacing: -0.02em;
+}
+
+.motivation h3 {
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.motivation .grid {
+  display: grid;
+  grid-template-columns: 7fr 4fr;
+  gap: 3rem;
+  margin-top: 2.5rem;
+  padding-top: 2rem;
+  border-top: 1px solid var(--line);
+}
+
+.leak .flow {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-top: 1rem;
+}
+
+.leak .node {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--fg);
+  border-radius: 6px;
+  font-size: 0.9rem;
+  white-space: nowrap;
+}
+
+.leak .node small {
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.leak .node.muted {
+  border-style: dashed;
+  border-color: var(--muted);
+  color: var(--muted);
+}
+
+.leak .node.bad {
+  border-color: var(--bad);
+  color: var(--bad);
+}
+
+.leak .edge {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.leak .edge::after {
+  content: "→";
+  font-size: 1.25rem;
+  line-height: 1;
+  color: var(--fg);
+}
+
+.leak figcaption {
+  margin-top: 1.25rem;
+  font-size: 0.95rem;
+  color: var(--muted);
+}
+
+.vend dl {
+  margin-top: 0.75rem;
+}
+
+.vend dl > div + div {
+  margin-top: 0.75rem;
+}
+
+.vend dt {
+  font-weight: 600;
+}
+
+.vend dd {
+  margin: 0.15rem 0 0;
+  font-size: 0.95rem;
+  color: var(--muted);
+}
+
+.prior {
+  margin-top: 2.5rem;
+  padding-top: 2rem;
+  border-top: 1px solid var(--line);
+}
+
+.prior ol {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 2rem;
+  margin-top: 0.75rem;
+  padding: 0;
+  list-style: none;
+}
+
+.prior li {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  font-size: 0.95rem;
+}
+
+.prior .who {
+  font-size: 0.85rem;
+  font-style: italic;
+}
+
+.prior li span:last-child {
+  color: var(--muted);
+}
+
+@media (max-width: 720px) {
+  .leak .flow {
+    flex-wrap: wrap;
+  }
+
+  .motivation .grid,
+  .prior ol {
+    grid-template-columns: 1fr;
+  }
+}
+
+.problem h2 {
+  margin-top: 1rem;
+  max-width: 50rem;
+  font-size: clamp(2rem, 4.5vw, 3.25rem);
+  font-weight: 600;
+  line-height: 1.15;
+  letter-spacing: -0.025em;
+}
+
+.problem .given {
+  margin-top: 1.5rem;
+  max-width: 44rem;
+  font-size: clamp(1rem, 2vw, 1.2rem);
+  line-height: 1.6;
+  color: var(--muted);
+}
+
+.problem .examples {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 3rem;
+  margin-top: 3rem;
+  padding-top: 2rem;
+  border-top: 1px solid var(--line);
+}
+
+.problem dt,
+.assumptions .arc,
+.assumptions .label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.problem dd {
+  margin: 0.5rem 0 0;
+  font-size: clamp(1rem, 2vw, 1.2rem);
+  line-height: 1.5;
+}
+
+.assumptions .table {
+  display: grid;
+  grid-template-columns: 8.5rem repeat(3, 1fr);
+  column-gap: 2rem;
+  margin-top: 1.5rem;
+}
+
+.assumptions .row {
+  display: contents;
+}
+
+.assumptions .head {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding-bottom: 1.25rem;
+  font-size: 1.1rem;
+  line-height: 1.35;
+}
+
+.assumptions .row > * {
+  padding: 1rem 0;
+  border-top: 1px solid var(--line);
+}
+
+.assumptions .row p {
+  font-size: 1rem;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.assumptions .constraint {
+  display: flex;
+  align-items: baseline;
+  gap: 2rem;
+  margin-top: 1.5rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--line);
+  font-size: 1.1rem;
+}
+
+.assumptions .constraint .label {
+  flex-shrink: 0;
+  width: 8.5rem;
+}
+
+@media (max-width: 720px) {
+  .problem .examples,
+  .assumptions .table {
+    grid-template-columns: 1fr;
+  }
+
+  .assumptions .constraint {
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+}

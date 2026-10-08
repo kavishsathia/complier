@@ -2,6 +2,8 @@
   --bg: #fafaf9;
   --fg: #1c1917;
   --muted: #78716c;
+  --line: #e7e5e4;
+  --bad: #b91c1c;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -9,6 +11,8 @@
     --bg: #0c0a09;
     --fg: #fafaf9;
     --muted: #a8a29e;
+    --line: #292524;
+    --bad: #f87171;
   }
 }
 
