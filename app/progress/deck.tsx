@@ -6,8 +6,12 @@ import Motivation from "./slides/motivation";
 import Problem from "./slides/problem";
 import Assumptions from "./slides/assumptions";
 import Related from "./slides/related";
+import Tradeoff from "./slides/tradeoff";
+import Approach from "./slides/approach";
+import Fits from "./slides/fits";
+import Plan from "./slides/plan";
 
-const slides = [Title, Motivation, Problem, Assumptions, Related];
+const slides = [Title, Motivation, Problem, Assumptions, Related, Tradeoff, Approach, Fits, Plan];
 
 const clamp = (i: number) => Math.min(Math.max(i, 0), slides.length - 1);
 

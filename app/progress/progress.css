@@ -390,3 +390,335 @@
   font-size: 0.95rem;
   color: var(--fg);
 }
+
+.approach h2 {
+  margin-top: 0.75rem;
+  font-size: clamp(1.5rem, 3vw, 2.1rem);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.approach .sub {
+  margin-top: 0.5rem;
+  font-size: 1.05rem;
+  color: var(--muted);
+}
+
+.approach .label {
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.approach .table {
+  display: grid;
+  grid-template-columns: 7.5rem repeat(3, 1fr);
+  column-gap: 1.25rem;
+}
+
+.approach .row {
+  display: contents;
+}
+
+.approach .head {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  padding-bottom: 0.6rem;
+  font-size: 1.15rem;
+  font-weight: 600;
+}
+
+.approach .row > * {
+  padding: 0.55rem 0;
+  border-top: 1px solid var(--line);
+}
+
+.approach .row p {
+  font-size: 0.85rem;
+  line-height: 1.4;
+  color: var(--muted);
+}
+
+.approach .row p.chosen {
+  color: var(--fg);
+}
+
+.approach .head.chosen,
+.approach .row p.chosen {
+  padding-left: 0.75rem;
+  border-left: 2px solid var(--fg);
+}
+
+.approach .table {
+  margin-top: 2rem;
+}
+
+.approach .row p {
+  font-size: 0.95rem;
+}
+
+.fits h2 {
+  margin-top: 0.75rem;
+  font-size: clamp(1.5rem, 3vw, 2.1rem);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.fits .points {
+  margin-top: 2.5rem;
+}
+
+.fits .point {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  align-items: center;
+  gap: 3rem;
+  padding: 1.75rem 0;
+  border-top: 1px solid var(--line);
+}
+
+.fits code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 1.15rem;
+  white-space: pre;
+}
+
+.fits code.math {
+  font-family: "STIX Two Math", "Cambria Math", "Latin Modern Math", serif;
+  font-size: 1.5rem;
+}
+
+.fits .point p {
+  font-size: 1.15rem;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+@media (max-width: 720px) {
+  .fits .point {
+    grid-template-columns: 1fr;
+    gap: 0.75rem;
+  }
+}
+
+.tradeoff h2 {
+  margin-top: 0.75rem;
+  font-size: clamp(1.5rem, 3vw, 2.1rem);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.tradeoff .triangle {
+  position: relative;
+  width: min(100%, 28rem);
+  aspect-ratio: 4 / 3;
+  margin: 7rem auto 5rem;
+}
+
+.tradeoff svg {
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.tradeoff polygon {
+  fill: none;
+  stroke: var(--fg);
+  stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
+}
+
+.tradeoff .corner {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  width: 15rem;
+}
+
+.tradeoff .corner strong {
+  font-size: 1.25rem;
+}
+
+.tradeoff .corner span {
+  font-size: 0.95rem;
+  line-height: 1.4;
+  color: var(--muted);
+}
+
+.tradeoff .corner.top {
+  bottom: 100%;
+  left: 50%;
+  transform: translate(-50%, -0.75rem);
+  text-align: center;
+}
+
+.tradeoff .corner.left {
+  top: 100%;
+  left: 0;
+  transform: translate(-50%, 0.75rem);
+  text-align: center;
+}
+
+.tradeoff .corner.right {
+  top: 100%;
+  left: 100%;
+  transform: translate(-50%, 0.75rem);
+  text-align: center;
+}
+
+.plan h2 {
+  margin-top: 0.75rem;
+  max-width: 50rem;
+  font-size: clamp(1.5rem, 3vw, 2.1rem);
+  font-weight: 600;
+  line-height: 1.25;
+  letter-spacing: -0.02em;
+}
+
+.plan .body {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4rem;
+  margin-top: 2.25rem;
+}
+
+.plan .steps {
+  padding: 0;
+  list-style: none;
+  counter-reset: step;
+}
+
+.plan .steps li {
+  position: relative;
+  padding: 0 0 1.4rem 2.75rem;
+  font-size: 1.05rem;
+  line-height: 1.45;
+  counter-increment: step;
+}
+
+.plan .steps li::before {
+  content: counter(step);
+  position: absolute;
+  left: 0;
+  top: -0.1rem;
+  display: grid;
+  place-items: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  border: 1px solid var(--fg);
+  border-radius: 50%;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.plan .steps li:not(:last-child)::after {
+  content: "";
+  position: absolute;
+  left: calc(0.875rem - 0.5px);
+  top: 1.75rem;
+  bottom: 0.1rem;
+  border-left: 1px solid var(--line);
+}
+
+.plan .label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.plan .side h3 + * {
+  margin-top: 0.6rem;
+}
+
+.plan .side p + h3,
+.plan .side dl + h3 {
+  margin-top: 1.5rem;
+}
+
+.plan .side p {
+  font-size: 0.95rem;
+  line-height: 1.45;
+}
+
+.plan .sts {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.plan .loc {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 2.5rem;
+  height: 2.5rem;
+  border: 1px solid var(--fg);
+  border-radius: 50%;
+  font-family: "STIX Two Math", "Cambria Math", serif;
+  font-size: 1.15rem;
+  font-style: italic;
+}
+
+.plan .edge {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex: 1;
+  gap: 0.15rem;
+  padding-bottom: 0.4rem;
+  border-bottom: 1px solid var(--fg);
+  position: relative;
+}
+
+.plan .edge::after {
+  content: "";
+  position: absolute;
+  right: -1px;
+  bottom: -5px;
+  border: 5px solid transparent;
+  border-left: 8px solid var(--fg);
+  border-right: 0;
+}
+
+.plan .math {
+  font-family: "STIX Two Math", "Cambria Math", serif;
+  font-size: 1rem;
+  white-space: nowrap;
+}
+
+.plan .math.guard {
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+
+.plan dl {
+  margin-top: 1rem;
+}
+
+.plan dl > div {
+  display: flex;
+  gap: 0.4rem;
+  font-size: 0.95rem;
+  line-height: 1.6;
+}
+
+.plan dt {
+  font-weight: 600;
+}
+
+.plan dd {
+  margin: 0;
+  color: var(--muted);
+}
+
+@media (max-width: 720px) {
+  .plan .body {
+    grid-template-columns: 1fr;
+  }
+}
