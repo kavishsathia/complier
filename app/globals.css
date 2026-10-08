@@ -48,3 +48,17 @@ body {
   line-height: 1.6;
   color: var(--muted);
 }
+
+.hero .link {
+  display: inline-block;
+  margin-top: 2rem;
+  color: var(--fg);
+  font-size: 1rem;
+  text-decoration: none;
+  border-bottom: 1px solid var(--line);
+  transition: border-color 0.2s;
+}
+
+.hero .link:hover {
+  border-color: var(--fg);
+}
