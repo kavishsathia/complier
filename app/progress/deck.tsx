@@ -9,9 +9,11 @@ import Related from "./slides/related";
 import Tradeoff from "./slides/tradeoff";
 import Approach from "./slides/approach";
 import Fits from "./slides/fits";
+import Demo from "./slides/demo";
 import Plan from "./slides/plan";
+import Outcome from "./slides/outcome";
 
-const slides = [Title, Motivation, Problem, Assumptions, Related, Tradeoff, Approach, Fits, Plan];
+const slides = [Title, Motivation, Problem, Assumptions, Related, Tradeoff, Approach, Fits, Demo, Plan, Outcome];
 
 const clamp = (i: number) => Math.min(Math.max(i, 0), slides.length - 1);
 
@@ -20,6 +22,8 @@ export default function Deck({ initial }: { initial: number }) {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      // Let text fields keep their arrow keys, e.g. the demo's chat input.
+      if ((e.target as HTMLElement).closest("input, textarea")) return;
       if (e.key === "ArrowRight" || e.key === "ArrowDown") {
         e.preventDefault();
         setIndex((i) => clamp(i + 1));

@@ -9,7 +9,7 @@ const steps = [
 export default function Plan() {
   return (
     <section className="slide plan">
-      <p className="eyebrow">09 · Plan for next semester</p>
+      <p className="eyebrow">10 · Plan for next semester</p>
       <h2>
         Turn CSP into a constrained language that compiles into a runtime
         monitor, then prove it out on use cases.
