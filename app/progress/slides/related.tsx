@@ -12,22 +12,15 @@ const groups = [
   {
     name: "Runtime enforcement",
     what: "Checks actions as they happen",
-    works: ["AgentSpec (SMU)", "Agent-C", "AgentLTL", "Pro2Guard (SMU)"],
+    works: ["AgentSpec (SMU)", "Agent-C", "AgentLTL", "Pro2Guard (SMU)", "CaMeLoT"],
     col: "2",
     row: "3",
   },
   {
-    name: "Verify a plan",
-    what: "One generated plan at a time",
-    works: ["CaMeLoT"],
-    col: "3",
-    row: "3",
-  },
-  {
-    name: "Verify a protocol",
+    name: "Orchestration",
     what: "The conversation between agents, not domain state",
     works: ["ZipperGen", "Session-Typed Judge Panel", "Schlapbach"],
-    col: "3",
+    col: "2",
     row: "2",
   },
 ];
@@ -40,7 +33,7 @@ export default function Related() {
     <section className="slide related">
       <p className="eyebrow">05 · Related work</p>
       <h2>
-        Nine related works fall into four groups, and each picks one moment to
+        Nine related works fall into three groups, and each picks one moment to
         check safety.
       </h2>
 
