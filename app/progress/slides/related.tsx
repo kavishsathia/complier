@@ -19,7 +19,7 @@ const groups = [
   {
     name: "Orchestration",
     what: "The conversation between agents, not domain state",
-    works: ["ZipperGen", "Session-Typed Judge Panel", "Schlapbach"],
+    works: ["ZipperGen"],
     col: "2 / 4",
     row: "2",
   },
@@ -33,7 +33,7 @@ export default function Related() {
     <section className="slide related">
       <p className="eyebrow">05 · Related work</p>
       <h2>
-        Nine related works fall into three groups, and each picks one moment to
+        Seven related works fall into three groups, and each picks one moment to
         check safety.
       </h2>
 
