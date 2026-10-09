@@ -1,6 +1,6 @@
-// Placed on two axes: when safety is checked (x) and what scope it covers (y).
-// Columns: 1 none, 2 at runtime, 3 before running. Rows: 1 agents and domains,
-// 2 multiple agents, 3 single agent.
+// Placed on two axes: when safety is checked (x) and what is checked (y).
+// Columns: 1 none, 2 at runtime, 3 before running. Rows: 1 agents, domains and
+// their interaction, 2 messages between agents, 3 one agent's actions.
 const groups = [
   {
     name: "Guide",
@@ -26,7 +26,7 @@ const groups = [
 ];
 
 const xTicks = ["No check", "At runtime", "Before running"];
-const yTicks = ["Agents and domains", "Multiple agents", "Single agent"];
+const yTicks = ["Agents, domains and their interaction", "Messages between agents", "One agent's actions"];
 
 export default function Related() {
   return (
@@ -38,7 +38,7 @@ export default function Related() {
       </h2>
 
       <div className="chart">
-        <span className="y-title">Scope</span>
+        <span className="y-title">What is checked</span>
         {yTicks.map((t, i) => (
           <span key={t} className="y-tick" style={{ gridRow: i + 1 }}>
             {t}
@@ -53,7 +53,14 @@ export default function Related() {
             >
               <strong>{g.name}</strong>
               <p>{g.what}</p>
-              <span className="works">{g.works.join(" · ")}</span>
+              <span className="works">
+                {g.works.map((w, i) => (
+                  <span key={w}>
+                    {i > 0 && " · "}
+                    <span className="work">{w}</span>
+                  </span>
+                ))}
+              </span>
             </div>
           ))}
           <div className="group ours" style={{ gridColumn: "2 / 4", gridRow: "1" }}>
