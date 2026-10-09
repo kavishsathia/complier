@@ -364,6 +364,71 @@
   padding: 0.75rem 0.9rem;
   border: 1px solid var(--muted);
   border-radius: 6px;
+  background: var(--bg);
+}
+
+/* The tilt: the chart rotates back and groups separate along depth. */
+
+.related .chart {
+  transform-style: preserve-3d;
+  transition: transform 1s cubic-bezier(0.65, 0, 0.35, 1);
+}
+
+.related .plot {
+  position: relative;
+  transform-style: preserve-3d;
+}
+
+.related .group,
+.related .plane {
+  transition: transform 1s cubic-bezier(0.65, 0, 0.35, 1), opacity 0.6s;
+}
+
+.related .plane {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  justify-content: flex-end;
+  padding: 0.6rem 0.9rem;
+  border: 1px dashed var(--muted);
+  border-radius: 8px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.related.tilted {
+  perspective: 1600px;
+}
+
+.related.tilted .chart {
+  transform: translateY(1.5rem) rotateX(14deg) rotateY(26deg) scale(0.82);
+}
+
+.related.tilted .multi {
+  transform: translateZ(150px);
+}
+
+.related .plane.single {
+  align-items: flex-end;
+  justify-content: flex-start;
+  border: 0;
+}
+
+.related.tilted .plane {
+  opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .related .chart,
+  .related .group,
+  .related .plane {
+    transition: none;
+  }
 }
 
 .related .group strong {
