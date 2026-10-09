@@ -20,7 +20,7 @@ const groups = [
     name: "Orchestration",
     what: "The conversation between agents, not domain state",
     works: ["ZipperGen", "Session-Typed Judge Panel", "Schlapbach"],
-    col: "2",
+    col: "2 / 4",
     row: "2",
   },
 ];
