@@ -1,9 +1,12 @@
--- Demo machine. The world (Notion, via demo/delete.ts) deletes a page; only then may the
--- writer recreate it. A second deletion before that is something this spec says can't happen,
--- so the machine diverges.
+-- Demo machine. The world (Notion, via demo/delete.ts) deletes pages without waiting for
+-- anyone. INBOX buffers one deletion until the writer, who drafts first, stops and has it
+-- delivered by its Stop hook (deleted? marks what the writer receives). A second deletion
+-- while the inbox is full is something this spec says can't happen, so the machine diverges.
 
-MAIN = Waiting
+NOTION = page_deleted -> NOTION
 
-Waiting = page_deleted -> Deleted
+INBOX = page_deleted -> deleted -> INBOX
 
-Deleted = writer.recreate -> Waiting
+WRITER = draft -> deleted? -> recreate -> WRITER
+
+MAIN = NOTION || INBOX || WRITER

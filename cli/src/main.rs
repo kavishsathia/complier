@@ -71,6 +71,11 @@ enum Command {
         #[command(subcommand)]
         command: MachineCommand,
     },
+    /// Claude Code hooks; reads the machine and role from COMPLIER_MACHINE and COMPLIER_ROLE.
+    Hook {
+        #[command(subcommand)]
+        command: HookCommand,
+    },
     /// Forget a server and delete its credentials from the keychain.
     Remove { name: String },
 }
@@ -88,6 +93,13 @@ enum MachineCommand {
     },
     /// Stop a machine.
     Down { name: String },
+    /// Perform an action as an agent in a role (stands in for the proxy until it exists).
+    Act {
+        name: String,
+        #[arg(long)]
+        role: String,
+        event: String,
+    },
     /// List running machines.
     Ls,
     /// Print a machine's event log.
@@ -97,6 +109,12 @@ enum MachineCommand {
         #[arg(short, long)]
         follow: bool,
     },
+}
+
+#[derive(Subcommand)]
+enum HookCommand {
+    /// Stop hook: delivers what the agent's role can receive, waiting while it waits to receive.
+    Stop,
 }
 
 fn main() -> Result<()> {
@@ -109,6 +127,7 @@ fn main() -> Result<()> {
         Command::Run { unit } => run(&unit),
         Command::Up => daemon::serve(),
         Command::Machine { command } => machine(command),
+        Command::Hook { command: HookCommand::Stop } => hook_stop(),
         Command::Remove { name } => remove(&name),
     }
 }
@@ -190,20 +209,54 @@ fn machine(command: MachineCommand) -> Result<()> {
                 spec: absolute(&spec)?,
                 units: units.iter().map(|u| absolute(u)).collect::<Result<_>>()?,
             };
-            println!("machine {} up", daemon::request(&request)?.as_str().unwrap_or("?"));
+            println!("machine {} up", daemon::request(&request, true)?.as_str().unwrap_or("?"));
         }
         MachineCommand::Down { name } => {
-            daemon::request(&daemon::Request::MachineDown { name: name.clone() })?;
+            daemon::request(&daemon::Request::MachineDown { name: name.clone() }, false)?;
             println!("machine {name} down");
         }
+        MachineCommand::Act { name, role, event } => {
+            let state = daemon::request(&daemon::Request::Act { machine: name, role, event }, false)?;
+            println!("{}", state.as_str().unwrap_or("?"));
+        }
         MachineCommand::Ls => {
-            for m in daemon::request(&daemon::Request::MachineLs)?.as_array().into_iter().flatten() {
+            for m in daemon::request(&daemon::Request::MachineLs, false)?.as_array().into_iter().flatten() {
                 let field = |k: &str| m[k].as_str().unwrap_or("?").to_string();
                 println!("{}\t{}\t{}", field("name"), field("status"), field("state"));
             }
         }
         MachineCommand::Log { name, follow } => log(&name, follow)?,
     }
+    Ok(())
+}
+
+// Blocks while the agent's role waits to receive something, then makes Claude continue with what
+// arrived. Outside a machine (no COMPLIER_MACHINE/COMPLIER_ROLE) or with nothing to wait for,
+// it lets Claude stop.
+fn hook_stop() -> Result<()> {
+    let _ = std::io::copy(&mut std::io::stdin(), &mut std::io::sink()); // the hook's JSON input
+    let (Ok(machine), Ok(role)) = (std::env::var("COMPLIER_MACHINE"), std::env::var("COMPLIER_ROLE")) else {
+        return Ok(());
+    };
+    let request = daemon::Request::Stop { machine: machine.clone(), role: role.clone() };
+    let delivery = daemon::request(&request, false)?;
+    let list = |k: &str| -> Vec<String> {
+        delivery[k].as_array().into_iter().flatten().filter_map(|v| v.as_str().map(String::from)).collect()
+    };
+    let delivered = list("delivered");
+    if delivered.is_empty() {
+        return Ok(());
+    }
+    let mut reason = format!("complier: you ({role}, in machine {machine}) received: {}.", delivered.join(", "));
+    let world = list("world");
+    if !world.is_empty() {
+        reason += &format!(" What happened in the world since you last stopped: {}.", world.join(", "));
+    }
+    reason += &match list("next").as_slice() {
+        [] => " Your process has nothing more for you to do.".to_string(),
+        next => format!(" Your spec now lets you: {}.", next.join(", ")),
+    };
+    println!("{}", serde_json::json!({ "decision": "block", "reason": reason }));
     Ok(())
 }
 
@@ -232,12 +285,16 @@ fn log(name: &str, follow: bool) -> Result<()> {
             .map(|t| t.with_timezone(&chrono::Local).format("%H:%M:%S").to_string())
             .unwrap_or_default();
         let text = |k: &str| entry[k].as_str().unwrap_or("").to_string();
-        match text("kind").as_str() {
-            "input" if text("outcome") == "accepted" => {
-                println!("{time}  input   {:<48} accepted  → {}", text("event"), text("state"))
-            }
-            "input" => println!("{time}  input   {:<48} {}", text("event"), text("outcome")),
-            _ => println!("{time}  status  {:<48} {}", text("status"), text("reason")),
+        let kind = text("kind");
+        let event = match text("role").as_str() {
+            "" => text("event"),
+            role => format!("{role}: {}", text("event")),
+        };
+        match kind.as_str() {
+            "status" => println!("{time}  status   {:<48} {}", text("status"), text("reason")),
+            "deliver" => println!("{time}  deliver  {event:<48} → {}", text("state")),
+            _ if text("outcome") == "accepted" => println!("{time}  {kind:<7}  {event:<48} → {}", text("state")),
+            _ => println!("{time}  {kind:<7}  {event:<48} {} {}", text("outcome"), text("reason")),
         }
     }
 }

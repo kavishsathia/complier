@@ -1,0 +1,5 @@
+{
+  "name": "complier",
+  "description": "Binds Claude Code to a complier machine: run claude with COMPLIER_MACHINE and COMPLIER_ROLE set.",
+  "version": "0.1.0"
+}
