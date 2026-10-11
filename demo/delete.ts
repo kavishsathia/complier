@@ -1,7 +1,7 @@
 // Demo: run `complier run demo/delete.ts`, then delete "Delete me" from the "complier demo" page.
 
 import { channel, unit } from "../translation.ts";
-import { page } from "../packages/notion/index.ts";
+import { readers } from "../packages/notion/index.ts";
 import type { NotionTools } from "../gen/notion";
 
 // The "complier demo" page; its child pages are watched.
@@ -10,7 +10,8 @@ const DEMO_PARENT = "3f641d26e95281318541d28473eb331f";
 const pageDeleted = channel<string>("page_deleted");
 
 export const demo = unit<NotionTools>("notion")
-  .poll(page, {
+  .readers(readers)
+  .poll("notion-fetch", {
     every: 5_000,
     args: { id: DEMO_PARENT },
     diff: (prev, next) => {

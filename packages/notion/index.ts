@@ -16,8 +16,7 @@ export type Page = { id: string; title: string; url: string; childPages: ChildPa
 
 // notion-fetch on a page. Its result is JSON whose `text` holds the page as markup:
 // <page url="…/<id>"> … <content> … <page url="…/<child id>">Child title</page> … </content></page>
-export const page: Reader<"notion-fetch", Page> & { verified: { schemaHash: string; on: string } } = {
-  tool: "notion-fetch",
+export const page: Reader<Page> & { verified: { schemaHash: string; on: string } } = {
   // The notion-fetch inputSchema hash (from `complier gen`) and date this reader was checked against.
   verified: { schemaHash: "5632d435e280b354", on: "2026-10-11" },
 
@@ -47,4 +46,9 @@ export const page: Reader<"notion-fetch", Page> & { verified: { schemaHash: stri
     );
     return { id, title, url, childPages };
   },
+};
+
+// Every reviewed reader, keyed by the tool it parses: register with unit(...).readers(readers).
+export const readers = {
+  "notion-fetch": page,
 };
