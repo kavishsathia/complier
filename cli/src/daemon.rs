@@ -1,7 +1,8 @@
 // The complier daemon: owns running machines, each a spec instance (a || composition of
 // components) whose state advances on three kinds of event:
-// - world events (`~e`), from its units' polls: performed when every component sharing them can;
-// - actions (`~e`), performed by an agent through its role's component;
+// - inputs (`?e`), world events from its units' polls: performed when every component sharing
+//   them can, dropped otherwise;
+// - outputs (`!e`), actions an agent submits through its role's component: refused unless enabled;
 // - internal events (everything else), performed by the daemon as soon as they're enabled.
 // An agent's Stop hook only reports: it waits while the agent's process has nothing for it to
 // submit, then tells it what its process went through.
@@ -115,8 +116,8 @@ impl Machine {
 
     // What the role can submit next.
     fn next(&self, i: usize) -> Vec<String> {
-        let external = &self.contract.external;
-        self.contract.initials(&self.states[i]).into_iter().filter(|e| external.contains(e)).collect()
+        let outputs = &self.contract.outputs;
+        self.contract.initials(&self.states[i]).into_iter().filter(|e| outputs.contains(e)).collect()
     }
 
     fn component(&self, role: &str) -> Result<usize> {
@@ -143,8 +144,8 @@ impl Machine {
         if !self.contract.alphabet.contains(&event.channel) {
             return self.record(json!({ "kind": "world", "event": shown, "outcome": "ignored" }));
         }
-        if !self.contract.external.contains(&event.channel) {
-            return self.record(json!({ "kind": "world", "event": shown, "outcome": "ignored", "reason": "the spec doesn't mark it external (~)" }));
+        if !self.contract.inputs.contains(&event.channel) {
+            return self.record(json!({ "kind": "world", "event": shown, "outcome": "ignored", "reason": "the spec doesn't mark it as an input (?)" }));
         }
         if !self.enabled(&event.channel) {
             return self.record(json!({ "kind": "world", "event": shown, "outcome": "dropped", "reason": "the spec doesn't allow it now" }));
@@ -168,8 +169,10 @@ impl Machine {
         let component = &self.contract.components[self.component(role)?];
         let outcome = if !component.alphabet.contains(event) {
             Err(format!("{event} isn't something role {role} does"))
-        } else if !self.contract.external.contains(event) {
-            Err(format!("{event} is internal to the spec (not marked ~), so only the spec performs it"))
+        } else if self.contract.inputs.contains(event) {
+            Err(format!("{event} comes from the world (?{event}), so no agent can submit it"))
+        } else if !self.contract.outputs.contains(event) {
+            Err(format!("{event} is internal to the spec (not marked !), so only the spec performs it"))
         } else if !self.enabled(event) {
             Err(format!("the spec doesn't allow {event} now"))
         } else {
@@ -209,8 +212,8 @@ impl Machine {
             if self.status != Status::Running {
                 return;
             }
-            let external = &self.contract.external;
-            let ready = self.contract.alphabet.iter().find(|e| !external.contains(*e) && self.enabled(e)).cloned();
+            let (inputs, outputs) = (&self.contract.inputs, &self.contract.outputs);
+            let ready = self.contract.alphabet.iter().find(|e| !inputs.contains(*e) && !outputs.contains(*e) && self.enabled(e)).cloned();
             let Some(event) = ready else { return self.check_end() };
             self.perform(&event, &event, None);
             self.record(json!({ "kind": "internal", "event": event, "state": self.show() }));
@@ -431,9 +434,9 @@ mod tests {
     // The world deletes pages; a size-1 inbox holds each deletion until the writer, busy
     // drafting, is ready to take it.
     const SPEC: &str = "
-        NOTION = ~page_deleted -> NOTION
+        NOTION = ?page_deleted -> NOTION
         INBOX  = page_deleted -> deleted -> INBOX
-        WRITER = ~draft -> deleted -> ~recreate -> WRITER
+        WRITER = !draft -> deleted -> !recreate -> WRITER
         MAIN   = NOTION || INBOX || WRITER";
 
     fn machine() -> Machine {
@@ -517,10 +520,10 @@ mod tests {
     #[test]
     fn internal_events_happen_on_their_own() {
         let mut m = spec_machine("
-            NOTION = ~page_deleted -> NOTION
+            NOTION = ?page_deleted -> NOTION
             LEDGER = page_deleted -> archive -> LEDGER
             AUDIT  = archive -> audited -> AUDIT
-            WRITER = audited -> ~recreate -> WRITER
+            WRITER = audited -> !recreate -> WRITER
             MAIN   = NOTION || LEDGER || AUDIT || WRITER");
         m.world(&deleted("p1"));
         assert!(m.contract.initials(&m.states[1]).contains("page_deleted")); // archive already fired
@@ -532,7 +535,7 @@ mod tests {
 
     #[test]
     fn unmarked_events_cant_come_from_outside() {
-        let mut m = spec_machine("NOTION = page_deleted -> NOTION\nWRITER = ~draft -> WRITER\nMAIN = NOTION || WRITER");
+        let mut m = spec_machine("NOTION = page_deleted -> NOTION\nWRITER = !draft -> WRITER\nMAIN = NOTION || WRITER");
         m.world(&deleted("p1"));
         assert!(m.world.is_empty()); // ignored: the spec would fire it itself, so the world can't
     }
@@ -549,6 +552,7 @@ mod tests {
         let mut m = machine();
         assert!(m.act("writer", "recreate", &Value::Null).is_err()); // not yet
         assert!(m.act("writer", "deleted", &Value::Null).is_err()); // internal, not submitted
+        assert!(m.act("notion", "page_deleted", &Value::Null).is_err()); // only the world submits it
         assert!(m.act("reviewer", "draft", &Value::Null).is_err()); // no such role
         assert!(m.act("writer", "draft", &Value::Null).is_ok());
         assert!(m.status == Status::Running);

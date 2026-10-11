@@ -1,14 +1,13 @@
 -- Demo machine. The world (Notion, via demo/delete.ts) deletes pages without waiting for
 -- anyone. INBOX holds one deletion until the writer, who drafts first, is ready to take it;
--- a deletion that arrives while the inbox is full is dropped and logged. ~ marks events
--- submitted from outside the spec: page_deleted by the world, draft and recreate by the
--- writer. deleted is internal: it happens as soon as INBOX and WRITER are both ready, and
+-- a deletion that arrives while the inbox is full is dropped and logged. ?page_deleted is an
+-- input the world submits; !draft and !recreate are outputs the writer submits. deleted is internal: it happens as soon as INBOX and WRITER are both ready, and
 -- the writer hears about it when it next stops.
 
-NOTION = ~page_deleted -> NOTION
+NOTION = ?page_deleted -> NOTION
 
 INBOX = page_deleted -> deleted -> INBOX
 
-WRITER = ~draft -> deleted -> ~recreate -> WRITER
+WRITER = !draft -> deleted -> !recreate -> WRITER
 
 MAIN = NOTION || INBOX || WRITER

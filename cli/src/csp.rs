@@ -5,9 +5,12 @@
 //! both choices are stepped the same way: the next event reveals which branch
 //! was taken. Each component's alphabet is the events it can reach, and an
 //! event shared by several components needs all of them to take part.
-//! `~e` marks an event as external: something outside the spec submits it, the
-//! world or an agent. Every other event is internal and happens on its own once
-//! every component sharing it is ready. Marking one occurrence marks the event.
+//! Two marks say who submits an event from outside the spec: `?e` is an input,
+//! which the world submits and nobody can refuse (uncontrollable), and `!e` is an
+//! output, which an agent submits and the spec can refuse (controllable). Every
+//! unmarked event is internal and happens on its own once every component sharing
+//! it is ready. Marking one occurrence marks the event everywhere. These marks
+//! aren't CSP's `c?x` and `c!v`: they go before the event and bind nothing.
 
 use std::collections::{BTreeSet, HashMap};
 use std::fmt;
@@ -24,8 +27,10 @@ pub enum Term {
 pub struct Contract {
     defs: HashMap<String, Term>,
     pub alphabet: BTreeSet<String>,
-    // Events written `~e` somewhere: submitted from outside the spec.
-    pub external: BTreeSet<String>,
+    // Events written `?e` somewhere: submitted by the world (uncontrollable).
+    pub inputs: BTreeSet<String>,
+    // Events written `!e` somewhere: submitted by agents (controllable).
+    pub outputs: BTreeSet<String>,
     pub components: Vec<Component>,
 }
 
@@ -153,7 +158,7 @@ fn lex(src: &str) -> Result<Vec<(Tok, usize)>, String> {
             let rest: String = chars[i..].iter().take(3).collect();
             if c.is_whitespace() {
                 i += 1;
-            } else if c.is_ascii_alphabetic() || c == '_' || (c == '~' && chars.get(i + 1).is_some_and(|n| n.is_ascii_alphabetic() || *n == '_')) {
+            } else if c.is_ascii_alphabetic() || c == '_' || ((c == '?' || c == '!') && chars.get(i + 1).is_some_and(|n| n.is_ascii_alphabetic() || *n == '_')) {
                 let start = i;
                 i += 1;
                 while i < chars.len() && (chars[i].is_ascii_alphanumeric() || chars[i] == '_' || chars[i] == '.') {
@@ -193,8 +198,9 @@ fn lex(src: &str) -> Result<Vec<(Tok, usize)>, String> {
 struct Parser {
     toks: Vec<(Tok, usize)>,
     i: usize,
-    // Events marked `~e` anywhere.
-    external: BTreeSet<String>,
+    // Events marked `?e` or `!e` anywhere.
+    inputs: BTreeSet<String>,
+    outputs: BTreeSet<String>,
 }
 
 impl Parser {
@@ -240,20 +246,19 @@ impl Parser {
                 if s == "SKIP" {
                     return Ok(Term::Skip);
                 }
-                let external = s.strip_prefix('~').map(String::from);
+                let mark = s.chars().next().filter(|c| *c == '?' || *c == '!');
                 if self.peek(0) != Some(&Tok::Arrow) {
-                    if external.is_some() {
+                    if mark.is_some() {
                         return Err(format!("line {}: {s} must be followed by ->", self.line()));
                     }
                     return Ok(Term::Ref(s));
                 }
                 self.i += 1;
-                let event = match external {
-                    Some(event) => {
-                        self.external.insert(event.clone());
-                        event
-                    }
-                    None => s,
+                let event = s.trim_start_matches(['?', '!']).to_string();
+                match mark {
+                    Some('?') => self.inputs.insert(event.clone()),
+                    Some(_) => self.outputs.insert(event.clone()),
+                    None => false,
                 };
                 Ok(Term::Prefix(event, Box::new(self.term()?)))
             }
@@ -263,7 +268,7 @@ impl Parser {
 }
 
 pub fn parse(src: &str) -> Result<Contract, String> {
-    let mut p = Parser { toks: lex(src)?, i: 0, external: BTreeSet::new() };
+    let mut p = Parser { toks: lex(src)?, i: 0, inputs: BTreeSet::new(), outputs: BTreeSet::new() };
     let mut defs = HashMap::new();
     let mut order = Vec::new();
     let mut parallel: Option<(String, Vec<String>)> = None;
@@ -324,7 +329,10 @@ pub fn parse(src: &str) -> Result<Contract, String> {
             Ok(Component { name, alphabet })
         })
         .collect::<Result<Vec<_>, String>>()?;
-    Ok(Contract { defs, alphabet, external: p.external, components })
+    if let Some(e) = p.inputs.intersection(&p.outputs).next() {
+        return Err(format!("{e} is marked both ?{e} (from the world) and !{e} (from an agent)"));
+    }
+    Ok(Contract { defs, alphabet, inputs: p.inputs, outputs: p.outputs, components })
 }
 
 // The events reachable from `t`, following process references.
@@ -390,7 +398,7 @@ mod tests {
         assert!(c.initials(&s).is_empty() && !c.can_finish(&s));
     }
 
-    const GEARS: &str = "NOTION = ~a -> NOTION\nINBOX = a -> got_a -> INBOX\nWRITER = ~c -> got_a -> WRITER\nMAIN = NOTION || INBOX || WRITER";
+    const GEARS: &str = "NOTION = ?a -> NOTION\nINBOX = a -> got_a -> INBOX\nWRITER = !c -> got_a -> WRITER\nMAIN = NOTION || INBOX || WRITER";
 
     #[test]
     fn components_have_their_own_alphabets() {
@@ -402,12 +410,15 @@ mod tests {
     }
 
     #[test]
-    fn one_tilde_marks_an_event_external_everywhere() {
+    fn one_mark_marks_an_event_everywhere() {
         let c = parse(GEARS).unwrap();
-        assert_eq!(c.external, BTreeSet::from(["a".to_string(), "c".to_string()]));
+        assert_eq!(c.inputs, BTreeSet::from(["a".to_string()]));
+        assert_eq!(c.outputs, BTreeSet::from(["c".to_string()]));
         assert!(c.components[1].alphabet.contains("a")); // unmarked there, still the same event
-        assert!(parse("P = ~Q\nQ = a -> Q").is_err());
-        assert!(parse("P = a -> P |~| b -> P").unwrap().external.is_empty());
+        assert!(parse("P = !Q\nQ = a -> Q").is_err());
+        assert!(parse("P = ?a -> P\nQ = !a -> Q\nMAIN = P || Q").err().unwrap().contains("both"));
+        let c = parse("P = a -> P |~| b -> P").unwrap();
+        assert!(c.inputs.is_empty() && c.outputs.is_empty());
     }
 
     #[test]
