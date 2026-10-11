@@ -1,6 +1,7 @@
 // Translation unit for the Notion MCP server.
 
 import { channel, unit } from "../translation.ts";
+import { page } from "../packages/notion/index.ts";
 import type { NotionTools } from "../gen/notion";
 
 // The page whose new child pages count as `page_added`.
@@ -12,16 +13,16 @@ const edited = channel<string>("edited");
 const overwritten = channel<string>("overwritten");
 const moved = channel<string[]>("moved");
 
-// Notion page IDs are 32 hex digits; any that appear in `next` but not `prev` are new pages.
-const pageIds = (text: string) => new Set(text.match(/[0-9a-f]{32}/g));
-
 export const notion = unit<NotionTools>("notion")
   .poll("notion-fetch", {
     every: 10_000,
     args: { id: DEMO_PAGE },
     diff: (prev, next) => {
-      const before = pageIds(prev);
-      return [...pageIds(next)].filter((id) => !before.has(id)).map(pageAdded);
+      const before = new Set(page.read(prev).childPages.map((c) => c.id));
+      return page
+        .read(next)
+        .childPages.filter((c) => !before.has(c.id))
+        .map((c) => pageAdded(c.id));
     },
   })
   .output("notion-create-comment", (a) => commented(a.page_id))
