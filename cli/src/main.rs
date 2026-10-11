@@ -1,3 +1,4 @@
+mod codegen;
 mod config;
 mod mcp;
 mod oauth;
@@ -7,6 +8,7 @@ use anyhow::{bail, Result};
 use clap::{Parser, Subcommand};
 use config::Server;
 use std::io::{IsTerminal, Read};
+use std::path::PathBuf;
 
 // Keychain account under which an HTTP server's OAuth tokens are stored.
 const OAUTH: &str = "oauth";
@@ -39,8 +41,15 @@ enum Command {
         #[arg(last = true)]
         command: Vec<String>,
     },
-    /// Connect to a registered server with its keychain credentials and list its tools.
-    Connect { name: String },
+    /// List registered servers.
+    Ls,
+    /// Generate TypeScript types for each server's tools into <out>/<name>.ts.
+    Gen {
+        #[arg(required = true)]
+        names: Vec<String>,
+        #[arg(long, default_value = "gen")]
+        out: PathBuf,
+    },
     /// Forget a server and delete its credentials from the keychain.
     Remove { name: String },
 }
@@ -49,7 +58,8 @@ fn main() -> Result<()> {
     match Cli::parse().command {
         Command::Add { name, url: Some(url), client_id, .. } => add_http(name, url, client_id),
         Command::Add { name, url: None, env, command, .. } => add_stdio(name, env, command),
-        Command::Connect { name } => connect(&name),
+        Command::Ls => ls(),
+        Command::Gen { names, out } => generate(&names, &out),
         Command::Remove { name } => remove(&name),
     }
 }
@@ -85,14 +95,38 @@ fn save(name: String, server: Server) -> Result<()> {
     Ok(())
 }
 
-fn connect(name: &str) -> Result<()> {
-    let mut client = match config::get(name)? {
+fn ls() -> Result<()> {
+    for (name, server) in config::load()? {
+        match server {
+            Server::Stdio { command, .. } => println!("{name}\tstdio\t{}", command.join(" ")),
+            Server::Http { url, .. } => println!("{name}\thttp\t{url}"),
+        }
+    }
+    Ok(())
+}
+
+fn generate(names: &[String], out: &PathBuf) -> Result<()> {
+    std::fs::create_dir_all(out)?;
+    for name in names {
+        let mut client = open(name)?;
+        client.initialize()?;
+        let tools = client.list_tools()?;
+        let path = out.join(format!("{name}.ts"));
+        std::fs::write(&path, codegen::module(name, &tools))?;
+        println!("{name}: {} tools -> {}", tools.len(), path.display());
+    }
+    Ok(())
+}
+
+// Connects to a registered server with its keychain credentials, refreshing an expired token.
+fn open(name: &str) -> Result<mcp::Client> {
+    match config::get(name)? {
         Server::Stdio { command, env } => {
             let env = env
                 .iter()
                 .map(|var| Ok((var.clone(), secrets::get(name, var)?)))
                 .collect::<Result<Vec<_>>>()?;
-            mcp::Client::stdio(&command, &env)?
+            mcp::Client::stdio(&command, &env)
         }
         Server::Http { url, resource, client_id, token_endpoint } => {
             let mut tokens: oauth::Tokens = serde_json::from_str(&secrets::get(name, OAUTH)?)?;
@@ -100,22 +134,10 @@ fn connect(name: &str) -> Result<()> {
                 let reg = oauth::Registration { resource, client_id, token_endpoint };
                 tokens = oauth::refresh(&reqwest::blocking::Client::new(), &reg, tokens)?;
                 secrets::set(name, OAUTH, &serde_json::to_string(&tokens)?)?;
-                println!("refreshed access token");
             }
-            mcp::Client::http(&url, &tokens.access_token)?
+            mcp::Client::http(&url, &tokens.access_token)
         }
-    };
-
-    let info = client.initialize()?;
-    println!(
-        "connected to {} (protocol {})",
-        info["serverInfo"]["name"].as_str().unwrap_or("?"),
-        info["protocolVersion"].as_str().unwrap_or("?"),
-    );
-    for tool in client.list_tools()? {
-        println!("  {}", tool["name"].as_str().unwrap_or("?"));
     }
-    Ok(())
 }
 
 fn remove(name: &str) -> Result<()> {
