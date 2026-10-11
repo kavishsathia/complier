@@ -5,9 +5,6 @@
 //! both choices are stepped the same way: the next event reveals which branch
 //! was taken. Each component's alphabet is the events it can reach, and an
 //! event shared by several components needs all of them to take part.
-//! `e?` marks an event its process receives rather than performs (CSP's input
-//! notation): for an agent's process, that's an event delivered to the agent.
-//! The mark only records direction; `e?` and `e` are the same event.
 //! `~e` marks an event as external: something outside the spec submits it, the
 //! world or an agent. Every other event is internal and happens on its own once
 //! every component sharing it is ready. Marking one occurrence marks the event.
@@ -35,8 +32,6 @@ pub struct Contract {
 pub struct Component {
     pub name: String,
     pub alphabet: BTreeSet<String>,
-    // Events this component receives (written `e?`).
-    pub receives: BTreeSet<String>,
 }
 
 /// Unguarded recursion such as `P = P` would otherwise loop forever.
@@ -164,9 +159,6 @@ fn lex(src: &str) -> Result<Vec<(Tok, usize)>, String> {
                 while i < chars.len() && (chars[i].is_ascii_alphanumeric() || chars[i] == '_' || chars[i] == '.') {
                     i += 1;
                 }
-                if i < chars.len() && chars[i] == '?' {
-                    i += 1;
-                }
                 toks.push((Tok::Ident(chars[start..i].iter().collect()), line));
             } else if rest.starts_with("->") {
                 toks.push((Tok::Arrow, line));
@@ -201,8 +193,6 @@ fn lex(src: &str) -> Result<Vec<(Tok, usize)>, String> {
 struct Parser {
     toks: Vec<(Tok, usize)>,
     i: usize,
-    // Events marked `e?` in the definition being parsed.
-    receives: BTreeSet<String>,
     // Events marked `~e` anywhere.
     external: BTreeSet<String>,
 }
@@ -250,24 +240,21 @@ impl Parser {
                 if s == "SKIP" {
                     return Ok(Term::Skip);
                 }
-                let (external, received) = (s.starts_with('~'), s.ends_with('?'));
+                let external = s.strip_prefix('~').map(String::from);
                 if self.peek(0) != Some(&Tok::Arrow) {
-                    if external || received {
+                    if external.is_some() {
                         return Err(format!("line {}: {s} must be followed by ->", self.line()));
                     }
                     return Ok(Term::Ref(s));
                 }
-                if external && received {
-                    return Err(format!("line {}: {s} can't be both external (~) and received (?)", self.line()));
-                }
                 self.i += 1;
-                let event = s.trim_start_matches('~').trim_end_matches('?').to_string();
-                if external {
-                    self.external.insert(event.clone());
-                }
-                if received {
-                    self.receives.insert(event.clone());
-                }
+                let event = match external {
+                    Some(event) => {
+                        self.external.insert(event.clone());
+                        event
+                    }
+                    None => s,
+                };
                 Ok(Term::Prefix(event, Box::new(self.term()?)))
             }
             _ => Err(format!("line {}: expected an event, a process name or '('", self.line())),
@@ -276,9 +263,8 @@ impl Parser {
 }
 
 pub fn parse(src: &str) -> Result<Contract, String> {
-    let mut p = Parser { toks: lex(src)?, i: 0, receives: BTreeSet::new(), external: BTreeSet::new() };
+    let mut p = Parser { toks: lex(src)?, i: 0, external: BTreeSet::new() };
     let mut defs = HashMap::new();
-    let mut receives: HashMap<String, BTreeSet<String>> = HashMap::new();
     let mut order = Vec::new();
     let mut parallel: Option<(String, Vec<String>)> = None;
     while p.peek(0).is_some() {
@@ -311,7 +297,6 @@ pub fn parse(src: &str) -> Result<Contract, String> {
         if defs.insert(name.clone(), body).is_some() {
             return Err(format!("process {name} is defined twice"));
         }
-        receives.insert(name.clone(), std::mem::take(&mut p.receives));
         order.push(name);
     }
     if order.is_empty() {
@@ -336,13 +321,9 @@ pub fn parse(src: &str) -> Result<Contract, String> {
             }
             let (mut alphabet, mut seen) = (BTreeSet::new(), BTreeSet::new());
             reachable(&Term::Ref(name.clone()), &defs, &mut seen, &mut alphabet);
-            let receives = seen.iter().flat_map(|def| receives[def].iter().cloned()).collect();
-            Ok(Component { name, alphabet, receives })
+            Ok(Component { name, alphabet })
         })
         .collect::<Result<Vec<_>, String>>()?;
-    if let Some(e) = components.iter().flat_map(|c| &c.receives).find(|e| p.external.contains(*e)) {
-        return Err(format!("{e} is marked both external (~) and received (?)"));
-    }
     Ok(Contract { defs, alphabet, external: p.external, components })
 }
 
@@ -409,7 +390,7 @@ mod tests {
         assert!(c.initials(&s).is_empty() && !c.can_finish(&s));
     }
 
-    const GEARS: &str = "NOTION = ~a -> NOTION\nINBOX = a -> got_a -> INBOX\nWRITER = ~c -> got_a? -> WRITER\nMAIN = NOTION || INBOX || WRITER";
+    const GEARS: &str = "NOTION = ~a -> NOTION\nINBOX = a -> got_a -> INBOX\nWRITER = ~c -> got_a -> WRITER\nMAIN = NOTION || INBOX || WRITER";
 
     #[test]
     fn components_have_their_own_alphabets() {
@@ -421,22 +402,10 @@ mod tests {
     }
 
     #[test]
-    fn received_events_are_marked_but_unchanged() {
-        let c = parse(GEARS).unwrap();
-        let writer = &c.components[2];
-        assert!(writer.alphabet.contains("got_a") && writer.receives.contains("got_a"));
-        assert!(!writer.receives.contains("c"));
-        assert!(c.components[1].receives.is_empty());
-        assert!(parse("P = a? ").is_err());
-    }
-
-    #[test]
     fn one_tilde_marks_an_event_external_everywhere() {
         let c = parse(GEARS).unwrap();
         assert_eq!(c.external, BTreeSet::from(["a".to_string(), "c".to_string()]));
         assert!(c.components[1].alphabet.contains("a")); // unmarked there, still the same event
-        assert!(parse("P = ~a? -> P").is_err());
-        assert!(parse("P = ~a -> P\nQ = a? -> Q\nMAIN = P || Q").is_err());
         assert!(parse("P = ~Q\nQ = a -> Q").is_err());
         assert!(parse("P = a -> P |~| b -> P").unwrap().external.is_empty());
     }

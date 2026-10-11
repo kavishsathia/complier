@@ -1,9 +1,10 @@
 // The complier daemon: owns running machines, each a spec instance (a || composition of
-// components) whose state advances on four kinds of event:
+// components) whose state advances on three kinds of event:
 // - world events (`~e`), from its units' polls: performed when every component sharing them can;
 // - actions (`~e`), performed by an agent through its role's component;
-// - deliveries, events an agent's component receives (`e?`), performed by its Stop hook;
 // - internal events (everything else), performed by the daemon as soon as they're enabled.
+// An agent's Stop hook only reports: it waits while the agent's process has nothing for it to
+// submit, then tells it what its process went through.
 // Clients talk to it over a Unix socket, one JSON request and one JSON response per line.
 
 use crate::csp::{self, Contract, Term};
@@ -50,7 +51,8 @@ pub enum Request {
         #[serde(default)]
         value: Value,
     },
-    // An agent in `role` is stopping: deliver what it can receive, waiting while it waits to receive.
+    // An agent in `role` is stopping: wait while it has nothing to submit, then report what its
+    // process went through since it last stopped.
     Stop { machine: String, role: String },
 }
 
@@ -78,9 +80,12 @@ struct Machine {
     status: Status,
     stop: Arc<AtomicBool>,
     log: File,
-    // World events performed so far, and how many of them each role has been told about.
+    // World events performed so far, and per component, the events it took part in with the role
+    // that submitted each (none for world and internal events).
     world: Vec<String>,
-    told: BTreeMap<String, usize>,
+    history: Vec<Vec<(String, Option<String>)>>,
+    // How much of `world` and of its component's history each role has been told about.
+    told: BTreeMap<String, (usize, usize)>,
     // Why the machine left Running, and which roles have been told.
     ended: String,
     told_ended: std::collections::BTreeSet<String>,
@@ -100,15 +105,12 @@ impl Machine {
         !parts.is_empty() && parts.iter().all(|&i| self.contract.initials(&self.states[i]).contains(event))
     }
 
-    fn perform(&mut self, event: &str) {
+    // `shown` is the event with its value, for reports; `by` is the role that submitted it.
+    fn perform(&mut self, event: &str, shown: &str, by: Option<&str>) {
         for i in self.participants(event) {
             self.states[i] = self.contract.after(&self.states[i], event);
+            self.history[i].push((shown.to_string(), by.map(String::from)));
         }
-    }
-
-    // Neither submitted from outside (`~e`) nor delivered to an agent (`e?`).
-    fn internal(&self, event: &str) -> bool {
-        !self.contract.external.contains(event) && !self.contract.components.iter().any(|c| c.receives.contains(event))
     }
 
     // What the role can submit next.
@@ -147,7 +149,7 @@ impl Machine {
         if !self.enabled(&event.channel) {
             return self.record(json!({ "kind": "world", "event": shown, "outcome": "dropped", "reason": "the spec doesn't allow it now" }));
         }
-        self.perform(&event.channel);
+        self.perform(&event.channel, &shown, None);
         self.world.push(shown.clone());
         self.record(json!({ "kind": "world", "event": shown, "outcome": "accepted", "state": self.show() }));
         self.advance();
@@ -166,8 +168,6 @@ impl Machine {
         let component = &self.contract.components[self.component(role)?];
         let outcome = if !component.alphabet.contains(event) {
             Err(format!("{event} isn't something role {role} does"))
-        } else if component.receives.contains(event) {
-            Err(format!("{event} is delivered to role {role}, not performed by it"))
         } else if !self.contract.external.contains(event) {
             Err(format!("{event} is internal to the spec (not marked ~), so only the spec performs it"))
         } else if !self.enabled(event) {
@@ -179,39 +179,26 @@ impl Machine {
             self.record(json!({ "kind": "act", "role": role, "event": shown, "outcome": "refused", "reason": reason }));
             bail!("{reason}");
         }
-        self.perform(event);
+        self.perform(event, &shown, Some(role));
         self.record(json!({ "kind": "act", "role": role, "event": shown, "outcome": "accepted", "state": self.show() }));
         self.advance();
         Ok(())
     }
 
-    // Performs every delivery the role can receive now. None means there's nothing yet; the
-    // caller decides whether to wait, using `waiting`.
-    fn deliver(&mut self, role: &str) -> Result<Value> {
+    // What the role's process went through since the role was last told, leaving out its own
+    // actions, and what happened in the world meanwhile.
+    fn catch_up(&mut self, role: &str) -> Result<Value> {
         let i = self.component(role)?;
-        let mut delivered = Vec::new();
-        while self.status == Status::Running {
-            let receives = &self.contract.components[i].receives;
-            let ready = self.contract.initials(&self.states[i]).into_iter().find(|e| receives.contains(e) && self.enabled(e));
-            let Some(event) = ready else { break };
-            self.perform(&event);
-            self.record(json!({ "kind": "deliver", "role": role, "event": event, "state": self.show() }));
-            delivered.push(event);
-            self.advance();
-        }
-        let told = self.told.entry(role.to_string()).or_insert(0);
-        let world = if delivered.is_empty() { vec![] } else { self.world[*told..].to_vec() };
-        if !delivered.is_empty() {
-            *told = self.world.len();
-        }
-        Ok(json!({ "delivered": delivered, "world": world, "next": self.next(i) }))
+        let (world, history) = self.told.get(role).copied().unwrap_or_default();
+        let happened: Vec<&String> = self.history[i][history..].iter().filter(|(_, by)| by.as_deref() != Some(role)).map(|(e, _)| e).collect();
+        let report = json!({ "happened": happened, "world": self.world[world..], "next": self.next(i) });
+        self.told.insert(role.to_string(), (self.world.len(), self.history[i].len()));
+        Ok(report)
     }
 
-    // Whether the role's process is waiting to receive something.
+    // Whether the role has nothing to submit and something else may still happen.
     fn waiting(&self, role: &str) -> Result<bool> {
-        let i = self.component(role)?;
-        let receives = &self.contract.components[i].receives;
-        Ok(self.status == Status::Running && self.contract.initials(&self.states[i]).iter().any(|e| receives.contains(e)))
+        Ok(self.status == Status::Running && self.next(self.component(role)?).is_empty())
     }
 
     // After any step: performs internal events while one is enabled, then ends the machine if
@@ -222,9 +209,10 @@ impl Machine {
             if self.status != Status::Running {
                 return;
             }
-            let ready = self.contract.alphabet.iter().find(|e| self.internal(e) && self.enabled(e)).cloned();
+            let external = &self.contract.external;
+            let ready = self.contract.alphabet.iter().find(|e| !external.contains(*e) && self.enabled(e)).cloned();
             let Some(event) = ready else { return self.check_end() };
-            self.perform(&event);
+            self.perform(&event, &event, None);
             self.record(json!({ "kind": "internal", "event": event, "state": self.show() }));
         }
         self.set(Status::Diverged, &format!("{MAX_INTERNAL} internal events in a row with nothing from outside"));
@@ -322,7 +310,7 @@ fn respond(request: Request, machines: &Machines) -> Result<Value> {
             let all = machines.lock().unwrap();
             let m = all.get(&machine).ok_or_else(|| anyhow!("no machine named {machine}"))?;
             let i = m.component(&role)?;
-            Ok(json!({ "status": m.status, "units": m.units, "next": m.next(i), "receives": m.contract.components[i].receives }))
+            Ok(json!({ "status": m.status, "units": m.units, "next": m.next(i) }))
         }
         Request::Act { machine, role, event, value } => {
             let mut all = machines.lock().unwrap();
@@ -333,14 +321,13 @@ fn respond(request: Request, machines: &Machines) -> Result<Value> {
         Request::Stop { machine, role } => loop {
             {
                 let mut all = machines.lock().unwrap();
-                let Some(m) = all.get_mut(&machine) else { return Ok(json!({ "delivered": [], "note": format!("no machine named {machine}") })) };
+                let Some(m) = all.get_mut(&machine) else { return Ok(json!({ "happened": [], "note": format!("no machine named {machine}") })) };
                 // Tell each role once that its machine is no longer running, so it can tell its user.
                 if m.status != Status::Running && m.status != Status::Finished && m.told_ended.insert(role.clone()) {
-                    return Ok(json!({ "delivered": [], "ended": m.status, "reason": m.ended }));
+                    return Ok(json!({ "happened": [], "ended": m.status, "reason": m.ended }));
                 }
-                let delivery = m.deliver(&role)?;
-                if delivery["delivered"].as_array().is_some_and(|d| !d.is_empty()) || !m.waiting(&role)? {
-                    return Ok(delivery);
+                if !m.waiting(&role)? {
+                    return m.catch_up(&role);
                 }
             }
             std::thread::sleep(std::time::Duration::from_millis(250));
@@ -359,7 +346,9 @@ fn machine_up(machines: &Machines, name: String, spec: &Path, units: Vec<PathBuf
     let log = OpenOptions::new().create(true).append(true).open(log_path(&name)?)?;
     let stop = Arc::new(AtomicBool::new(false));
     let states = contract.initial_states();
+    let history = vec![Vec::new(); states.len()];
     let mut machine = Machine {
+        history,
         spec: spec.to_path_buf(),
         units: units.clone(),
         contract,
@@ -439,12 +428,12 @@ fn start_background(path: &Path) -> Result<UnixStream> {
 mod tests {
     use super::*;
 
-    // The world deletes pages; a size-1 inbox buffers each deletion until the writer, busy
-    // drafting, stops and has it delivered.
+    // The world deletes pages; a size-1 inbox holds each deletion until the writer, busy
+    // drafting, is ready to take it.
     const SPEC: &str = "
         NOTION = ~page_deleted -> NOTION
         INBOX  = page_deleted -> deleted -> INBOX
-        WRITER = ~draft -> deleted? -> ~recreate -> WRITER
+        WRITER = ~draft -> deleted -> ~recreate -> WRITER
         MAIN   = NOTION || INBOX || WRITER";
 
     fn machine() -> Machine {
@@ -458,6 +447,7 @@ mod tests {
             spec: PathBuf::new(),
             units: Vec::new(),
             states: contract.initial_states(),
+            history: vec![Vec::new(); contract.components.len()],
             contract,
             status: Status::Running,
             stop: Arc::default(),
@@ -478,15 +468,25 @@ mod tests {
         let mut m = machine();
         m.world(&deleted("p1")); // the world doesn't wait for the writer
         assert!(m.status == Status::Running);
-        assert!(m.deliver("writer").unwrap()["delivered"].as_array().unwrap().is_empty());
         assert!(!m.waiting("writer").unwrap()); // it still has to draft, so its stop isn't held
 
+        m.act("writer", "draft", &Value::Null).unwrap(); // deleted happens with it, internally
+        assert!(!m.waiting("writer").unwrap());
+        let report = m.catch_up("writer").unwrap();
+        assert_eq!(report["happened"], json!(["deleted"])); // its own draft is left out
+        assert_eq!(report["world"], json!(["page_deleted.p1"]));
+        assert_eq!(report["next"], json!(["recreate"]));
+        assert_eq!(m.catch_up("writer").unwrap()["happened"], json!([])); // told once
+    }
+
+    #[test]
+    fn a_writer_with_nothing_to_submit_waits_for_the_world() {
+        let mut m = machine();
         m.act("writer", "draft", &Value::Null).unwrap();
-        assert!(m.waiting("writer").unwrap());
-        let d = m.deliver("writer").unwrap();
-        assert_eq!(d["delivered"], json!(["deleted"]));
-        assert_eq!(d["world"], json!(["page_deleted.p1"]));
-        assert_eq!(d["next"], json!(["recreate"]));
+        assert!(m.waiting("writer").unwrap()); // deleted needs a deletion first
+        m.world(&deleted("p1"));
+        assert!(!m.waiting("writer").unwrap());
+        assert_eq!(m.catch_up("writer").unwrap()["happened"], json!(["deleted"]));
     }
 
     #[test]
@@ -497,7 +497,8 @@ mod tests {
         assert!(m.status == Status::Running);
         assert_eq!(m.world, ["page_deleted.p1"]);
         m.act("writer", "draft", &Value::Null).unwrap();
-        assert_eq!(m.deliver("writer").unwrap()["delivered"], json!(["deleted"]));
+        m.world(&deleted("p3")); // the writer took p1, so the inbox has room again
+        assert_eq!(m.world, ["page_deleted.p1", "page_deleted.p3"]);
     }
 
     #[test]
@@ -518,14 +519,15 @@ mod tests {
         let mut m = spec_machine("
             NOTION = ~page_deleted -> NOTION
             LEDGER = page_deleted -> archive -> LEDGER
-            AUDIT  = archive -> audited? -> AUDIT
-            WRITER = audited? -> ~recreate -> WRITER
+            AUDIT  = archive -> audited -> AUDIT
+            WRITER = audited -> ~recreate -> WRITER
             MAIN   = NOTION || LEDGER || AUDIT || WRITER");
         m.world(&deleted("p1"));
         assert!(m.contract.initials(&m.states[1]).contains("page_deleted")); // archive already fired
         assert!(m.act("writer", "archive", &Value::Null).is_err()); // nobody outside can submit it
-        assert_eq!(m.deliver("writer").unwrap()["delivered"], json!(["audited"]));
-        assert_eq!(m.deliver("writer").unwrap()["next"], json!(["recreate"]));
+        let report = m.catch_up("writer").unwrap();
+        assert_eq!(report["happened"], json!(["audited"]));
+        assert_eq!(report["next"], json!(["recreate"]));
     }
 
     #[test]
@@ -543,10 +545,10 @@ mod tests {
     }
 
     #[test]
-    fn actions_are_checked_and_deliveries_cant_be_acted() {
+    fn actions_are_checked() {
         let mut m = machine();
         assert!(m.act("writer", "recreate", &Value::Null).is_err()); // not yet
-        assert!(m.act("writer", "deleted", &Value::Null).is_err()); // delivered, not performed
+        assert!(m.act("writer", "deleted", &Value::Null).is_err()); // internal, not submitted
         assert!(m.act("reviewer", "draft", &Value::Null).is_err()); // no such role
         assert!(m.act("writer", "draft", &Value::Null).is_ok());
         assert!(m.status == Status::Running);

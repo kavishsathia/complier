@@ -256,17 +256,17 @@ fn hook_stop() -> Result<()> {
     };
     if let Some(status) = delivery["ended"].as_str() {
         let reason = format!(
-            "complier: machine {machine} is {status} ({}), so nothing more will be delivered to you and complier will refuse your actions. Tell the user; a person has to restart the machine.",
+            "complier: machine {machine} is {status} ({}), so nothing more will happen for you and complier will refuse your actions. Tell the user; a person has to restart the machine.",
             delivery["reason"].as_str().unwrap_or("no reason given"),
         );
         println!("{}", serde_json::json!({ "decision": "block", "reason": reason }));
         return Ok(());
     }
-    let delivered = list("delivered");
-    if delivered.is_empty() {
+    let happened = list("happened");
+    if happened.is_empty() {
         return Ok(());
     }
-    let mut reason = format!("complier: you ({role}, in machine {machine}) received: {}.", delivered.join(", "));
+    let mut reason = format!("complier: you are {role} in machine {machine}. Since you last stopped, your process went through: {}.", happened.join(", "));
     let world = list("world");
     if !world.is_empty() {
         reason += &format!(" What happened in the world since you last stopped: {}.", world.join(", "));
@@ -311,7 +311,7 @@ fn log(name: &str, follow: bool) -> Result<()> {
         };
         match kind.as_str() {
             "status" => println!("{time}  status   {:<48} {}", text("status"), text("reason")),
-            "deliver" => println!("{time}  deliver  {event:<48} → {}", text("state")),
+            "internal" => println!("{time}  internal {event:<48} → {}", text("state")),
             _ if text("outcome") == "accepted" => println!("{time}  {kind:<7}  {event:<48} → {}", text("state")),
             _ => println!("{time}  {kind:<7}  {event:<48} {} {}", text("outcome"), text("reason")),
         }

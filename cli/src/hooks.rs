@@ -27,12 +27,10 @@ pub fn session_start() -> Result<()> {
     let context = match daemon::request(&Request::MachineInfo { machine: machine.clone(), role: role.clone() }, false) {
         Ok(info) => {
             let next = strings(&info["next"]);
-            let receives = strings(&info["receives"]);
             format!(
-                "You are role {role} in complier machine {machine} (status: {}). Tools from the complier MCP server are checked against the machine's spec: a call the spec doesn't allow now is refused, so read refusals as the protocol telling you to wait or do something else. Other MCP servers are blocked. Your spec currently lets you: {}. Events you receive ({}) arrive when you stop: if you're waiting on one, finish your turn and it will be delivered.",
+                "You are role {role} in complier machine {machine} (status: {}). Tools from the complier MCP server are checked against the machine's spec: a call the spec doesn't allow now is refused, so read refusals as the protocol telling you to wait or do something else. Other MCP servers are blocked. Your spec currently lets you: {}. When you have nothing to do, finish your turn: complier holds your stop until your spec lets you do something, then tells you what happened.",
                 info["status"].as_str().unwrap_or("?"),
                 if next.is_empty() { "nothing yet".into() } else { next.join(", ") },
-                if receives.is_empty() { "none".into() } else { receives.join(", ") },
             )
         }
         Err(e) => format!("complier: can't bind you to machine {machine} as {role}: {e:#}. Every complier tool will be refused until that's fixed."),
