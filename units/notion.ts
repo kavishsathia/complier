@@ -1,8 +1,7 @@
 // Translation unit for the Notion MCP server.
 
 import { channel, unit } from "../translation.ts";
-import { readers } from "../packages/notion/index.ts";
-import type { NotionTools } from "../gen/notion";
+import { notion } from "../packages/notion/index.ts";
 
 // The page whose new child pages count as `page_added`.
 const DEMO_PAGE = "37b41d26e9528172abd7e8b38755acce";
@@ -13,8 +12,7 @@ const edited = channel<string>("edited");
 const overwritten = channel<string>("overwritten");
 const moved = channel<string[]>("moved");
 
-export const notion = unit<NotionTools>("notion")
-  .readers(readers)
+export const notionUnit = unit(notion)
   .poll("notion-fetch", {
     every: 10_000,
     args: { id: DEMO_PAGE },

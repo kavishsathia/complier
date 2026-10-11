@@ -45,11 +45,11 @@ enum Command {
     },
     /// List registered servers.
     Ls,
-    /// Generate TypeScript types for each server's tools into <out>/<name>.ts.
+    /// Generate TypeScript types for each server's tools into <out>/<name>/tools.ts.
     Gen {
         #[arg(required = true)]
         names: Vec<String>,
-        #[arg(long, default_value = "gen")]
+        #[arg(long, default_value = "packages")]
         out: PathBuf,
     },
     /// Call one tool and print its raw result.
@@ -120,12 +120,13 @@ fn ls() -> Result<()> {
 }
 
 fn generate(names: &[String], out: &PathBuf) -> Result<()> {
-    std::fs::create_dir_all(out)?;
     for name in names {
         let mut client = open(name)?;
         client.initialize()?;
         let tools = client.list_tools()?;
-        let path = out.join(format!("{name}.ts"));
+        let dir = out.join(name);
+        std::fs::create_dir_all(&dir)?;
+        let path = dir.join("tools.ts");
         std::fs::write(&path, codegen::module(name, &tools))?;
         println!("{name}: {} tools -> {}", tools.len(), path.display());
     }

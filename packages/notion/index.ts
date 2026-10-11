@@ -2,7 +2,8 @@
 // Each reader parses a tool's text result and validates it, throwing ReadError on anything
 // unexpected, so a format change on Notion's side fails loudly instead of mistranslating.
 
-import type { Reader } from "../../translation.ts";
+import { service, type Reader } from "../../translation.ts";
+import type { NotionTools } from "./tools.ts";
 
 export class ReadError extends Error {
   constructor(tool: string, problem: string) {
@@ -48,7 +49,8 @@ export const page: Reader<Page> & { verified: { schemaHash: string; on: string }
   },
 };
 
-// Every reviewed reader, keyed by the tool it parses: register with unit(...).readers(readers).
-export const readers = {
+// The Notion service: generated tool types (./tools.ts) plus every reviewed reader, keyed by
+// the tool it parses. Units are built from it with unit(notion).
+export const notion = service<NotionTools>()("notion", {
   "notion-fetch": page,
-};
+});
