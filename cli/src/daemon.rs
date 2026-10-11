@@ -39,8 +39,16 @@ pub enum Request {
     MachineUp { name: String, spec: PathBuf, units: Vec<PathBuf> },
     MachineDown { name: String },
     MachineLs,
-    // An agent in `role` performs `event`.
-    Act { machine: String, role: String, event: String },
+    // A machine's units and roles, for a proxy binding an agent to it.
+    MachineInfo { machine: String, role: String },
+    // An agent in `role` performs `event` (its value only goes in the log).
+    Act {
+        machine: String,
+        role: String,
+        event: String,
+        #[serde(default)]
+        value: Value,
+    },
     // An agent in `role` is stopping: deliver what it can receive, waiting while it waits to receive.
     Stop { machine: String, role: String },
 }
@@ -62,6 +70,7 @@ enum Status {
 
 struct Machine {
     spec: PathBuf,
+    units: Vec<PathBuf>,
     contract: Contract,
     // One state per component, in the order of contract.components.
     states: Vec<Vec<Term>>,
@@ -124,7 +133,12 @@ impl Machine {
     }
 
     // Agent actions are controllable, so a refused one is just refused (fail closed).
-    fn act(&mut self, role: &str, event: &str) -> Result<()> {
+    fn act(&mut self, role: &str, event: &str, value: &Value) -> Result<()> {
+        let shown = match value {
+            Value::Null => event.to_string(),
+            Value::String(v) => format!("{event}.{v}"),
+            v => format!("{event}.{v}"),
+        };
         if self.status != Status::Running {
             bail!("the machine is {}", serde_json::to_value(&self.status)?.as_str().unwrap_or("?"));
         }
@@ -139,11 +153,11 @@ impl Machine {
             Ok(())
         };
         if let Err(reason) = outcome {
-            self.record(json!({ "kind": "act", "role": role, "event": event, "outcome": "refused", "reason": reason }));
+            self.record(json!({ "kind": "act", "role": role, "event": shown, "outcome": "refused", "reason": reason }));
             bail!("{reason}");
         }
         self.perform(event);
-        self.record(json!({ "kind": "act", "role": role, "event": event, "outcome": "accepted", "state": self.show() }));
+        self.record(json!({ "kind": "act", "role": role, "event": shown, "outcome": "accepted", "state": self.show() }));
         self.check_end();
         Ok(())
     }
@@ -266,10 +280,18 @@ fn respond(request: Request, machines: &Machines) -> Result<Value> {
                 })
                 .collect())
         }
-        Request::Act { machine, role, event } => {
+        Request::MachineInfo { machine, role } => {
+            let all = machines.lock().unwrap();
+            let m = all.get(&machine).ok_or_else(|| anyhow!("no machine named {machine}"))?;
+            let i = m.component(&role)?;
+            let receives = &m.contract.components[i].receives;
+            let next: Vec<String> = m.contract.initials(&m.states[i]).into_iter().filter(|e| !receives.contains(e)).collect();
+            Ok(json!({ "status": m.status, "units": m.units, "next": next, "receives": receives }))
+        }
+        Request::Act { machine, role, event, value } => {
             let mut all = machines.lock().unwrap();
             let m = all.get_mut(&machine).ok_or_else(|| anyhow!("no machine named {machine}"))?;
-            m.act(&role, &event)?;
+            m.act(&role, &event, &value)?;
             Ok(json!(m.show()))
         }
         Request::Stop { machine, role } => loop {
@@ -299,6 +321,7 @@ fn machine_up(machines: &Machines, name: String, spec: &Path, units: Vec<PathBuf
     let states = contract.initial_states();
     let mut machine = Machine {
         spec: spec.to_path_buf(),
+        units: units.clone(),
         contract,
         states,
         status: Status::Running,
@@ -386,6 +409,7 @@ mod tests {
         let log = std::env::temp_dir().join(format!("complier-test-{}.log", std::process::id()));
         Machine {
             spec: PathBuf::new(),
+            units: Vec::new(),
             states: contract.initial_states(),
             contract,
             status: Status::Running,
@@ -408,7 +432,7 @@ mod tests {
         assert!(m.deliver("writer").unwrap()["delivered"].as_array().unwrap().is_empty());
         assert!(!m.waiting("writer").unwrap()); // it still has to draft, so its stop isn't held
 
-        m.act("writer", "draft").unwrap();
+        m.act("writer", "draft", &Value::Null).unwrap();
         assert!(m.waiting("writer").unwrap());
         let d = m.deliver("writer").unwrap();
         assert_eq!(d["delivered"], json!(["deleted"]));
@@ -427,10 +451,10 @@ mod tests {
     #[test]
     fn actions_are_checked_and_deliveries_cant_be_acted() {
         let mut m = machine();
-        assert!(m.act("writer", "recreate").is_err()); // not yet
-        assert!(m.act("writer", "deleted").is_err()); // delivered, not performed
-        assert!(m.act("reviewer", "draft").is_err()); // no such role
-        assert!(m.act("writer", "draft").is_ok());
+        assert!(m.act("writer", "recreate", &Value::Null).is_err()); // not yet
+        assert!(m.act("writer", "deleted", &Value::Null).is_err()); // delivered, not performed
+        assert!(m.act("reviewer", "draft", &Value::Null).is_err()); // no such role
+        assert!(m.act("writer", "draft", &Value::Null).is_ok());
         assert!(m.status == Status::Running);
     }
 }

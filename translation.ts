@@ -23,17 +23,26 @@ export type Reader<T> = { read: (result: string) => T };
 // Readers keyed by the tool they parse, as published in a package like packages/notion.
 export type Readers<Tools> = { [K in keyof Tools]?: Reader<unknown> };
 
-// A service as a package publishes it: its generated tool types, its reviewed readers, and the
-// tools it has reviewed as side-effect free (`readOnly`), which are the only ones complier polls.
-// `tools` only carries the type; it has no runtime value.
-export type Service<Tools, R, RO> = { name: string; readers: R; readOnly: RO[]; tools?: Tools };
+// A service as a package publishes it: its generated tool types, its reviewed readers, the tools
+// it has reviewed as side-effect free (`readOnly`), which are the only ones complier polls, and
+// the input schema hashes its types were generated from, so complier can drop any tool whose
+// live schema has since changed. `tools` only carries the type; it has no runtime value.
+export type Service<Tools, R, RO> = {
+  name: string;
+  readers: R;
+  readOnly: RO[];
+  hashes: { [K in keyof Tools]?: string };
+  tools?: Tools;
+};
 
-// service<NotionTools>()({ name, readers, readOnly }): curried so `Tools` is given and the rest inferred.
+// service<NotionTools>()({ name, readers, readOnly, hashes }): curried so `Tools` is given and
+// the rest inferred.
 export function service<Tools extends Record<string, unknown>>() {
   return <R extends Readers<Tools>, RO extends keyof Tools & string>(spec: {
     name: string;
     readers: R;
     readOnly: RO[];
+    hashes: { [K in keyof Tools]?: string };
   }): Service<Tools, R, RO> => spec;
 }
 
@@ -54,6 +63,7 @@ export class Unit<Tools extends Record<string, unknown>, R extends Readers<Tools
   readonly outputs = new Map<string, OutputMap<any>>();
   readonly hidden = new Set<string>();
   readonly readOnly: Set<string>;
+  readonly hashes: Record<string, string>;
   readonly name: string;
   private readonly readers: R;
 
@@ -61,6 +71,7 @@ export class Unit<Tools extends Record<string, unknown>, R extends Readers<Tools
     this.name = service.name;
     this.readers = service.readers;
     this.readOnly = new Set(service.readOnly);
+    this.hashes = service.hashes as Record<string, string>;
   }
 
   // Input events, observed by calling `tool` every `every` ms and diffing successive readings.

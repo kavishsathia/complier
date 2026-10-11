@@ -2,10 +2,12 @@ mod codegen;
 mod config;
 mod csp;
 mod daemon;
+mod hooks;
 mod host;
 mod mcp;
 mod oauth;
 mod poller;
+mod proxy;
 mod secrets;
 
 use anyhow::{bail, Result};
@@ -71,6 +73,8 @@ enum Command {
         #[command(subcommand)]
         command: MachineCommand,
     },
+    /// The MCP server an agent's harness talks to; binds to COMPLIER_MACHINE as COMPLIER_ROLE.
+    Proxy,
     /// Claude Code hooks; reads the machine and role from COMPLIER_MACHINE and COMPLIER_ROLE.
     Hook {
         #[command(subcommand)]
@@ -113,7 +117,11 @@ enum MachineCommand {
 
 #[derive(Subcommand)]
 enum HookCommand {
-    /// Stop hook: delivers what the agent's role can receive, waiting while it waits to receive.
+    /// Tells the agent its machine, role and what its spec lets it do.
+    SessionStart,
+    /// Allows only complier's MCP tools and blocks edits to the config that enforces it.
+    PreToolUse,
+    /// Delivers what the agent's role can receive, waiting while it waits to receive.
     Stop,
 }
 
@@ -127,6 +135,9 @@ fn main() -> Result<()> {
         Command::Run { unit } => run(&unit),
         Command::Up => daemon::serve(),
         Command::Machine { command } => machine(command),
+        Command::Proxy => proxy::serve(),
+        Command::Hook { command: HookCommand::SessionStart } => hooks::session_start(),
+        Command::Hook { command: HookCommand::PreToolUse } => hooks::pre_tool_use(),
         Command::Hook { command: HookCommand::Stop } => hook_stop(),
         Command::Remove { name } => remove(&name),
     }
@@ -216,7 +227,7 @@ fn machine(command: MachineCommand) -> Result<()> {
             println!("machine {name} down");
         }
         MachineCommand::Act { name, role, event } => {
-            let state = daemon::request(&daemon::Request::Act { machine: name, role, event }, false)?;
+            let state = daemon::request(&daemon::Request::Act { machine: name, role, event, value: serde_json::Value::Null }, false)?;
             println!("{}", state.as_str().unwrap_or("?"));
         }
         MachineCommand::Ls => {

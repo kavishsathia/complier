@@ -1,15 +1,13 @@
 {
   "hooks": {
+    "SessionStart": [
+      { "hooks": [{ "type": "command", "command": "complier hook session-start" }] }
+    ],
+    "PreToolUse": [
+      { "hooks": [{ "type": "command", "command": "complier hook pre-tool-use" }] }
+    ],
     "Stop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "complier hook stop",
-            "timeout": 3600
-          }
-        ]
-      }
+      { "hooks": [{ "type": "command", "command": "complier hook stop", "timeout": 3600 }] }
     ]
   }
 }

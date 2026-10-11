@@ -3,7 +3,7 @@
 // unexpected, so a format change on Notion's side fails loudly instead of mistranslating.
 
 import { service, type Reader } from "../../translation.ts";
-import type { NotionTools } from "./tools.ts";
+import { notionSchemaHashes, type NotionTools } from "./tools.ts";
 
 export class ReadError extends Error {
   constructor(tool: string, problem: string) {
@@ -68,4 +68,5 @@ export const notion = service<NotionTools>()({
     "notion-list-favorite-pages",
     "notion-list-recent-pages",
   ],
+  hashes: notionSchemaHashes,
 });
