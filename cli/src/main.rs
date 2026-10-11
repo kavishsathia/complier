@@ -50,6 +50,14 @@ enum Command {
         #[arg(long, default_value = "gen")]
         out: PathBuf,
     },
+    /// Call one tool and print its raw result.
+    Call {
+        name: String,
+        tool: String,
+        /// Tool arguments as JSON.
+        #[arg(default_value = "{}")]
+        arguments: String,
+    },
     /// Forget a server and delete its credentials from the keychain.
     Remove { name: String },
 }
@@ -60,6 +68,7 @@ fn main() -> Result<()> {
         Command::Add { name, url: None, env, command, .. } => add_stdio(name, env, command),
         Command::Ls => ls(),
         Command::Gen { names, out } => generate(&names, &out),
+        Command::Call { name, tool, arguments } => call(&name, &tool, &arguments),
         Command::Remove { name } => remove(&name),
     }
 }
@@ -115,6 +124,14 @@ fn generate(names: &[String], out: &PathBuf) -> Result<()> {
         std::fs::write(&path, codegen::module(name, &tools))?;
         println!("{name}: {} tools -> {}", tools.len(), path.display());
     }
+    Ok(())
+}
+
+fn call(name: &str, tool: &str, arguments: &str) -> Result<()> {
+    let mut client = open(name)?;
+    client.initialize()?;
+    let result = client.call_tool(tool, serde_json::from_str(arguments)?)?;
+    println!("{}", serde_json::to_string_pretty(&result)?);
     Ok(())
 }
 

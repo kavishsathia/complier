@@ -65,6 +65,10 @@ impl Client {
         }
     }
 
+    pub fn call_tool(&mut self, name: &str, arguments: Value) -> Result<Value> {
+        self.request("tools/call", json!({ "name": name, "arguments": arguments }))
+    }
+
     fn request(&mut self, method: &str, params: Value) -> Result<Value> {
         let id = self.next_id;
         self.next_id += 1;

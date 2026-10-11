@@ -4956,6 +4956,68 @@ export type NotionTools = {
   "notion-check-mcp-next-steps": Record<string, never>;
 };
 
+export type NotionResults = {
+  "notion-search": unknown;
+  "notion-memory-search": unknown;
+  "notion-get-tool-access": unknown;
+  "notion-fetch": unknown;
+  "notion-create-attachment": unknown;
+  "notion-create-file-upload": unknown;
+  "notion-download-attachment": unknown;
+  "notion-get-file-download-urls": unknown;
+  "notion-create-pages": unknown;
+  "notion-update-page": unknown;
+  "notion-restore-pages": unknown;
+  "notion-convert-page-to-skill": unknown;
+  "notion-upload-skill": unknown;
+  "notion-download-skill": unknown;
+  "notion-get-enabled-skills": unknown;
+  "notion-update-enabled-skills": unknown;
+  "notion-move-pages": unknown;
+  "notion-duplicate-page": unknown;
+  "notion-create-database": unknown;
+  "notion-create-folder": unknown;
+  "notion-update-folder": unknown;
+  "notion-update-data-source": unknown;
+  "notion-create-comment": unknown;
+  "notion-get-comments": unknown;
+  "notion-get-async-task": unknown;
+  "notion-get-teams": unknown;
+  "notion-get-users": unknown;
+  "notion-query-data-sources": unknown;
+  "notion-query-multiple-data-sources": unknown;
+  "notion-query-meeting-notes": unknown;
+  "notion-list-private-pages": unknown;
+  "notion-list-shared-pages": unknown;
+  "notion-list-favorite-pages": unknown;
+  "notion-list-recent-pages": unknown;
+  "notion-search-agents": unknown;
+  "notion-search-sessions": unknown;
+  "notion-query-sessions": unknown;
+  "notion-spawn-session": unknown;
+  "notion-get-session-status": unknown;
+  "notion-wait-session": unknown;
+  "notion-stop-session": unknown;
+  "notion-send-message-to-session": unknown;
+  "notion-list-session-events": unknown;
+  "notion-read-session-event": unknown;
+  "notion-create-view": unknown;
+  "notion-update-view": unknown;
+  "notion-get-self": unknown;
+  "notion-show-advanced-analysis-next-steps": {
+    action?: "start_trial" | "request_trial" | "learn_more";
+    client_name?: string;
+    destination_url?: string;
+    kind: "query_multiple_data_sources_full_version" | "query_multiple_data_sources_full_version_not_displayed";
+  };
+  "notion-check-mcp-next-steps": {
+    action?: "start_trial" | "request_trial" | "learn_more";
+    client_name?: string;
+    destination_url?: string;
+    kind: "mcp_business_education" | "mcp_business_education_not_displayed";
+  };
+};
+
 export const notionSchemaHashes = {
   "notion-search": "62f8054dc5fa42e2",
   "notion-memory-search": "ae53e789966e864b",
