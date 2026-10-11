@@ -23,13 +23,18 @@ export type Reader<T> = { read: (result: string) => T };
 // Readers keyed by the tool they parse, as published in a package like packages/notion.
 export type Readers<Tools> = { [K in keyof Tools]?: Reader<unknown> };
 
-// A service as a package publishes it: its generated tool types and its reviewed readers.
+// A service as a package publishes it: its generated tool types, its reviewed readers, and the
+// tools it has reviewed as side-effect free (`readOnly`), which are the only ones complier polls.
 // `tools` only carries the type; it has no runtime value.
-export type Service<Tools, R> = { name: string; readers: R; tools?: Tools };
+export type Service<Tools, R, RO> = { name: string; readers: R; readOnly: RO[]; tools?: Tools };
 
-// service<NotionTools>()("notion", readers): curried so `Tools` is given and `R` inferred.
+// service<NotionTools>()({ name, readers, readOnly }): curried so `Tools` is given and the rest inferred.
 export function service<Tools extends Record<string, unknown>>() {
-  return <R extends Readers<Tools>>(name: string, readers: R): Service<Tools, R> => ({ name, readers });
+  return <R extends Readers<Tools>, RO extends keyof Tools & string>(spec: {
+    name: string;
+    readers: R;
+    readOnly: RO[];
+  }): Service<Tools, R, RO> => spec;
 }
 
 // What a poll of `K` hands to diff: the reader's value, or the raw text if no reader is registered.
@@ -44,22 +49,24 @@ export type Poll = { tool: string; every: number; args: unknown; diff: Diff<stri
 
 // Built from a service, so tool names and arguments come from the server's own schemas
 // and polled results are parsed by the service's reviewed readers.
-export class Unit<Tools extends Record<string, unknown>, R extends Readers<Tools>> {
+export class Unit<Tools extends Record<string, unknown>, R extends Readers<Tools>, RO extends string> {
   readonly polls: Poll[] = [];
   readonly outputs = new Map<string, OutputMap<any>>();
   readonly hidden = new Set<string>();
+  readonly readOnly: Set<string>;
   readonly name: string;
   private readonly readers: R;
 
-  constructor(service: Service<Tools, R>) {
+  constructor(service: Service<Tools, R, RO>) {
     this.name = service.name;
     this.readers = service.readers;
+    this.readOnly = new Set(service.readOnly);
   }
 
   // Input events, observed by calling `tool` every `every` ms and diffing successive readings.
-  // The tool runs outside CSP on complier's credentials, so it must also be declared
-  // side-effect free with .hide().
-  poll<K extends keyof Tools & string>(
+  // The tool runs outside CSP on complier's credentials, so only tools the service has reviewed
+  // as read-only can be polled.
+  poll<K extends RO & keyof Tools & string>(
     tool: K,
     spec: { every: number; args: Tools[K]; diff: Diff<Reading<R, K>> },
   ): this {
@@ -83,8 +90,8 @@ export class Unit<Tools extends Record<string, unknown>, R extends Readers<Tools
   }
 }
 
-export function unit<Tools extends Record<string, unknown>, R extends Readers<Tools>>(
-  service: Service<Tools, R>,
-): Unit<Tools, R> {
+export function unit<Tools extends Record<string, unknown>, R extends Readers<Tools>, RO extends string>(
+  service: Service<Tools, R, RO>,
+): Unit<Tools, R, RO> {
   return new Unit(service);
 }

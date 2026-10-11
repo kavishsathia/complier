@@ -49,8 +49,23 @@ export const page: Reader<Page> & { verified: { schemaHash: string; on: string }
   },
 };
 
-// The Notion service: generated tool types (./tools.ts) plus every reviewed reader, keyed by
-// the tool it parses. Units are built from it with unit(notion).
-export const notion = service<NotionTools>()("notion", {
-  "notion-fetch": page,
+// The Notion service: generated tool types (./tools.ts), every reviewed reader keyed by the tool
+// it parses, and the tools reviewed as side-effect free. Units are built from it with unit(notion).
+export const notion = service<NotionTools>()({
+  name: "notion",
+  readers: {
+    "notion-fetch": page,
+  },
+  readOnly: [
+    "notion-fetch",
+    "notion-search",
+    "notion-get-comments",
+    "notion-get-users",
+    "notion-get-self",
+    "notion-get-teams",
+    "notion-list-private-pages",
+    "notion-list-shared-pages",
+    "notion-list-favorite-pages",
+    "notion-list-recent-pages",
+  ],
 });

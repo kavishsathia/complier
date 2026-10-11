@@ -16,5 +16,4 @@ export const demo = unit(notion)
       const remaining = new Set(next.childPages.map((c) => c.id));
       return prev.childPages.filter((c) => !remaining.has(c.id)).map((c) => pageDeleted(c.id));
     },
-  })
-  .hide("notion-fetch");
+  });

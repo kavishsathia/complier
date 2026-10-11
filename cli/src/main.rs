@@ -144,8 +144,8 @@ fn call(name: &str, tool: &str, arguments: &str) -> Result<()> {
 fn run(unit: &Path) -> Result<()> {
     let (mut host, unit) = host::Host::spawn(unit)?;
     for poll in &unit.polls {
-        if !unit.hidden.contains(&poll.tool) {
-            bail!("{} is polled but not declared with .hide(); polling runs outside CSP", poll.tool);
+        if !unit.read_only.contains(&poll.tool) {
+            bail!("{} is polled but its service doesn't list it as read-only; polling runs outside CSP", poll.tool);
         }
     }
     let mut client = open(&unit.server)?;

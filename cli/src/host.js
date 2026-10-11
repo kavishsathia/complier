@@ -5,7 +5,7 @@ import { pathToFileURL } from "node:url";
 import { createInterface } from "node:readline";
 
 const module = await import(pathToFileURL(process.argv[1]).href);
-const units = Object.values(module).filter((v) => v && Array.isArray(v.polls) && v.hidden instanceof Set);
+const units = Object.values(module).filter((v) => v && Array.isArray(v.polls) && v.readOnly instanceof Set);
 if (units.length !== 1) {
   throw new Error(`expected exactly one exported unit in ${process.argv[1]}, found ${units.length}`);
 }
@@ -13,7 +13,7 @@ const [unit] = units;
 
 console.log(JSON.stringify({
   server: unit.name,
-  hidden: [...unit.hidden],
+  readOnly: [...unit.readOnly],
   polls: unit.polls.map(({ tool, every, args }) => ({ tool, every, args })),
 }));
 

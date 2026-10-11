@@ -13,7 +13,8 @@ const HOST: &str = include_str!("host.js");
 #[derive(Deserialize)]
 pub struct Description {
     pub server: String,
-    pub hidden: Vec<String>,
+    #[serde(rename = "readOnly")]
+    pub read_only: Vec<String>,
     pub polls: Vec<PollSpec>,
 }
 
