@@ -1,8 +1,11 @@
 mod codegen;
 mod config;
+mod csp;
+mod daemon;
 mod host;
 mod mcp;
 mod oauth;
+mod poller;
 mod secrets;
 
 use anyhow::{bail, Result};
@@ -10,7 +13,6 @@ use clap::{Parser, Subcommand};
 use config::Server;
 use std::io::{IsTerminal, Read};
 use std::path::{Path, PathBuf};
-use std::time::{Duration, Instant};
 
 // Keychain account under which an HTTP server's OAuth tokens are stored.
 const OAUTH: &str = "oauth";
@@ -62,8 +64,39 @@ enum Command {
     },
     /// Run a translation unit's polls and print the input events they produce.
     Run { unit: PathBuf },
+    /// Run the complier daemon in the foreground. `machine up` starts it in the background if needed.
+    Up,
+    /// Start, stop and inspect machines: running instances of a spec.
+    Machine {
+        #[command(subcommand)]
+        command: MachineCommand,
+    },
     /// Forget a server and delete its credentials from the keychain.
     Remove { name: String },
+}
+
+#[derive(Subcommand)]
+enum MachineCommand {
+    /// Start a machine from a spec, fed by the input events of the given units.
+    Up {
+        name: String,
+        #[arg(long)]
+        spec: PathBuf,
+        /// Translation unit whose polls feed this machine (repeatable).
+        #[arg(long = "unit")]
+        units: Vec<PathBuf>,
+    },
+    /// Stop a machine.
+    Down { name: String },
+    /// List running machines.
+    Ls,
+    /// Print a machine's event log.
+    Log {
+        name: String,
+        /// Keep printing new entries as they arrive.
+        #[arg(short, long)]
+        follow: bool,
+    },
 }
 
 fn main() -> Result<()> {
@@ -74,6 +107,8 @@ fn main() -> Result<()> {
         Command::Gen { names, out } => generate(&names, &out),
         Command::Call { name, tool, arguments } => call(&name, &tool, &arguments),
         Command::Run { unit } => run(&unit),
+        Command::Up => daemon::serve(),
+        Command::Machine { command } => machine(command),
         Command::Remove { name } => remove(&name),
     }
 }
@@ -142,56 +177,73 @@ fn call(name: &str, tool: &str, arguments: &str) -> Result<()> {
 }
 
 fn run(unit: &Path) -> Result<()> {
-    let (mut host, unit) = host::Host::spawn(unit)?;
-    for poll in &unit.polls {
-        if !unit.read_only.contains(&poll.tool) {
-            bail!("{} is polled but its service doesn't list it as read-only; polling runs outside CSP", poll.tool);
-        }
-    }
-    let mut client = open(&unit.server)?;
-    client.initialize()?;
-    println!("polling {} on {}", unit.polls.len(), unit.server);
-
-    // The first result of each poll is the baseline; events come from every result after it.
-    let mut prev: Vec<Option<String>> = vec![None; unit.polls.len()];
-    let mut due: Vec<Instant> = vec![Instant::now(); unit.polls.len()];
-    loop {
-        let (i, &when) = due.iter().enumerate().min_by_key(|(_, t)| **t).unwrap();
-        std::thread::sleep(when.saturating_duration_since(Instant::now()));
-        let poll = &unit.polls[i];
-        due[i] = when + Duration::from_millis(poll.every);
-
-        let result = client.call_tool(&poll.tool, poll.args.clone())?;
-        if result["isError"] == true {
-            eprintln!("{} returned an error; skipping this poll", poll.tool);
-            continue;
-        }
-        let next = text_content(&result);
-        if let Some(prev) = &prev[i] {
-            for event in host.diff(i, prev, &next)? {
-                match event.value.as_str() {
-                    Some(value) => println!("{}.{value}", event.channel),
-                    None => println!("{}.{}", event.channel, event.value),
-                }
-            }
-        }
-        prev[i] = Some(next);
-    }
+    println!("polling {}", unit.display());
+    let stop = std::sync::atomic::AtomicBool::new(false);
+    poller::poll(unit, &stop, |event| println!("{}", poller::show(&event)))
 }
 
-// A tool result's text content blocks, joined.
-fn text_content(result: &serde_json::Value) -> String {
-    result["content"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter_map(|block| block["text"].as_str())
-        .collect::<Vec<_>>()
-        .join("\n")
+fn machine(command: MachineCommand) -> Result<()> {
+    match command {
+        MachineCommand::Up { name, spec, units } => {
+            let request = daemon::Request::MachineUp {
+                name,
+                spec: absolute(&spec)?,
+                units: units.iter().map(|u| absolute(u)).collect::<Result<_>>()?,
+            };
+            println!("machine {} up", daemon::request(&request)?.as_str().unwrap_or("?"));
+        }
+        MachineCommand::Down { name } => {
+            daemon::request(&daemon::Request::MachineDown { name: name.clone() })?;
+            println!("machine {name} down");
+        }
+        MachineCommand::Ls => {
+            for m in daemon::request(&daemon::Request::MachineLs)?.as_array().into_iter().flatten() {
+                let field = |k: &str| m[k].as_str().unwrap_or("?").to_string();
+                println!("{}\t{}\t{}", field("name"), field("status"), field("state"));
+            }
+        }
+        MachineCommand::Log { name, follow } => log(&name, follow)?,
+    }
+    Ok(())
+}
+
+// The daemon resolves paths from its own working directory, so send it absolute ones.
+fn absolute(path: &Path) -> Result<PathBuf> {
+    Ok(path.canonicalize().map_err(|e| anyhow::anyhow!("{}: {e}", path.display()))?)
+}
+
+fn log(name: &str, follow: bool) -> Result<()> {
+    use std::io::{BufRead, Seek};
+    let path = daemon::log_path(name)?;
+    let file = std::fs::File::open(&path).map_err(|_| anyhow::anyhow!("no log for machine {name}"))?;
+    let mut reader = std::io::BufReader::new(file);
+    loop {
+        let mut line = String::new();
+        if reader.read_line(&mut line)? == 0 {
+            if !follow {
+                return Ok(());
+            }
+            std::thread::sleep(std::time::Duration::from_millis(300));
+            reader.seek(std::io::SeekFrom::Current(0))?;
+            continue;
+        }
+        let entry: serde_json::Value = serde_json::from_str(&line)?;
+        let time = chrono::DateTime::from_timestamp_millis(entry["t"].as_i64().unwrap_or(0))
+            .map(|t| t.with_timezone(&chrono::Local).format("%H:%M:%S").to_string())
+            .unwrap_or_default();
+        let text = |k: &str| entry[k].as_str().unwrap_or("").to_string();
+        match text("kind").as_str() {
+            "input" if text("outcome") == "accepted" => {
+                println!("{time}  input   {:<48} accepted  → {}", text("event"), text("state"))
+            }
+            "input" => println!("{time}  input   {:<48} {}", text("event"), text("outcome")),
+            _ => println!("{time}  status  {:<48} {}", text("status"), text("reason")),
+        }
+    }
 }
 
 // Connects to a registered server with its keychain credentials, refreshing an expired token.
-fn open(name: &str) -> Result<mcp::Client> {
+pub(crate) fn open(name: &str) -> Result<mcp::Client> {
     match config::get(name)? {
         Server::Stdio { command, env } => {
             let env = env

@@ -1,0 +1,9 @@
+-- Demo machine. The world (Notion, via demo/delete.ts) deletes a page; only then may the
+-- writer recreate it. A second deletion before that is something this spec says can't happen,
+-- so the machine diverges.
+
+MAIN = Waiting
+
+Waiting = page_deleted -> Deleted
+
+Deleted = writer.recreate -> Waiting
