@@ -1,4 +1,5 @@
-// Server definitions live in ~/.complier/servers.toml. Secrets never do; only the env var names.
+// Server definitions live in ~/.complier/servers.toml. Secrets never do: stdio servers record
+// only their env var names, HTTP servers only their (public) OAuth client details.
 
 use anyhow::{anyhow, Context, Result};
 use serde::{Deserialize, Serialize};
@@ -6,10 +7,19 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 #[derive(Serialize, Deserialize)]
-pub struct Server {
-    pub command: Vec<String>,
-    #[serde(default)]
-    pub env: Vec<String>,
+#[serde(tag = "transport", rename_all = "lowercase")]
+pub enum Server {
+    Stdio {
+        command: Vec<String>,
+        #[serde(default)]
+        env: Vec<String>,
+    },
+    Http {
+        url: String,
+        resource: String,
+        client_id: String,
+        token_endpoint: String,
+    },
 }
 
 pub type Servers = BTreeMap<String, Server>;
