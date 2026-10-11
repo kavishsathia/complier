@@ -1,8 +1,9 @@
 // The complier daemon: owns running machines, each a spec instance (a || composition of
-// components) whose state advances on three kinds of event:
-// - world events, from its units' polls: performed when every component sharing them can;
-// - actions, performed by an agent through its role's component;
-// - deliveries, events an agent's component receives (`e?`), performed by its Stop hook.
+// components) whose state advances on four kinds of event:
+// - world events (`~e`), from its units' polls: performed when every component sharing them can;
+// - actions (`~e`), performed by an agent through its role's component;
+// - deliveries, events an agent's component receives (`e?`), performed by its Stop hook;
+// - internal events (everything else), performed by the daemon as soon as they're enabled.
 // Clients talk to it over a Unix socket, one JSON request and one JSON response per line.
 
 use crate::csp::{self, Contract, Term};
@@ -63,6 +64,8 @@ enum Status {
     Deadlocked,
     // A poll failed, so the machine can no longer see the world.
     Desynced,
+    // Internal events alone could go on forever (CSP divergence).
+    Diverged,
     Stopped,
 }
 
@@ -83,6 +86,9 @@ struct Machine {
     told_ended: std::collections::BTreeSet<String>,
 }
 
+// How many internal events in a row count as divergence.
+const MAX_INTERNAL: usize = 10_000;
+
 impl Machine {
     fn participants(&self, event: &str) -> Vec<usize> {
         (0..self.states.len()).filter(|&i| self.contract.components[i].alphabet.contains(event)).collect()
@@ -98,6 +104,17 @@ impl Machine {
         for i in self.participants(event) {
             self.states[i] = self.contract.after(&self.states[i], event);
         }
+    }
+
+    // Neither submitted from outside (`~e`) nor delivered to an agent (`e?`).
+    fn internal(&self, event: &str) -> bool {
+        !self.contract.external.contains(event) && !self.contract.components.iter().any(|c| c.receives.contains(event))
+    }
+
+    // What the role can submit next.
+    fn next(&self, i: usize) -> Vec<String> {
+        let external = &self.contract.external;
+        self.contract.initials(&self.states[i]).into_iter().filter(|e| external.contains(e)).collect()
     }
 
     fn component(&self, role: &str) -> Result<usize> {
@@ -124,13 +141,16 @@ impl Machine {
         if !self.contract.alphabet.contains(&event.channel) {
             return self.record(json!({ "kind": "world", "event": shown, "outcome": "ignored" }));
         }
+        if !self.contract.external.contains(&event.channel) {
+            return self.record(json!({ "kind": "world", "event": shown, "outcome": "ignored", "reason": "the spec doesn't mark it external (~)" }));
+        }
         if !self.enabled(&event.channel) {
             return self.record(json!({ "kind": "world", "event": shown, "outcome": "dropped", "reason": "the spec doesn't allow it now" }));
         }
         self.perform(&event.channel);
         self.world.push(shown.clone());
         self.record(json!({ "kind": "world", "event": shown, "outcome": "accepted", "state": self.show() }));
-        self.check_end();
+        self.advance();
     }
 
     // Agent actions are controllable, so a refused one is just refused (fail closed).
@@ -148,6 +168,8 @@ impl Machine {
             Err(format!("{event} isn't something role {role} does"))
         } else if component.receives.contains(event) {
             Err(format!("{event} is delivered to role {role}, not performed by it"))
+        } else if !self.contract.external.contains(event) {
+            Err(format!("{event} is internal to the spec (not marked ~), so only the spec performs it"))
         } else if !self.enabled(event) {
             Err(format!("the spec doesn't allow {event} now"))
         } else {
@@ -159,7 +181,7 @@ impl Machine {
         }
         self.perform(event);
         self.record(json!({ "kind": "act", "role": role, "event": shown, "outcome": "accepted", "state": self.show() }));
-        self.check_end();
+        self.advance();
         Ok(())
     }
 
@@ -175,16 +197,14 @@ impl Machine {
             self.perform(&event);
             self.record(json!({ "kind": "deliver", "role": role, "event": event, "state": self.show() }));
             delivered.push(event);
-            self.check_end();
+            self.advance();
         }
         let told = self.told.entry(role.to_string()).or_insert(0);
         let world = if delivered.is_empty() { vec![] } else { self.world[*told..].to_vec() };
         if !delivered.is_empty() {
             *told = self.world.len();
         }
-        let receives = &self.contract.components[i].receives;
-        let next: Vec<String> = self.contract.initials(&self.states[i]).into_iter().filter(|e| !receives.contains(e)).collect();
-        Ok(json!({ "delivered": delivered, "world": world, "next": next }))
+        Ok(json!({ "delivered": delivered, "world": world, "next": self.next(i) }))
     }
 
     // Whether the role's process is waiting to receive something.
@@ -192,6 +212,22 @@ impl Machine {
         let i = self.component(role)?;
         let receives = &self.contract.components[i].receives;
         Ok(self.status == Status::Running && self.contract.initials(&self.states[i]).iter().any(|e| receives.contains(e)))
+    }
+
+    // After any step: performs internal events while one is enabled, then ends the machine if
+    // nothing more can happen. When several are enabled, which one goes first is an internal
+    // choice, and the daemon takes the first by name.
+    fn advance(&mut self) {
+        for _ in 0..MAX_INTERNAL {
+            if self.status != Status::Running {
+                return;
+            }
+            let ready = self.contract.alphabet.iter().find(|e| self.internal(e) && self.enabled(e)).cloned();
+            let Some(event) = ready else { return self.check_end() };
+            self.perform(&event);
+            self.record(json!({ "kind": "internal", "event": event, "state": self.show() }));
+        }
+        self.set(Status::Diverged, &format!("{MAX_INTERNAL} internal events in a row with nothing from outside"));
     }
 
     // Ends the machine once nothing can happen: finished if every component can terminate.
@@ -286,9 +322,7 @@ fn respond(request: Request, machines: &Machines) -> Result<Value> {
             let all = machines.lock().unwrap();
             let m = all.get(&machine).ok_or_else(|| anyhow!("no machine named {machine}"))?;
             let i = m.component(&role)?;
-            let receives = &m.contract.components[i].receives;
-            let next: Vec<String> = m.contract.initials(&m.states[i]).into_iter().filter(|e| !receives.contains(e)).collect();
-            Ok(json!({ "status": m.status, "units": m.units, "next": next, "receives": receives }))
+            Ok(json!({ "status": m.status, "units": m.units, "next": m.next(i), "receives": m.contract.components[i].receives }))
         }
         Request::Act { machine, role, event, value } => {
             let mut all = machines.lock().unwrap();
@@ -339,6 +373,7 @@ fn machine_up(machines: &Machines, name: String, spec: &Path, units: Vec<PathBuf
         told_ended: Default::default(),
     };
     machine.record(json!({ "kind": "status", "status": Status::Running, "reason": "machine up", "state": machine.show() }));
+    machine.advance();
     all.insert(name.clone(), machine);
 
     for unit in units {
@@ -407,13 +442,17 @@ mod tests {
     // The world deletes pages; a size-1 inbox buffers each deletion until the writer, busy
     // drafting, stops and has it delivered.
     const SPEC: &str = "
-        NOTION = page_deleted -> NOTION
+        NOTION = ~page_deleted -> NOTION
         INBOX  = page_deleted -> deleted -> INBOX
-        WRITER = draft -> deleted? -> recreate -> WRITER
+        WRITER = ~draft -> deleted? -> ~recreate -> WRITER
         MAIN   = NOTION || INBOX || WRITER";
 
     fn machine() -> Machine {
-        let contract = csp::parse(SPEC).unwrap();
+        spec_machine(SPEC)
+    }
+
+    fn spec_machine(spec: &str) -> Machine {
+        let contract = csp::parse(spec).unwrap();
         let log = std::env::temp_dir().join(format!("complier-test-{}.log", std::process::id()));
         Machine {
             spec: PathBuf::new(),
@@ -471,6 +510,36 @@ mod tests {
         assert_eq!(first["ended"], json!("desynced"));
         assert!(first["reason"].as_str().unwrap().contains("notion-fetch"));
         assert!(stop().get("ended").is_none()); // told once; after that it may stop
+    }
+
+    // `archive` is only between the spec's own processes, so it happens without anyone submitting it.
+    #[test]
+    fn internal_events_happen_on_their_own() {
+        let mut m = spec_machine("
+            NOTION = ~page_deleted -> NOTION
+            LEDGER = page_deleted -> archive -> LEDGER
+            AUDIT  = archive -> audited? -> AUDIT
+            WRITER = audited? -> ~recreate -> WRITER
+            MAIN   = NOTION || LEDGER || AUDIT || WRITER");
+        m.world(&deleted("p1"));
+        assert!(m.contract.initials(&m.states[1]).contains("page_deleted")); // archive already fired
+        assert!(m.act("writer", "archive", &Value::Null).is_err()); // nobody outside can submit it
+        assert_eq!(m.deliver("writer").unwrap()["delivered"], json!(["audited"]));
+        assert_eq!(m.deliver("writer").unwrap()["next"], json!(["recreate"]));
+    }
+
+    #[test]
+    fn unmarked_events_cant_come_from_outside() {
+        let mut m = spec_machine("NOTION = page_deleted -> NOTION\nWRITER = ~draft -> WRITER\nMAIN = NOTION || WRITER");
+        m.world(&deleted("p1"));
+        assert!(m.world.is_empty()); // ignored: the spec would fire it itself, so the world can't
+    }
+
+    #[test]
+    fn internal_events_alone_forever_diverge() {
+        let mut m = spec_machine("P = tick -> P");
+        m.advance();
+        assert!(m.status == Status::Diverged);
     }
 
     #[test]

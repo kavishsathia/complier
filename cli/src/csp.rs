@@ -8,6 +8,9 @@
 //! `e?` marks an event its process receives rather than performs (CSP's input
 //! notation): for an agent's process, that's an event delivered to the agent.
 //! The mark only records direction; `e?` and `e` are the same event.
+//! `~e` marks an event as external: something outside the spec submits it, the
+//! world or an agent. Every other event is internal and happens on its own once
+//! every component sharing it is ready. Marking one occurrence marks the event.
 
 use std::collections::{BTreeSet, HashMap};
 use std::fmt;
@@ -24,6 +27,8 @@ pub enum Term {
 pub struct Contract {
     defs: HashMap<String, Term>,
     pub alphabet: BTreeSet<String>,
+    // Events written `~e` somewhere: submitted from outside the spec.
+    pub external: BTreeSet<String>,
     pub components: Vec<Component>,
 }
 
@@ -153,8 +158,9 @@ fn lex(src: &str) -> Result<Vec<(Tok, usize)>, String> {
             let rest: String = chars[i..].iter().take(3).collect();
             if c.is_whitespace() {
                 i += 1;
-            } else if c.is_ascii_alphabetic() || c == '_' {
+            } else if c.is_ascii_alphabetic() || c == '_' || (c == '~' && chars.get(i + 1).is_some_and(|n| n.is_ascii_alphabetic() || *n == '_')) {
                 let start = i;
+                i += 1;
                 while i < chars.len() && (chars[i].is_ascii_alphanumeric() || chars[i] == '_' || chars[i] == '.') {
                     i += 1;
                 }
@@ -197,6 +203,8 @@ struct Parser {
     i: usize,
     // Events marked `e?` in the definition being parsed.
     receives: BTreeSet<String>,
+    // Events marked `~e` anywhere.
+    external: BTreeSet<String>,
 }
 
 impl Parser {
@@ -242,22 +250,25 @@ impl Parser {
                 if s == "SKIP" {
                     return Ok(Term::Skip);
                 }
-                let received = s.strip_suffix('?').map(String::from);
-                if self.peek(0) == Some(&Tok::Arrow) {
-                    self.i += 1;
-                    let event = match received {
-                        Some(event) => {
-                            self.receives.insert(event.clone());
-                            event
-                        }
-                        None => s,
-                    };
-                    return Ok(Term::Prefix(event, Box::new(self.term()?)));
+                let (external, received) = (s.starts_with('~'), s.ends_with('?'));
+                if self.peek(0) != Some(&Tok::Arrow) {
+                    if external || received {
+                        return Err(format!("line {}: {s} must be followed by ->", self.line()));
+                    }
+                    return Ok(Term::Ref(s));
                 }
-                if received.is_some() {
-                    return Err(format!("line {}: {s} must be followed by ->", self.line()));
+                if external && received {
+                    return Err(format!("line {}: {s} can't be both external (~) and received (?)", self.line()));
                 }
-                Ok(Term::Ref(s))
+                self.i += 1;
+                let event = s.trim_start_matches('~').trim_end_matches('?').to_string();
+                if external {
+                    self.external.insert(event.clone());
+                }
+                if received {
+                    self.receives.insert(event.clone());
+                }
+                Ok(Term::Prefix(event, Box::new(self.term()?)))
             }
             _ => Err(format!("line {}: expected an event, a process name or '('", self.line())),
         }
@@ -265,7 +276,7 @@ impl Parser {
 }
 
 pub fn parse(src: &str) -> Result<Contract, String> {
-    let mut p = Parser { toks: lex(src)?, i: 0, receives: BTreeSet::new() };
+    let mut p = Parser { toks: lex(src)?, i: 0, receives: BTreeSet::new(), external: BTreeSet::new() };
     let mut defs = HashMap::new();
     let mut receives: HashMap<String, BTreeSet<String>> = HashMap::new();
     let mut order = Vec::new();
@@ -329,7 +340,10 @@ pub fn parse(src: &str) -> Result<Contract, String> {
             Ok(Component { name, alphabet, receives })
         })
         .collect::<Result<Vec<_>, String>>()?;
-    Ok(Contract { defs, alphabet, components })
+    if let Some(e) = components.iter().flat_map(|c| &c.receives).find(|e| p.external.contains(*e)) {
+        return Err(format!("{e} is marked both external (~) and received (?)"));
+    }
+    Ok(Contract { defs, alphabet, external: p.external, components })
 }
 
 // The events reachable from `t`, following process references.
@@ -395,7 +409,7 @@ mod tests {
         assert!(c.initials(&s).is_empty() && !c.can_finish(&s));
     }
 
-    const GEARS: &str = "NOTION = a -> NOTION\nINBOX = a -> got_a -> INBOX\nWRITER = c -> got_a? -> WRITER\nMAIN = NOTION || INBOX || WRITER";
+    const GEARS: &str = "NOTION = ~a -> NOTION\nINBOX = a -> got_a -> INBOX\nWRITER = ~c -> got_a? -> WRITER\nMAIN = NOTION || INBOX || WRITER";
 
     #[test]
     fn components_have_their_own_alphabets() {
@@ -414,6 +428,17 @@ mod tests {
         assert!(!writer.receives.contains("c"));
         assert!(c.components[1].receives.is_empty());
         assert!(parse("P = a? ").is_err());
+    }
+
+    #[test]
+    fn one_tilde_marks_an_event_external_everywhere() {
+        let c = parse(GEARS).unwrap();
+        assert_eq!(c.external, BTreeSet::from(["a".to_string(), "c".to_string()]));
+        assert!(c.components[1].alphabet.contains("a")); // unmarked there, still the same event
+        assert!(parse("P = ~a? -> P").is_err());
+        assert!(parse("P = ~a -> P\nQ = a? -> Q\nMAIN = P || Q").is_err());
+        assert!(parse("P = ~Q\nQ = a -> Q").is_err());
+        assert!(parse("P = a -> P |~| b -> P").unwrap().external.is_empty());
     }
 
     #[test]
