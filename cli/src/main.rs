@@ -168,7 +168,10 @@ fn run(unit: &Path) -> Result<()> {
         let next = text_content(&result);
         if let Some(prev) = &prev[i] {
             for event in host.diff(i, prev, &next)? {
-                println!("{}.{}", event.channel, event.value);
+                match event.value.as_str() {
+                    Some(value) => println!("{}.{value}", event.channel),
+                    None => println!("{}.{}", event.channel, event.value),
+                }
             }
         }
         prev[i] = Some(next);
