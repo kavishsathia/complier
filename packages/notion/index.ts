@@ -2,6 +2,8 @@
 // Each reader parses a tool's text result and validates it, throwing ReadError on anything
 // unexpected, so a format change on Notion's side fails loudly instead of mistranslating.
 
+import type { Reader } from "../../translation.ts";
+
 export class ReadError extends Error {
   constructor(tool: string, problem: string) {
     super(`${tool}: ${problem} (output format may have changed; reader needs review)`);
@@ -14,7 +16,7 @@ export type Page = { id: string; title: string; url: string; childPages: ChildPa
 
 // notion-fetch on a page. Its result is JSON whose `text` holds the page as markup:
 // <page url="…/<id>"> … <content> … <page url="…/<child id>">Child title</page> … </content></page>
-export const page = {
+export const page: Reader<"notion-fetch", Page> & { verified: { schemaHash: string; on: string } } = {
   tool: "notion-fetch",
   // The notion-fetch inputSchema hash (from `complier gen`) and date this reader was checked against.
   verified: { schemaHash: "5632d435e280b354", on: "2026-10-11" },

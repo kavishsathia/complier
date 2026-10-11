@@ -10,15 +10,12 @@ const DEMO_PARENT = "3f641d26e95281318541d28473eb331f";
 const pageDeleted = channel<string>("page_deleted");
 
 export const demo = unit<NotionTools>("notion")
-  .poll("notion-fetch", {
+  .poll(page, {
     every: 5_000,
     args: { id: DEMO_PARENT },
     diff: (prev, next) => {
-      const remaining = new Set(page.read(next).childPages.map((c) => c.id));
-      return page
-        .read(prev)
-        .childPages.filter((c) => !remaining.has(c.id))
-        .map((c) => pageDeleted(c.id));
+      const remaining = new Set(next.childPages.map((c) => c.id));
+      return prev.childPages.filter((c) => !remaining.has(c.id)).map((c) => pageDeleted(c.id));
     },
   })
   .hide("notion-fetch");

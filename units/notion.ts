@@ -14,15 +14,12 @@ const overwritten = channel<string>("overwritten");
 const moved = channel<string[]>("moved");
 
 export const notion = unit<NotionTools>("notion")
-  .poll("notion-fetch", {
+  .poll(page, {
     every: 10_000,
     args: { id: DEMO_PAGE },
     diff: (prev, next) => {
-      const before = new Set(page.read(prev).childPages.map((c) => c.id));
-      return page
-        .read(next)
-        .childPages.filter((c) => !before.has(c.id))
-        .map((c) => pageAdded(c.id));
+      const before = new Set(prev.childPages.map((c) => c.id));
+      return next.childPages.filter((c) => !before.has(c.id)).map((c) => pageAdded(c.id));
     },
   })
   .output("notion-create-comment", (a) => commented(a.page_id))
