@@ -1,7 +1,7 @@
 -- Demo machine. The world (Notion, via demo/delete.ts) deletes pages without waiting for
 -- anyone. INBOX buffers one deletion until the writer, who drafts first, stops and has it
--- delivered by its Stop hook (deleted? marks what the writer receives). A second deletion
--- while the inbox is full is something this spec says can't happen, so the machine diverges.
+-- delivered by its Stop hook (deleted? marks what the writer receives). A deletion that
+-- arrives while the inbox is full is dropped and logged.
 
 NOTION = page_deleted -> NOTION
 

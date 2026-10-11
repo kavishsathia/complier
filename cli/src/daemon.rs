@@ -61,8 +61,6 @@ enum Status {
     Finished,
     // The spec can do nothing more and cannot terminate (STOP).
     Deadlocked,
-    // The world did something the spec says can't happen: a refused input event.
-    Diverged,
     // A poll failed, so the machine can no longer see the world.
     Desynced,
     Stopped,
@@ -115,8 +113,9 @@ impl Machine {
         parts.map(|(c, s)| format!("{}: {}", c.name, csp::show_state(s))).collect::<Vec<_>>().join("  ||  ")
     }
 
-    // The world can't be refused, only observed: an event outside the alphabet is ignored (fail
-    // open), and one the spec refuses means the spec no longer matches the world.
+    // The world can't be refused, only observed, so input fails open: an event outside the
+    // alphabet is ignored, and one the spec refuses right now is dropped. Either way the state
+    // doesn't move and the log keeps a record.
     fn world(&mut self, event: &Event) {
         if self.status != Status::Running {
             return;
@@ -126,8 +125,7 @@ impl Machine {
             return self.record(json!({ "kind": "world", "event": shown, "outcome": "ignored" }));
         }
         if !self.enabled(&event.channel) {
-            self.record(json!({ "kind": "world", "event": shown, "outcome": "refused" }));
-            return self.set(Status::Diverged, &format!("the spec refused world event {shown}"));
+            return self.record(json!({ "kind": "world", "event": shown, "outcome": "dropped", "reason": "the spec doesn't allow it now" }));
         }
         self.perform(&event.channel);
         self.world.push(shown.clone());
@@ -453,23 +451,25 @@ mod tests {
     }
 
     #[test]
-    fn a_full_buffer_means_the_world_diverged() {
+    fn a_world_event_the_spec_refuses_is_dropped() {
         let mut m = machine();
         m.world(&deleted("p1"));
-        m.world(&deleted("p2"));
-        assert!(m.status == Status::Diverged);
+        m.world(&deleted("p2")); // the inbox is full, so this one is dropped
+        assert!(m.status == Status::Running);
+        assert_eq!(m.world, ["page_deleted.p1"]);
+        m.act("writer", "draft", &Value::Null).unwrap();
+        assert_eq!(m.deliver("writer").unwrap()["delivered"], json!(["deleted"]));
     }
 
     #[test]
     fn a_stopping_agent_is_told_once_that_its_machine_ended() {
         let mut m = machine();
-        m.world(&deleted("p1"));
-        m.world(&deleted("p2"));
+        m.set(Status::Desynced, "notion-fetch failed");
         let machines: Machines = Arc::new(Mutex::new([("demo".to_string(), m)].into()));
         let stop = || respond(Request::Stop { machine: "demo".into(), role: "writer".into() }, &machines).unwrap();
         let first = stop();
-        assert_eq!(first["ended"], json!("diverged"));
-        assert!(first["reason"].as_str().unwrap().contains("page_deleted.p2"));
+        assert_eq!(first["ended"], json!("desynced"));
+        assert!(first["reason"].as_str().unwrap().contains("notion-fetch"));
         assert!(stop().get("ended").is_none()); // told once; after that it may stop
     }
 
