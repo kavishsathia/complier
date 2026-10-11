@@ -1,5 +1,6 @@
 mod codegen;
 mod config;
+mod host;
 mod mcp;
 mod oauth;
 mod secrets;
@@ -8,7 +9,8 @@ use anyhow::{bail, Result};
 use clap::{Parser, Subcommand};
 use config::Server;
 use std::io::{IsTerminal, Read};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
 
 // Keychain account under which an HTTP server's OAuth tokens are stored.
 const OAUTH: &str = "oauth";
@@ -58,6 +60,8 @@ enum Command {
         #[arg(default_value = "{}")]
         arguments: String,
     },
+    /// Run a translation unit's polls and print the input events they produce.
+    Run { unit: PathBuf },
     /// Forget a server and delete its credentials from the keychain.
     Remove { name: String },
 }
@@ -69,6 +73,7 @@ fn main() -> Result<()> {
         Command::Ls => ls(),
         Command::Gen { names, out } => generate(&names, &out),
         Command::Call { name, tool, arguments } => call(&name, &tool, &arguments),
+        Command::Run { unit } => run(&unit),
         Command::Remove { name } => remove(&name),
     }
 }
@@ -133,6 +138,52 @@ fn call(name: &str, tool: &str, arguments: &str) -> Result<()> {
     let result = client.call_tool(tool, serde_json::from_str(arguments)?)?;
     println!("{}", serde_json::to_string_pretty(&result)?);
     Ok(())
+}
+
+fn run(unit: &Path) -> Result<()> {
+    let (mut host, unit) = host::Host::spawn(unit)?;
+    for poll in &unit.polls {
+        if !unit.hidden.contains(&poll.tool) {
+            bail!("{} is polled but not declared with .hide(); polling runs outside CSP", poll.tool);
+        }
+    }
+    let mut client = open(&unit.server)?;
+    client.initialize()?;
+    println!("polling {} on {}", unit.polls.len(), unit.server);
+
+    // The first result of each poll is the baseline; events come from every result after it.
+    let mut prev: Vec<Option<String>> = vec![None; unit.polls.len()];
+    let mut due: Vec<Instant> = vec![Instant::now(); unit.polls.len()];
+    loop {
+        let (i, &when) = due.iter().enumerate().min_by_key(|(_, t)| **t).unwrap();
+        std::thread::sleep(when.saturating_duration_since(Instant::now()));
+        let poll = &unit.polls[i];
+        due[i] = when + Duration::from_millis(poll.every);
+
+        let result = client.call_tool(&poll.tool, poll.args.clone())?;
+        if result["isError"] == true {
+            eprintln!("{} returned an error; skipping this poll", poll.tool);
+            continue;
+        }
+        let next = text_content(&result);
+        if let Some(prev) = &prev[i] {
+            for event in host.diff(i, prev, &next)? {
+                println!("{}.{}", event.channel, event.value);
+            }
+        }
+        prev[i] = Some(next);
+    }
+}
+
+// A tool result's text content blocks, joined.
+fn text_content(result: &serde_json::Value) -> String {
+    result["content"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|block| block["text"].as_str())
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 // Connects to a registered server with its keychain credentials, refreshing an expired token.
