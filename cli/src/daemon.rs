@@ -80,6 +80,9 @@ struct Machine {
     // World events performed so far, and how many of them each role has been told about.
     world: Vec<String>,
     told: BTreeMap<String, usize>,
+    // Why the machine left Running, and which roles have been told.
+    ended: String,
+    told_ended: std::collections::BTreeSet<String>,
 }
 
 impl Machine {
@@ -206,6 +209,7 @@ impl Machine {
 
     fn set(&mut self, status: Status, reason: &str) {
         self.status = status.clone();
+        self.ended = reason.to_string();
         if status != Status::Running {
             self.stop.store(true, Ordering::Relaxed);
         }
@@ -298,6 +302,10 @@ fn respond(request: Request, machines: &Machines) -> Result<Value> {
             {
                 let mut all = machines.lock().unwrap();
                 let Some(m) = all.get_mut(&machine) else { return Ok(json!({ "delivered": [], "note": format!("no machine named {machine}") })) };
+                // Tell each role once that its machine is no longer running, so it can tell its user.
+                if m.status != Status::Running && m.status != Status::Finished && m.told_ended.insert(role.clone()) {
+                    return Ok(json!({ "delivered": [], "ended": m.status, "reason": m.ended }));
+                }
                 let delivery = m.deliver(&role)?;
                 if delivery["delivered"].as_array().is_some_and(|d| !d.is_empty()) || !m.waiting(&role)? {
                     return Ok(delivery);
@@ -329,6 +337,8 @@ fn machine_up(machines: &Machines, name: String, spec: &Path, units: Vec<PathBuf
         log,
         world: Vec::new(),
         told: BTreeMap::new(),
+        ended: String::new(),
+        told_ended: Default::default(),
     };
     machine.record(json!({ "kind": "status", "status": Status::Running, "reason": "machine up", "state": machine.show() }));
     all.insert(name.clone(), machine);
@@ -417,6 +427,8 @@ mod tests {
             log: File::create(log).unwrap(),
             world: Vec::new(),
             told: BTreeMap::new(),
+            ended: String::new(),
+            told_ended: Default::default(),
         }
     }
 
@@ -446,6 +458,19 @@ mod tests {
         m.world(&deleted("p1"));
         m.world(&deleted("p2"));
         assert!(m.status == Status::Diverged);
+    }
+
+    #[test]
+    fn a_stopping_agent_is_told_once_that_its_machine_ended() {
+        let mut m = machine();
+        m.world(&deleted("p1"));
+        m.world(&deleted("p2"));
+        let machines: Machines = Arc::new(Mutex::new([("demo".to_string(), m)].into()));
+        let stop = || respond(Request::Stop { machine: "demo".into(), role: "writer".into() }, &machines).unwrap();
+        let first = stop();
+        assert_eq!(first["ended"], json!("diverged"));
+        assert!(first["reason"].as_str().unwrap().contains("page_deleted.p2"));
+        assert!(stop().get("ended").is_none()); // told once; after that it may stop
     }
 
     #[test]

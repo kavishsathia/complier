@@ -254,6 +254,14 @@ fn hook_stop() -> Result<()> {
     let list = |k: &str| -> Vec<String> {
         delivery[k].as_array().into_iter().flatten().filter_map(|v| v.as_str().map(String::from)).collect()
     };
+    if let Some(status) = delivery["ended"].as_str() {
+        let reason = format!(
+            "complier: machine {machine} is {status} ({}), so nothing more will be delivered to you and complier will refuse your actions. Tell the user; a person has to restart the machine.",
+            delivery["reason"].as_str().unwrap_or("no reason given"),
+        );
+        println!("{}", serde_json::json!({ "decision": "block", "reason": reason }));
+        return Ok(());
+    }
     let delivered = list("delivered");
     if delivered.is_empty() {
         return Ok(());
