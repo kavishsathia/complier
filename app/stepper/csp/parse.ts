@@ -378,5 +378,16 @@ export function parse(src: string): Spec {
     seen.set(chan, mark);
     marks.set(chan, mark);
   }
+  // Every prefix carries its channel's mark κ, as in (κ m → P).
+  const annotate = (p: Proc): void => {
+    if (p.k === "pre") {
+      p.mark = marks.get(p.chan);
+      annotate(p.next);
+    } else if ("l" in p) {
+      annotate(p.l);
+      annotate(p.r);
+    } else if (p.k === "guard") annotate(p.p);
+  };
+  for (const d of defs) annotate(d.body);
   return { defs: table, chans, marks };
 }

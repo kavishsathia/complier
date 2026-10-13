@@ -1,6 +1,6 @@
 // LaTeX for terms, labels and derivations, in the notation of the rules.
 
-import type { Derivation, Expr, Field, Label, Proc, Type, Value } from "./syntax.ts";
+import type { Derivation, Expr, Field, Label, Mark, Proc, Type, Value } from "./syntax.ts";
 
 const id = (s: string) => `\\mathit{${s.replace(/_/g, "\\_")}}`;
 
@@ -23,7 +23,7 @@ function texProc_(p: Proc): string {
     case "call":
       return p.args.length ? `${id(p.name)}(${p.args.map((e) => texExpr(e)).join(", ")})` : id(p.name);
     case "pre":
-      return `${texMsg(p.chan, p.fields)} \\to ${texProc(p.next, 5)}`;
+      return `${texMark(p.mark)}${texMsg(p.chan, p.fields)} \\to ${texProc(p.next, 5)}`;
     case "guard":
       return `${texExpr(p.b)} \\mathbin{\\&} ${texProc(p.p, 5)}`;
     case "seq":
@@ -36,6 +36,10 @@ function texProc_(p: Proc): string {
       return `${texProc(p.l, 1)} \\parallel_{${texSet(p.sync)}} ${texProc(p.r, 2)}`;
   }
 }
+
+// κ: ~ for a world channel, ^ for an agent channel, nothing for internal.
+export const texMark = (m: Mark | undefined) =>
+  m === "world" ? "\\text{\\textasciitilde}" : m === "agent" ? "\\text{\\textasciicircum}" : "";
 
 export const texSet = (cs: string[]) => (cs.length ? `\\{${cs.map(id).join(", ")}\\}` : "\\emptyset");
 

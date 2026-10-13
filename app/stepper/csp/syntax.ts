@@ -20,7 +20,7 @@ export type Proc =
   | { k: "stop" }
   | { k: "skip" }
   | { k: "omega" }
-  | { k: "pre"; chan: string; fields: Field[]; next: Proc }
+  | { k: "pre"; mark?: Mark; chan: string; fields: Field[]; next: Proc }
   | { k: "ext"; l: Proc; r: Proc }
   | { k: "int"; l: Proc; r: Proc }
   | { k: "guard"; b: Expr; p: Proc }

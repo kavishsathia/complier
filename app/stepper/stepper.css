@@ -439,20 +439,34 @@
   background: var(--sunken);
 }
 
+/* One grid for the whole list, shared by every row through subgrid, so the
+   label column is as wide as the longest label and targets line up. */
+.transitions {
+  display: grid;
+  grid-template-columns: 2.5rem max-content minmax(0, 1fr) auto;
+}
+
+.transitions > li,
 .tr {
-  display: flex;
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: subgrid;
+}
+
+.tr {
   align-items: center;
-  gap: 0.5rem;
-  padding-right: 0.75rem;
+}
+
+.transitions .tree {
+  grid-column: 1 / -1;
 }
 
 .tr-main {
-  flex: 1;
+  grid-column: 1 / 4;
   display: grid;
-  grid-template-columns: 1.5rem 4.25rem minmax(0, 1fr);
+  grid-template-columns: subgrid;
   align-items: baseline;
-  gap: 0.75rem;
-  padding: 0.7rem 0 0.7rem 1rem;
+  padding: 0;
   font: inherit;
   color: inherit;
   text-align: left;
@@ -635,8 +649,25 @@
   overflow-wrap: anywhere;
 }
 
+.tr-main > * {
+  padding-block: 0.7rem;
+}
+
+.tr-main > .idx {
+  padding-left: 1rem;
+}
+
+.tr-main > .tr-label {
+  padding-right: 1rem;
+}
+
+.tr-main > .tr-body {
+  padding-right: 0.75rem;
+}
+
 .tr-why {
-  flex: none;
+  grid-column: 4;
+  margin-right: 0.75rem;
 }
 
 /* Derivation trees */
@@ -764,22 +795,18 @@
     margin-right: auto;
   }
 
-  .tr {
-    flex-direction: column;
-    align-items: stretch;
-    gap: 0;
-    padding: 0 0 0.5rem;
+  .transitions {
+    grid-template-columns: 2.1rem max-content minmax(0, 1fr);
   }
 
-  .tr-main {
-    grid-template-columns: 1.1rem 3.6rem minmax(0, 1fr);
-    gap: 0.5rem;
-    padding-bottom: 0.3rem;
+  .tr-main > .tr-label {
+    padding-right: 0.75rem;
   }
 
   .tr-why {
-    align-self: flex-start;
-    margin-left: calc(1rem + 1.1rem + 3.6rem + 1rem);
+    grid-column: 2 / -1;
+    justify-self: start;
+    margin: -0.4rem 0 0.5rem;
     padding: 0 0.4rem;
   }
 
