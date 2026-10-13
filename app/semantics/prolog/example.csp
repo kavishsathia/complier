@@ -1,0 +1,15 @@
+-- The demo machine with data. The world deletes pages without waiting; INBOX
+-- holds one deletion until the writer, who drafts first, takes it.
+
+channel ~page_deleted : {0..1}
+channel ^draft
+channel ^recreate : {0..1}
+channel deleted : {0..1}
+
+NOTION = page_deleted?p -> NOTION
+
+INBOX = page_deleted?p -> deleted!p -> INBOX
+
+WRITER = draft -> deleted?p -> recreate!p -> WRITER
+
+MAIN = NOTION [| {page_deleted} |] (INBOX [| {deleted} |] WRITER)
