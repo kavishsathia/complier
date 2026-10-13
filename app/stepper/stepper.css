@@ -69,7 +69,7 @@
   text-align: center;
   border: 1px solid var(--border-strong);
   border-bottom-width: 2px;
-  border-radius: 4px;
+  border-radius: 0;
   color: var(--muted);
 }
 
@@ -95,7 +95,7 @@
   color: var(--text);
   background: var(--surface);
   border: 1px solid var(--border-strong);
-  border-radius: 7px;
+  border-radius: 0;
   cursor: pointer;
   white-space: nowrap;
   transition: background 0.12s, border-color 0.12s;
@@ -161,7 +161,7 @@
     url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' fill='none' stroke='%238a8580' stroke-width='1.5'%3E%3Cpath d='M1 1l4 4 4-4'/%3E%3C/svg%3E")
     no-repeat right 0.55rem center;
   border: 1px solid var(--border-strong);
-  border-radius: 7px;
+  border-radius: 0;
   appearance: none;
   cursor: pointer;
 }
@@ -240,7 +240,7 @@
 .pill {
   font-size: 11px;
   padding: 0.05rem 0.45rem;
-  border-radius: 99px;
+  border-radius: 0;
   color: var(--accent);
   background: var(--accent-soft);
   white-space: nowrap;
@@ -306,7 +306,7 @@
   width: 7px;
   height: 7px;
   flex: none;
-  border-radius: 50%;
+  border-radius: 0;
   background: var(--ok);
 }
 
@@ -327,7 +327,7 @@
 
 .card {
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: 0;
   background: var(--surface);
   box-shadow: var(--shadow);
   overflow: hidden;
@@ -357,7 +357,7 @@
   font-weight: 500;
   color: var(--muted);
   background: var(--sunken);
-  border-radius: 99px;
+  border-radius: 0;
 }
 
 .hint {
@@ -399,7 +399,7 @@
   color: var(--subtle);
   background: var(--sunken);
   border: 1px solid var(--border);
-  border-radius: 99px;
+  border-radius: 0;
   cursor: pointer;
 }
 
@@ -501,7 +501,7 @@
 .transitions .tree {
   margin: 0 0.75rem 0.75rem;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 0;
   background: var(--surface);
 }
 
@@ -575,7 +575,7 @@
 .history details[open] .tree {
   margin: 0 0.75rem 0.75rem;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 0;
   background: var(--surface);
 }
 
