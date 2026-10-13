@@ -1,6 +1,6 @@
-// The system layer: events submitted from outside the process. A world event
-// (~) the state doesn't offer is dropped [IO-Drop]; an agent event (^) it
-// doesn't offer is refused [IO-Refuse].
+// The system layer: events submitted from outside the process. In a stable
+// state (no τ), a world event (~) the state doesn't offer is dropped
+// [IO-Drop] and an agent event (^) it doesn't offer is refused [IO-Refuse].
 
 import { step } from "./step.ts";
 import type { Derivation, Event, Mark, Proc, Spec, Type, Value } from "./syntax.ts";
@@ -57,19 +57,21 @@ export function offered(spec: Spec, p: Proc): Event[] {
 
 export type Outcome =
   | { k: "accepted"; mark: Mark; ds: Derivation[] }
-  | { k: "dropped" | "refused"; mark: Mark; d: Derivation; unstable: boolean }
-  | { k: "blocked"; mark: Mark; unstable: boolean };
+  | { k: "dropped" | "refused"; mark: Mark; d: Derivation }
+  | { k: "unstable"; mark: Mark }
+  | { k: "blocked"; mark: Mark };
 
 // What submitting a in state S does: the transitions labelled a if S offers
-// it, else [IO-Drop] for a world event, [IO-Refuse] for an agent event, and
-// nothing for an internal one, which only ever happens on its own.
+// it. Otherwise nothing for an internal event, which only ever happens on its
+// own; nothing yet if S can still take τ; and else [IO-Drop] for a world
+// event and [IO-Refuse] for an agent event.
 export function submit(spec: Spec, s: Proc, a: Event): Outcome {
   const mark = spec.marks.get(a.chan) ?? "internal";
   const all = step(spec, s);
   const ds = all.filter((d) => d.label.k === "ev" && sameEvent(d.label, a));
   if (ds.length) return { k: "accepted", mark, ds };
-  const unstable = all.some((d) => d.label.k === "tau");
-  if (mark === "internal") return { k: "blocked", mark, unstable };
+  if (mark === "internal") return { k: "blocked", mark };
+  if (all.some((d) => d.label.k === "tau")) return { k: "unstable", mark };
   const offer = offered(spec, s);
   const set = offer.length ? `\\{${offer.map(texLabel).join(", ")}\\}` : texSet([]);
   const drop = mark === "world";
@@ -81,8 +83,9 @@ export function submit(spec: Spec, s: Proc, a: Event): Outcome {
     premises: [],
     side: [
       `${texLabel(a)} \\in \\Sigma^{${drop ? "\\sim" : "\\wedge"}}`,
+      "S \\overset{\\tau}{\\nrightarrow}",
       `${texLabel(a)} \\notin \\mathit{offered}(S) = ${set}`,
     ],
   };
-  return { k: drop ? "dropped" : "refused", mark, d, unstable };
+  return { k: drop ? "dropped" : "refused", mark, d };
 }

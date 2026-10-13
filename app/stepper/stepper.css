@@ -358,6 +358,26 @@
   gap: 0.4rem;
 }
 
+.badge {
+  font-size: 11px;
+  font-weight: 500;
+  padding: 0.05rem 0.45rem;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.badge.stable {
+  color: var(--ok);
+  border-color: color-mix(in srgb, var(--ok) 40%, transparent);
+}
+
+.badge.unstable {
+  color: var(--world);
+  border-color: color-mix(in srgb, var(--world) 40%, transparent);
+  background: var(--world-soft);
+}
+
 .count {
   margin-left: 0.3rem;
   padding: 0 0.4rem;

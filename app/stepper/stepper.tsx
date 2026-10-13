@@ -56,7 +56,7 @@ const MARKS: { mark: Mark; title: string; sign: string }[] = [
 
 const markOf = (spec: Spec, l: Label): Mark | null => (l.k === "ev" ? (spec.marks.get(l.chan) ?? "internal") : null);
 
-type Sent = { event: Event; tone: "ok" | "warn" | "bad" | "info"; text: string; note?: string };
+type Sent = { event: Event; tone: "ok" | "warn" | "bad" | "info"; text: string };
 
 const starts = (spec: Spec) => [...spec.defs.values()].filter((d) => d.params.length === 0).map((d) => d.name);
 
@@ -142,10 +142,6 @@ export default function Stepper() {
     if (!spec || !current) return;
     const name = showEvent(event);
     const out = submit(spec, current, event);
-    const stable =
-      "unstable" in out && out.unstable
-        ? "This state can still take a τ step, so it hasn't settled; with a stability premise (S has no τ) the event would wait instead."
-        : undefined;
     if (out.k === "accepted" && out.ds.length === 1) {
       take(out.ds[0]);
       setSent({ event, tone: "ok", text: `${name} happened.` });
@@ -157,7 +153,14 @@ export default function Stepper() {
         event,
         tone: "bad",
         text: `${name} is internal and not offered here, so nothing happens. Internal events only fire when the process offers them.`,
-        note: stable,
+      });
+    } else if (out.k === "unstable") {
+      setSent({
+        event,
+        tone: "info",
+        text: `${name} isn't offered yet, and this state can still take a τ step, so it isn't stable. ${
+          out.mark === "world" ? "IO-Drop" : "IO-Refuse"
+        } needs S ↛τ: take the τ steps first, then send it again.`,
       });
     } else {
       setHistory((h) => [...h, out.d]);
@@ -169,7 +172,6 @@ export default function Stepper() {
           out.k === "dropped"
             ? `${name} was dropped: it comes from the world, and this state doesn't offer it [IO-Drop].`
             : `${name} was refused: it comes from an agent, and this state doesn't offer it [IO-Refuse].`,
-        note: stable,
       });
     }
   };
@@ -273,6 +275,18 @@ export default function Stepper() {
             <section className="card">
               <div className="card-head">
                 <h2>Current state</h2>
+                {current && !next.error && (
+                  <span
+                    className={`badge ${next.ds.some((d) => d.label.k === "tau") ? "unstable" : "stable"}`}
+                    title={
+                      next.ds.some((d) => d.label.k === "tau")
+                        ? "S can take a τ step, so events it doesn't offer are neither dropped nor refused yet"
+                        : "S has no τ step: an event it doesn't offer is dropped (~) or refused (^)"
+                    }
+                  >
+                    {next.ds.some((d) => d.label.k === "tau") ? "unstable: τ available" : "stable"}
+                  </span>
+                )}
                 <div className="grow" />
                 <div className="controls">
                   <label className="field">
@@ -314,7 +328,7 @@ export default function Stepper() {
                 <div className="card-head">
                   <h2>Send an event</h2>
                   <div className="grow" />
-                  <span className="hint">world ~ is dropped, agent ^ is refused, when not offered</span>
+                  <span className="hint">not offered in a stable state: world ~ is dropped, agent ^ is refused</span>
                 </div>
                 <form
                   className="send"
@@ -371,7 +385,6 @@ export default function Stepper() {
                 {sent && (
                   <div className={`outcome ${sent.tone}`} role="status">
                     <p>{sent.text}</p>
-                    {sent.note && <p className="muted">{sent.note}</p>}
                   </div>
                 )}
               </section>
