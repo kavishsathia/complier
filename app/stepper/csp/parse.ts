@@ -7,9 +7,10 @@
 // used without a declaration carries no data. Binding, loosest first:
 // [| {c, ..} |] and |||, then |~|, then [], then ;, then b & P, then
 // c?x!e -> P. Inside !e and .e, compound expressions need parentheses.
-// World and agent marks (~c, ^c) are accepted and ignored.
+// ~c marks a world channel and ^c an agent channel, on its declaration or on
+// any prefix; unmarked channels are internal.
 
-import type { BinOp, Def, Expr, Field, Proc, Spec, Type } from "./syntax.ts";
+import type { BinOp, Def, Expr, Field, Mark, Proc, Spec, Type } from "./syntax.ts";
 
 type Tok = { t: string; v?: string | number; line: number };
 
@@ -69,6 +70,8 @@ const show = (tok: Tok) =>
 class Parser {
   i = 0;
   toks: Tok[];
+  // Every mark written, on declarations and prefixes alike.
+  marks: { chan: string; mark: Mark; line: number }[] = [];
   constructor(toks: Tok[]) {
     this.toks = toks;
   }
@@ -89,6 +92,10 @@ class Parser {
     if (!this.eat(t)) fail(this.peek().line, `expected ${what}, found ${show(this.peek())}`);
   }
 
+  mark(): Mark | null {
+    return this.eat("~") ? "world" : this.eat("^") ? "agent" : null;
+  }
+
   name(kind: "process" | "lower", what: string): string {
     const tok = this.peek();
     const s = tok.v as string;
@@ -107,8 +114,10 @@ class Parser {
       if (this.eat("id", "channel")) {
         const names: string[] = [];
         do {
-          this.eat("~") || this.eat("^");
-          names.push(this.name("lower", "a channel name"));
+          const mark = this.mark();
+          const name = this.name("lower", "a channel name");
+          if (mark) this.marks.push({ chan: name, mark, line });
+          names.push(name);
         } while (this.eat(","));
         const types: Type[] = [];
         if (this.eat(":")) do types.push(this.type()); while (this.eat("."));
@@ -128,7 +137,7 @@ class Parser {
         defs.push({ name, params, body: this.proc(), line });
       }
     }
-    return { chans, defs };
+    return { chans, defs, marks: this.marks };
   }
 
   type(): Type {
@@ -199,8 +208,10 @@ class Parser {
 
   prefix(): Proc {
     if (this.is("~") || this.is("^") || (this.is("id") && !isUpper(this.peek().v as string) && !KEYWORDS.has(this.peek().v as string))) {
-      this.eat("~") || this.eat("^");
+      const line = this.peek().line;
+      const mark = this.mark();
       const chan = this.name("lower", "a channel name");
+      if (mark) this.marks.push({ chan, mark, line });
       const fields: Field[] = [];
       for (;;) {
         if (this.eat("?")) fields.push({ k: "in", name: this.name("lower", "a variable after ?") });
@@ -297,7 +308,7 @@ class Parser {
 // right arity, every channel's fields matching its declaration, and every
 // variable bound by a parameter or an earlier input.
 export function parse(src: string): Spec {
-  const { chans: decls, defs } = new Parser(lex(src)).spec();
+  const { chans: decls, defs, marks: written } = new Parser(lex(src)).spec();
   const chans = new Map<string, Type[]>();
   for (const c of decls) {
     if (chans.has(c.name)) fail(c.line, `channel ${c.name} is declared twice`);
@@ -358,5 +369,14 @@ export function parse(src: string): Spec {
     };
     walk(d.body, new Set(d.params.map((p) => p.name)));
   }
-  return { defs: table, chans };
+  // Marking one occurrence marks the channel everywhere.
+  const marks = new Map<string, Mark>([...chans.keys()].map((c) => [c, "internal"]));
+  const seen = new Map<string, Mark>();
+  for (const { chan, mark, line } of written) {
+    const before = seen.get(chan);
+    if (before && before !== mark) fail(line, `${chan} is marked both ~ (world) and ^ (agent)`);
+    seen.set(chan, mark);
+    marks.set(chan, mark);
+  }
+  return { defs: table, chans, marks };
 }

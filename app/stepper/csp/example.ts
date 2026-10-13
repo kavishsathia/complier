@@ -1,8 +1,8 @@
-export const EXAMPLE = `-- A vending machine and a customer who wants one tea.
+export const EXAMPLE = `-- A vending machine. The agent (^) pays and picks a drink; the world (~)
+-- can cut the power while the machine waits for a coin.
 
-VM = coin -> (tea -> VM [] coffee -> VM)
+channel ^coin, ^tea, ^coffee
+channel ~power_cut
 
-CUSTOMER = coin -> tea -> SKIP
-
-MAIN = VM [| {coin, tea, coffee} |] CUSTOMER
+MAIN = coin -> (tea -> MAIN [] coffee -> MAIN) [] power_cut -> STOP
 `;

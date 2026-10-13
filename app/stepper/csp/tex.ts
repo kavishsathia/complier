@@ -73,6 +73,8 @@ export const texType = (t: Type) => (t.k === "bool" ? "\\mathbb{B}" : `\\{${t.lo
 export function texLabel(l: Label): string {
   if (l.k === "tau") return "\\tau";
   if (l.k === "tick") return "\\checkmark";
+  if (l.k === "drop") return `{\\downarrow}${texLabel(l.ev)}`;
+  if (l.k === "refuse") return `{\\times}${texLabel(l.ev)}`;
   return [id(l.chan), ...l.values.map(texValue)].join(".");
 }
 

@@ -32,9 +32,17 @@ export type Type = { k: "range"; lo: number; hi: number } | { k: "bool" };
 
 export type Def = { name: string; params: { name: string; type: Type }[]; body: Proc; line: number };
 
-export type Spec = { defs: Map<string, Def>; chans: Map<string, Type[]> };
+// Who submits a channel's events: the world (~c, uncontrollable), an agent
+// (^c, controllable), or nobody (internal: they happen on their own).
+export type Mark = "world" | "agent" | "internal";
 
-export type Label = { k: "tau" } | { k: "tick" } | { k: "ev"; chan: string; values: Value[] };
+export type Spec = { defs: Map<string, Def>; chans: Map<string, Type[]>; marks: Map<string, Mark> };
+
+export type Event = { k: "ev"; chan: string; values: Value[] };
+
+// τ, ✓ and events are process labels; ↓a (dropped) and ×a (refused) are the
+// system's.
+export type Label = { k: "tau" } | { k: "tick" } | Event | { k: "drop"; ev: Event } | { k: "refuse"; ev: Event };
 
 // One application of a rule: the conclusion from --label--> to, the
 // transitions it rests on, and the side conditions it checked.
