@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, type KeyboardEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import katex from "katex";
 import { EXAMPLE } from "./csp/example.ts";
 import { parse } from "./csp/parse.ts";
@@ -10,12 +10,12 @@ import { texDerivation, texLabel, texProc } from "./csp/tex.ts";
 
 const KEY = "stepper:spec";
 
-function TeX({ tex, display = false }: { tex: string; display?: boolean }) {
+function TeX({ tex, display = false, className = "" }: { tex: string; display?: boolean; className?: string }) {
   const html = useMemo(
     () => katex.renderToString(tex, { displayMode: display, throwOnError: false, strict: "ignore" }),
     [tex, display],
   );
-  return <span className="tex" dangerouslySetInnerHTML={{ __html: html }} />;
+  return <span className={`tex ${className}`} dangerouslySetInnerHTML={{ __html: html }} />;
 }
 
 // IO-ExtL(IO-Guard-True(IO-Prefix)): the rules used, outermost first.
@@ -33,40 +33,55 @@ function Tree({ d }: { d: Derivation }) {
     } catch {}
   };
   return (
-    <div className="tree">
-      <button className="quiet copy" onClick={copy}>
-        {copied ? "Copied" : "Copy LaTeX"}
-      </button>
-      <div className="tree-body">
+    <figure className="tree">
+      <div className="tree-scroll">
         <TeX tex={tex} display />
       </div>
-    </div>
+      <figcaption>
+        <code>{rules(d)}</code>
+        <button className="btn ghost sm" onClick={copy}>
+          {copied ? "Copied" : "Copy LaTeX"}
+        </button>
+      </figcaption>
+    </figure>
   );
 }
 
 const starts = (spec: Spec) => [...spec.defs.values()].filter((d) => d.params.length === 0).map((d) => d.name);
 
+const tryParse = (text: string): { spec: Spec; error: "" } | { spec: null; error: string } => {
+  try {
+    return { spec: parse(text), error: "" };
+  } catch (e) {
+    return { spec: null, error: e instanceof Error ? e.message : String(e) };
+  }
+};
+
 export default function Stepper() {
   const [src, setSrc] = useState(EXAMPLE);
-  const [spec, setSpec] = useState<Spec | null>(null);
-  const [error, setError] = useState("");
+  const [loaded, setLoaded] = useState<{ text: string; spec: Spec } | null>(null);
   const [start, setStart] = useState("MAIN");
   const [history, setHistory] = useState<Derivation[]>([]);
   const [open, setOpen] = useState<number | null>(null);
+  const gutter = useRef<HTMLPreElement>(null);
 
-  const load = (text: string, from?: string) => {
-    try {
-      const s = parse(text);
-      const names = starts(s);
-      setSpec(s);
-      setError("");
-      setStart(from && names.includes(from) ? from : names.includes("MAIN") ? "MAIN" : (names[0] ?? ""));
+  // Parsed as you type, so errors show before loading.
+  const draft = useMemo(() => tryParse(src), [src]);
+  const spec = loaded?.spec ?? null;
+  const dirty = loaded !== null && loaded.text !== src;
+
+  const load = useCallback(
+    (text: string) => {
+      const r = tryParse(text);
+      if (!r.spec) return;
+      const names = starts(r.spec);
+      setLoaded({ text, spec: r.spec });
+      setStart((s) => (names.includes(s) ? s : names.includes("MAIN") ? "MAIN" : (names[0] ?? "")));
       setHistory([]);
       setOpen(null);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    }
-  };
+    },
+    [],
+  );
 
   useEffect(() => {
     let saved: string | null = null;
@@ -75,7 +90,7 @@ export default function Stepper() {
     } catch {}
     if (saved !== null) setSrc(saved);
     load(saved ?? EXAMPLE);
-  }, []);
+  }, [load]);
 
   const edit = (text: string) => {
     setSrc(text);
@@ -97,15 +112,33 @@ export default function Stepper() {
     }
   }, [spec, current]);
 
-  const take = (d: Derivation) => {
+  const take = useCallback((d: Derivation) => {
     setHistory((h) => [...h, d]);
     setOpen(null);
-  };
+  }, []);
+  const back = useCallback(() => (setHistory((h) => h.slice(0, -1)), setOpen(null)), []);
+  const restart = useCallback(() => (setHistory([]), setOpen(null)), []);
+
+  // 1-9 take a transition, Backspace steps back, R restarts.
+  useEffect(() => {
+    const onKey = (e: globalThis.KeyboardEvent) => {
+      const el = e.target as HTMLElement;
+      if (el.closest("textarea, input, select") || e.metaKey || e.ctrlKey || e.altKey) return;
+      const n = Number(e.key);
+      if (n >= 1 && n <= 9 && next.ds[n - 1]) take(next.ds[n - 1]);
+      else if (e.key === "Backspace") back();
+      else if (e.key === "r") restart();
+      else return;
+      e.preventDefault();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [next, take, back, restart]);
 
   const keys = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
       e.preventDefault();
-      load(src, start);
+      load(src);
     } else if (e.key === "Tab" && !e.shiftKey) {
       e.preventDefault();
       const el = e.currentTarget;
@@ -117,39 +150,41 @@ export default function Stepper() {
 
   const last = history[history.length - 1];
   const lines = src.split("\n").length;
+  const names = spec ? starts(spec) : [];
 
   return (
-    <div className="st">
-      <header className="st-head">
-        <div>
-          <h1>CSP stepper</h1>
-          <p>Pick a transition to take it. Every step shows the derivation that proves it.</p>
+    <div className="app">
+      <header className="topbar">
+        <div className="brand">
+          <span className="logo">complier</span>
+          <span className="sep">/</span>
+          <span>Stepper</span>
         </div>
+        <p className="tagline">Operational semantics of CSP, one derivation at a time.</p>
       </header>
 
-      <div className="st-top">
-        <section className="st-editor">
-          <div className="st-bar">
-            <span className="muted small">spec</span>
-            <button className="quiet" onClick={() => edit(EXAMPLE)} disabled={src === EXAMPLE}>
+      <div className="workspace">
+        <aside className="pane editor">
+          <div className="pane-head">
+            <span className="file">spec.csp</span>
+            {dirty && <span className="pill">unloaded changes</span>}
+            <div className="grow" />
+            <button className="btn ghost sm" onClick={() => edit(EXAMPLE)} disabled={src === EXAMPLE}>
               Reset
             </button>
-            <button className="primary" onClick={() => load(src, start)}>
+            <button className="btn primary sm" onClick={() => load(src)} disabled={!draft.spec}>
               Load <kbd>⌘↵</kbd>
             </button>
           </div>
-          <div className="st-code">
-            <pre className="st-gutter" aria-hidden id="st-gutter">
+          <div className="code">
+            <pre ref={gutter} className="gutter" aria-hidden>
               {Array.from({ length: lines }, (_, i) => i + 1).join("\n")}
             </pre>
             <textarea
               value={src}
               onChange={(e) => edit(e.target.value)}
               onKeyDown={keys}
-              onScroll={(e) => {
-                const g = document.getElementById("st-gutter");
-                if (g) g.scrollTop = e.currentTarget.scrollTop;
-              }}
+              onScroll={(e) => gutter.current && (gutter.current.scrollTop = e.currentTarget.scrollTop)}
               spellCheck={false}
               autoCapitalize="off"
               autoComplete="off"
@@ -157,98 +192,146 @@ export default function Stepper() {
               aria-label="spec source"
             />
           </div>
-          {error && <pre className="st-error">{error}</pre>}
-        </section>
-
-        <section className="st-panel st-now">
-          <div className="st-bar">
-            <h2>State</h2>
-            {spec && (
-              <select value={start} onChange={(e) => (setStart(e.target.value), setHistory([]))} aria-label="start process">
-                {starts(spec).map((n) => (
-                  <option key={n}>{n}</option>
-                ))}
-              </select>
+          <div className={`status ${draft.error ? "bad" : ""}`}>
+            {draft.error ? (
+              draft.error
+            ) : (
+              <>
+                <span className="ok-dot" />
+                {draft.spec!.defs.size} processes, {draft.spec!.chans.size} channels
+              </>
             )}
-            <button className="quiet" onClick={() => setHistory((h) => h.slice(0, -1))} disabled={!history.length}>
-              Back
-            </button>
-            <button className="quiet" onClick={() => setHistory([])} disabled={!history.length}>
-              Restart
-            </button>
           </div>
-          <div className="st-state">{current && <TeX tex={texProc(current)} display />}</div>
-          {history.length > 0 && (
-            <p className="st-trace">
-              <span className="muted">trace</span>{" "}
-              <TeX tex={`\\langle ${history.map((d) => texLabel(d.label)).join(", ")} \\rangle`} />
-            </p>
-          )}
+        </aside>
 
-          <h3>Transitions</h3>
-          {next.error && <pre className="st-error">{next.error}</pre>}
-          {current && !next.error && next.ds.length === 0 && (
-            <p className="st-stuck">
-              No transitions{current.k === "omega" ? ": terminated." : ": this state is stuck."}
-            </p>
-          )}
-          <ul className="st-next">
-            {next.ds.map((d, i) => (
-              <li key={i}>
-                <div className="st-tr">
-                  <button className="st-take" onClick={() => take(d)}>
-                    <span className="label">
-                      <TeX tex={texLabel(d.label)} />
-                    </span>
-                    <span className="target">
-                      <TeX tex={texProc(d.to)} />
-                    </span>
+        <main className="pane main">
+          <div className="column">
+            <section className="card">
+              <div className="card-head">
+                <h2>Current state</h2>
+                <div className="grow" />
+                <div className="controls">
+                  <label className="field">
+                    <span>Start</span>
+                    <select value={start} onChange={(e) => (setStart(e.target.value), restart())}>
+                      {names.map((n) => (
+                        <option key={n}>{n}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <button className="btn sm" onClick={back} disabled={!history.length} title="Back (⌫)">
+                    Back
                   </button>
-                  <button className="quiet small" onClick={() => setOpen(open === i ? null : i)}>
-                    {open === i ? "Hide" : "Why"}
+                  <button className="btn sm" onClick={restart} disabled={!history.length} title="Restart (R)">
+                    Restart
                   </button>
                 </div>
-                <div className="rules">{rules(d)}</div>
-                {open === i && <Tree d={d} />}
-              </li>
-            ))}
-          </ul>
-        </section>
-      </div>
+              </div>
+              <div className="state">{current && <TeX tex={texProc(current)} />}</div>
+              <div className="trace" aria-label="trace">
+                <button className={`chip ${history.length === 0 ? "on" : ""}`} onClick={restart}>
+                  start
+                </button>
+                {history.map((d, i) => (
+                  <button
+                    key={i}
+                    className={`chip ${i === history.length - 1 ? "on" : ""}`}
+                    onClick={() => (setHistory((h) => h.slice(0, i + 1)), setOpen(null))}
+                    title={`Go back to after step ${i + 1}`}
+                  >
+                    <TeX tex={texLabel(d.label)} />
+                  </button>
+                ))}
+              </div>
+            </section>
 
-      {last && (
-        <section className="st-panel">
-          <div className="st-bar">
-            <h2>
-              Step {history.length} <span className="muted">derivation</span>
-            </h2>
+            <section className="card">
+              <div className="card-head">
+                <h2>
+                  Transitions <span className="count">{next.ds.length}</span>
+                </h2>
+                <div className="grow" />
+                <span className="hint">
+                  <kbd>1</kbd>–<kbd>9</kbd> take
+                </span>
+              </div>
+              {next.error && <p className="note bad">{next.error}</p>}
+              {current && !next.error && next.ds.length === 0 && (
+                <p className="note">
+                  {current.k === "omega"
+                    ? "Terminated: Ω has no transitions."
+                    : "Stuck: no rule applies to this state."}
+                </p>
+              )}
+              <ol className="transitions">
+                {next.ds.map((d, i) => (
+                  <li key={i} className={open === i ? "open" : ""}>
+                    <div className="tr">
+                      <button className="tr-main" onClick={() => take(d)}>
+                        <span className="idx">{i + 1}</span>
+                        <span className="tr-label">
+                          <TeX tex={texLabel(d.label)} />
+                        </span>
+                        <span className="tr-body">
+                          <TeX tex={texProc(d.to)} className="tr-target" />
+                          <code className="tr-rules">{rules(d)}</code>
+                        </span>
+                      </button>
+                      <button
+                        className="btn ghost sm tr-why"
+                        onClick={() => setOpen(open === i ? null : i)}
+                        aria-expanded={open === i}
+                      >
+                        {open === i ? "Hide" : "Derivation"}
+                      </button>
+                    </div>
+                    {open === i && <Tree d={d} />}
+                  </li>
+                ))}
+              </ol>
+            </section>
+
+            {last && (
+              <section className="card">
+                <div className="card-head">
+                  <h2>
+                    Derivation <span className="muted">of step {history.length}</span>
+                  </h2>
+                  <div className="grow" />
+                  <TeX tex={texLabel(last.label)} className="muted" />
+                </div>
+                <Tree d={last} />
+              </section>
+            )}
+
+            {history.length > 1 && (
+              <section className="card">
+                <div className="card-head">
+                  <h2>Earlier steps</h2>
+                </div>
+                <ol className="history">
+                  {history
+                    .slice(0, -1)
+                    .map((d, i) => ({ d, i }))
+                    .reverse()
+                    .map(({ d, i }) => (
+                      <li key={i}>
+                        <details>
+                          <summary>
+                            <span className="idx">{i + 1}</span>
+                            <TeX tex={texLabel(d.label)} />
+                            <code className="tr-rules">{rules(d)}</code>
+                          </summary>
+                          <Tree d={d} />
+                        </details>
+                      </li>
+                    ))}
+                </ol>
+              </section>
+            )}
           </div>
-          <Tree d={last} />
-        </section>
-      )}
-
-      {history.length > 1 && (
-        <section className="st-panel">
-          <h2>Earlier steps</h2>
-          <ol className="st-history">
-            {history
-              .slice(0, -1)
-              .map((d, i) => ({ d, i }))
-              .reverse()
-              .map(({ d, i }) => (
-                <li key={i}>
-                  <details>
-                    <summary>
-                      <span className="muted">Step {i + 1}</span> <TeX tex={texLabel(d.label)} />{" "}
-                      <span className="rules">{rules(d)}</span>
-                    </summary>
-                    <Tree d={d} />
-                  </details>
-                </li>
-              ))}
-          </ol>
-        </section>
-      )}
+        </main>
+      </div>
     </div>
   );
 }
