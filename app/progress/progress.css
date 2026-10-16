@@ -1176,6 +1176,7 @@
   display: flex;
   flex-direction: column;
   min-height: 0;
+  min-width: 0;
   border: 1px solid var(--line);
 }
 
@@ -1511,6 +1512,7 @@
   display: flex;
   flex-direction: column;
   min-height: 0;
+  min-width: 0;
 }
 
 .demo .side .agent {
@@ -1637,7 +1639,7 @@
 }
 
 .demo .agent li.refused code {
-  color: var(--muted);
+  color: var(--muted) !important;
   text-decoration: line-through;
 }
 
@@ -1698,6 +1700,7 @@
 }
 
 .demo .pair .one {
+  min-width: 0;
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -1719,7 +1722,8 @@
 }
 
 .demo .pair li code {
-  font-size: 0.95rem;
+  font-size: 0.9rem;
+  overflow-wrap: anywhere;
 }
 
 .demo .pair li p {
@@ -1729,6 +1733,22 @@
 .demo .pair li.refused {
   margin: 0.25rem -0.5rem;
   padding: 0.6rem 0.5rem;
+}
+
+.demo .agent li.read code {
+  color: var(--muted);
+}
+
+.demo .agent li.send code {
+  color: var(--ok);
+}
+
+.demo .agent li.reject code {
+  color: var(--bad);
+}
+
+.demo .agent li.read p {
+  font-variant-numeric: tabular-nums;
 }
 
 .demo .agent > .error {

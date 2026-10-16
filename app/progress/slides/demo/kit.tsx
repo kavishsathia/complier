@@ -19,7 +19,7 @@ export function usePlayback<F>(first: F, more: (last: F) => Promise<F[]>, done: 
   const [flash, setFlash] = useState<{ icon: "play" | "pause"; n: number } | null>(null);
   const rounds = useRef(0);
   const last = frames.length - 1;
-  const finished = done(frames[last]) || rounds.current >= 20;
+  const finished = done(frames[last]) || rounds.current >= 40;
 
   const toggle = useCallback(() => {
     setPlaying((p) => {

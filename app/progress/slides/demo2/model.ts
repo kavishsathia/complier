@@ -1,4 +1,6 @@
-// The order desk with two fulfilment agents working it at once.
+// The order desk with two fulfilment agents working it at once. Reading the
+// next order and sending it are separate tools, so between an agent's read and
+// its write the other agent can act on the same order.
 
 export type AgentName = "A" | "B";
 
@@ -7,17 +9,23 @@ export type Order = {
   name: string;
   quantity: number;
   note: string;
-  status: "pending" | "accepted" | "rejected";
-  // Who decided it, and how many times it shipped.
+  status: "pending" | "sent" | "rejected";
+  // Who acted on it, and how many times it was sent.
   by: AgentName[];
   shipped: number;
 };
 
-export type Call = { name: "accept_order" | "reject_order"; id: number; reason: string };
-
-export type Step = { agent: AgentName; call: Call; refused: boolean };
-
 export type Desk = { minimum: number; inventory: number; orders: Order[] };
+
+// One tool call an agent made, as the log shows it.
+export type Step = {
+  agent: AgentName;
+  kind: "read" | "send" | "reject";
+  call: string;
+  detail: string;
+  order?: number;
+  refused: boolean;
+};
 
 const order = (id: number, name: string, quantity: number, note: string): Order => ({
   id,
@@ -41,34 +49,31 @@ export const initial: Desk = {
   ],
 };
 
-// The desk does what it is told, with no check of its own: an order accepted
-// twice ships twice.
-export function apply(desk: Desk, agent: AgentName, call: Call): Desk {
-  const target = desk.orders.find((o) => o.id === call.id);
-  if (!target) return desk;
-  const accepted = call.name === "accept_order";
+// next_order(): the first pending order. It only reads; nothing is claimed.
+export const next = (desk: Desk) => desk.orders.find((o) => o.status === "pending");
+
+export const recipient = (desk: Desk, name: string) =>
+  desk.orders.find((o) => o.name.toLowerCase() === name.trim().toLowerCase());
+
+// send_to_recipient(name, quantity): ships whatever it is told. Sending to the
+// same customer twice ships twice.
+export function send(desk: Desk, agent: AgentName, name: string, quantity: number): Desk {
+  const target = recipient(desk, name);
   return {
     ...desk,
-    inventory: accepted ? desk.inventory - target.quantity : desk.inventory,
+    inventory: desk.inventory - quantity,
     orders: desk.orders.map((o) =>
-      o.id !== call.id
-        ? o
-        : {
-            ...o,
-            status: accepted ? "accepted" : o.status === "pending" ? "rejected" : o.status,
-            by: [...o.by, agent],
-            shipped: o.shipped + (accepted ? 1 : 0),
-          },
+      o === target ? { ...o, status: "sent", by: [...o.by, agent], shipped: o.shipped + 1 } : o,
     ),
   };
 }
 
-const pending = (desk: Desk) => desk.orders.filter((o) => o.status === "pending");
-
-// A works the queue from the front and B from the back, each on what it read.
-export function assign(desk: Desk): Record<AgentName, Order | undefined> {
-  const p = pending(desk);
-  return { A: p[0], B: p[p.length - 1] };
+export function reject(desk: Desk, agent: AgentName, name: string): Desk {
+  const target = recipient(desk, name);
+  return {
+    ...desk,
+    orders: desk.orders.map((o) =>
+      o === target ? { ...o, status: o.status === "pending" ? "rejected" : o.status, by: [...o.by, agent] } : o,
+    ),
+  };
 }
-
-export const finished = (desk: Desk) => pending(desk).length === 0;

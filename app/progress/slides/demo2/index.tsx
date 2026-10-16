@@ -1,33 +1,23 @@
 "use client";
 
-import { useCallback, useState } from "react";
-import type { Proc } from "../../../stepper/csp/syntax.ts";
+import { useCallback, useMemo, useState } from "react";
+import { parse } from "../demo/gatekeeper";
 import { check, Controls, Flash, SpecPane, Switch, Thinking, useFollow, usePlayback } from "../demo/kit";
 import { SPEC } from "./gatekeeper";
-import { apply, finished, initial, type AgentName, type Desk, type Step } from "./model";
+import { initial, type AgentName, type Step } from "./model";
+import { AGENTS, finished, first, tick, type Frame } from "./run";
 
-// A state of the desk, the step that produced it and, under Complier, the
-// spec's state.
-type Frame = { desk: Desk; step?: Step; state?: Proc };
-
-const FIRST: Frame = { desk: initial };
-
-const AGENTS: { name: AgentName; takes: string }[] = [
-  { name: "A", takes: "First" },
-  { name: "B", takes: "Last" },
-];
+const FIRST = first(initial);
 
 function Log({ steps, thinking }: { steps: Step[]; thinking: boolean }) {
   const log = useFollow(`${steps.length}${thinking}`);
   return (
     <ol ref={log}>
       {steps.map((s, i) => (
-        <li key={i} className={`${s.call.name}${s.refused ? " refused" : ""}`}>
-          <code>
-            {s.call.name}({s.call.id})
-          </code>
+        <li key={i} className={`${s.kind}${s.refused ? " refused" : ""}`}>
+          <code>{s.call}</code>
           {s.refused && <span className="verdict">refused</span>}
-          <p>{s.call.reason}</p>
+          {s.detail && <p>{s.detail}</p>}
         </li>
       ))}
       {thinking && <Thinking />}
@@ -40,32 +30,17 @@ export default function Demo2() {
   const [spec, setSpec] = useState(SPEC);
   const specError = complier ? check(spec) : null;
 
-  const more = useCallback(
-    async ({ desk, state }: Frame) => {
-      const body = complier ? { desk, spec, state } : { desk };
-      const res: { steps?: Step[]; state?: Proc; error?: string } = await (
-        await fetch("/api/demo2", { method: "POST", body: JSON.stringify(body) })
-      ).json();
-      if (res.error || !res.steps) throw new Error(res.error ?? "no calls");
-      const out: Frame[] = [];
-      let d = desk;
-      for (const step of res.steps) {
-        if (!step.refused) d = apply(d, step.agent, step.call);
-        out.push({ desk: d, step, state: res.state });
-      }
-      return out;
-    },
-    [complier, spec],
-  );
+  const parsed = useMemo(() => (complier && !specError ? parse(spec) : undefined), [complier, spec, specError]);
+  const more = useCallback((f: Frame) => tick(f, parsed), [parsed]);
 
-  const run = usePlayback(FIRST, more, (f) => finished(f.desk), !!specError);
+  const run = usePlayback(FIRST, more, finished, !!specError);
   const { frames, view, last, busy } = run;
 
   const desk = frames[view].desk;
   const shown = frames.slice(1, view + 1).map((f) => f.step!);
-  const active = frames[view].step?.call.id;
+  const active = frames[view].step?.order;
   const breached = desk.inventory < desk.minimum;
-  const thinking = busy && view === last;
+  const thinking = (a: AgentName) => busy && view === last && !frames[last].done[a];
 
   return (
     <section className="slide demo demo2">
@@ -98,7 +73,7 @@ export default function Demo2() {
             {desk.orders.map((o) => (
               <tr
                 key={o.id}
-                className={`${o.status}${o.shipped > 1 ? " double" : ""}${o.id === active ? " active" : ""}`}
+                className={`${o.status === "sent" ? "accepted" : o.status}${o.shipped > 1 ? " double" : ""}${o.id === active ? " active" : ""}`}
               >
                 <td className="id">{o.id}</td>
                 <td className="name">{o.name}</td>
@@ -141,14 +116,16 @@ export default function Demo2() {
               }}
             />
           </header>
-          <p className="task">Both read the desk at the same moment, then decide their order by the same rule.</p>
+          <p className="task">
+            Both work the orders top to bottom. Reading the next order and sending it are separate calls.
+          </p>
           <div className="pair">
-            {AGENTS.map(({ name, takes }) => (
+            {AGENTS.map((name) => (
               <div key={name} className="one">
                 <span className="label">
-                  <span className={`tag ${name}`}>{name}</span> {takes} pending order
+                  <span className={`tag ${name}`}>{name}</span> Agent {name}
                 </span>
-                <Log steps={shown.filter((s) => s.agent === name)} thinking={thinking} />
+                <Log steps={shown.filter((s) => s.agent === name)} thinking={thinking(name)} />
               </div>
             ))}
           </div>

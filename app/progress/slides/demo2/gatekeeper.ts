@@ -2,30 +2,31 @@
 // agents, so it holds however many agents act on it.
 
 import type { Event } from "../../../stepper/csp/syntax.ts";
-import type { Call, Desk } from "./model";
+import { recipient, type Desk } from "./model";
 
-export const SPEC = `-- Events carry the order id; accepts carry quantity.
-channel ^accept : {1..5}.{0..100}
+export const SPEC = `-- A shipment carries the order id and the quantity sent.
+channel ^ship : {1..5}.{0..100}
 channel ^reject : {1..5}
 
--- Each order is decided exactly once.
-ORDER(o : {1..5}) =
-  accept.o?q -> SKIP [] reject.o -> SKIP
-ORDERS = ORDER(1) ||| ORDER(2) ||| ORDER(3)
-     ||| ORDER(4) ||| ORDER(5)
+-- Each order ships once, in exactly its quantity,
+-- or is rejected.
+ORDER(o : {1..5}, q : {0..100}) =
+  ship.o.q -> SKIP [] reject.o -> SKIP
+ORDERS = ORDER(1, 15) ||| ORDER(2, 25) ||| ORDER(3, 15)
+     ||| ORDER(4, 10) ||| ORDER(5, 12)
 
--- One shared stock: accepts keep it >= 20.
+-- One shared stock: shipments keep it >= 20.
 INVENTORY(stock : {0..100}) =
-  accept?o?q:{0..stock - 20} -> INVENTORY(stock - q)
+  ship?o?q:{0..stock - 20} -> INVENTORY(stock - q)
 
-MAIN = INVENTORY(100) [| {accept} |] ORDERS
+MAIN = INVENTORY(100) [| {ship} |] ORDERS
 `;
 
-// The translation unit: accepting carries the order's quantity from the desk.
-export function event(call: Call, desk: Desk): Event | null {
-  const order = desk.orders.find((o) => o.id === call.id);
-  if (!order) return null;
-  return call.name === "accept_order"
-    ? { k: "ev", chan: "accept", values: [order.id, order.quantity] }
-    : { k: "ev", chan: "reject", values: [order.id] };
+// The translation unit. next_order only reads, so it passes through with no
+// event; the writes become events on the recipient's order.
+export function event(desk: Desk, tool: string, name: string, quantity?: number): Event | null {
+  const o = recipient(desk, name);
+  if (!o) return null;
+  if (tool === "send_to_recipient") return { k: "ev", chan: "ship", values: [o.id, quantity ?? 0] };
+  return { k: "ev", chan: "reject", values: [o.id] };
 }
