@@ -49,116 +49,56 @@
   font-size: 1.3rem;
 }
 
-.motivation header h2 {
-  margin-top: 0.75rem;
-  max-width: 48rem;
-  font-size: clamp(1.5rem, 3vw, 2.1rem);
-  font-weight: 600;
-  line-height: 1.25;
-  letter-spacing: -0.02em;
+.slide.motivation h2 {
+  font-size: clamp(2rem, 4.5vw, 3.25rem);
+  line-height: 1.15;
+  letter-spacing: -0.025em;
 }
 
-.motivation h3 {
-  font-size: 0.8rem;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--muted);
+.motivation .reasons {
+  margin-top: 3rem;
 }
 
-.motivation .grid {
+.motivation .reasons > div {
   display: grid;
-  grid-template-columns: 7fr 4fr;
-  gap: 3rem;
-  margin-top: 2.5rem;
-  padding-top: 2rem;
+  grid-template-columns: 2rem 18rem 1fr;
+  align-items: baseline;
+  gap: 1.5rem;
+  padding: 1.75rem 0;
   border-top: 1px solid var(--line);
 }
 
-.leak .flow {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  margin-top: 1rem;
+.motivation .reasons > div:last-child {
+  border-bottom: 1px solid var(--line);
 }
 
-.leak .node {
-  display: flex;
-  flex-direction: column;
-  flex-shrink: 0;
-  padding: 0.5rem 0.75rem;
-  border: 1px solid var(--fg);
-  border-radius: 6px;
-  font-size: 1.15rem;
-  white-space: nowrap;
-}
-
-.leak .node small {
-  font-size: 1.05rem;
+.motivation .n {
+  font-size: 0.85rem;
+  font-weight: 600;
   color: var(--muted);
 }
 
-.leak .node.muted {
-  border-style: dashed;
-  border-color: var(--muted);
-  color: var(--muted);
-}
-
-.leak .node.bad {
-  border-color: var(--bad);
-  color: var(--bad);
-}
-
-.leak .edge {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  font-size: 0.75rem;
-  color: var(--muted);
-}
-
-.leak .edge::after {
-  content: "→";
-  font-size: 1.25rem;
-  line-height: 1;
-  color: var(--fg);
-}
-
-.leak figcaption {
-  margin-top: 1.25rem;
-  font-size: 1.2rem;
-  color: var(--muted);
-}
-
-.vend dl {
-  margin-top: 0.75rem;
-}
-
-.vend dl > div + div {
-  margin-top: 0.75rem;
-}
-
-.vend dt {
+.motivation dt {
+  font-size: 1.6rem;
   font-weight: 600;
 }
 
-.vend dd {
-  margin: 0.15rem 0 0;
-  font-size: 1.2rem;
+.motivation dd {
+  margin: 0;
+  font-size: 1.5rem;
+  line-height: 1.4;
   color: var(--muted);
 }
 
-
 @media (max-width: 720px) {
-  .leak .flow {
-    flex-wrap: wrap;
+  .motivation .reasons > div {
+    grid-template-columns: 2rem 1fr;
   }
 
-  .motivation .grid {
-    grid-template-columns: 1fr;
+  .motivation dd {
+    grid-column: 2;
   }
 }
-
 
 .approach h2 {
   margin-top: 0.75rem;
@@ -394,10 +334,6 @@
 }
 
 /* Motivation */
-
-.motivation .strips {
-  margin-top: 2rem;
-}
 
 /* Objectives */
 
