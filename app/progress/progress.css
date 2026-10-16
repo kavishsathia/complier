@@ -641,70 +641,42 @@
 
 /* Semantics */
 
-.semantics .grid {
+.semantics .rules {
   display: grid;
-  grid-template-columns: 2fr 3fr;
+  grid-template-columns: 1fr 1fr;
   gap: 3rem;
-  margin-top: 2rem;
-}
-
-.semantics .roscoe dl {
-  margin-top: 0.5rem;
-}
-
-.semantics .roscoe dl > div {
-  padding: 0.55rem 0;
-  border-top: 1px solid var(--line);
-}
-
-.semantics .roscoe dt {
-  font-size: 1.05rem;
-  font-weight: 600;
-}
-
-.semantics .roscoe dd {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.3rem;
-  margin: 0.35rem 0 0;
-}
-
-.semantics .roscoe code {
-  padding: 0.1rem 0.4rem;
-  border: 1px solid var(--line);
-  font-size: 0.85rem;
-  color: var(--muted);
+  margin-top: 2.5rem;
 }
 
 .semantics .rule {
-  margin-top: 1rem;
-  padding-left: 1rem;
-  border-left: 2px solid var(--fg);
+  padding-top: 1rem;
+  border-top: 2px solid var(--fg);
+}
+
+.semantics .rule .katex-display {
+  margin: 1.25rem 0;
 }
 
 .semantics .rule .katex {
-  font-size: 1.25rem;
+  font-size: 1.35rem;
 }
 
 .semantics .rule p {
-  font-size: 1.15rem;
+  font-size: 1.25rem;
+  color: var(--muted);
 }
 
 .semantics .defs {
   display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  margin-top: 1.5rem;
-  padding-top: 1rem;
+  align-items: baseline;
+  gap: 2rem;
+  margin-top: 2.5rem;
+  padding-top: 1.25rem;
   border-top: 1px solid var(--line);
-  font-size: 1.1rem;
-  color: var(--muted);
 }
 
-.semantics .defs em {
-  font-style: normal;
-  font-weight: 600;
-  color: var(--fg);
+.semantics .defs .katex {
+  font-size: 1.35rem;
 }
 
 /* Example */
@@ -1209,7 +1181,7 @@
   .cspio .kinds,
   .cspio .spec,
   .syntax .blocks,
-  .semantics .grid,
+  .semantics .rules,
   .example .steps li,
   .wellformed .table,
   .cspm .grid,
