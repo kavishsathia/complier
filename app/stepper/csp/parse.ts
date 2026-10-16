@@ -123,11 +123,12 @@ class Parser {
         if (this.eat(":")) do types.push(this.type()); while (this.eat("."));
         names.forEach((name) => chans.push({ name, types, line }));
       } else {
-        // [[role]] before a definition marks it as a role an agent joins.
-        const role = this.eat("[[");
-        if (role) {
-          if (!this.eat("id", "role")) fail(line, "expected role inside [[ ]]");
-          this.expect("]]", "']]' after role");
+        // [[writer]] before a definition makes it the component an agent
+        // joins in the role named writer.
+        let role: string | undefined;
+        if (this.eat("[[")) {
+          role = this.name("lower", "a role name inside [[ ]]");
+          this.expect("]]", `']]' after ${role}`);
         }
         const name = this.name("process", "a process definition (NAME = ...)");
         const params: Def["params"] = [];

@@ -12,8 +12,8 @@ channel ^accept : {0..100}
 channel ^reject
 channel ^set_minimum : {0..100}
 
--- The agent's role: it may take any action in any order.
-[[role]] AGENT = ^accept?q -> AGENT
+-- The fulfiller may take any action in any order.
+[[fulfiller]] AGENT = ^accept?q -> AGENT
      [] ^reject -> AGENT
      [] ^set_minimum?m -> AGENT
 
@@ -65,6 +65,6 @@ export function gateEvent(spec: Spec, state: Proc, ev: Event | null, role?: stri
   return { ok: true, state: settle(spec, out.ds[0].to) };
 }
 
-// The demo's agent joins the AGENT role.
+// The demo's agent joins as the fulfiller.
 export const gate = (spec: Spec, state: Proc, call: Call, desk: Desk) =>
-  gateEvent(spec, state, event(call, desk), "AGENT");
+  gateEvent(spec, state, event(call, desk), "fulfiller");

@@ -107,7 +107,7 @@ export function step(spec: Spec, p: Proc): Derivation[] {
         side.push(`[\\![ ${texExpr(p.args[i])} ]\\!] = ${texValue(vs[i])} \\in ${texType(x.type)}`),
       );
       const body = subst(def.body, sigma);
-      return [node("IO-Call", p, { k: "tau" }, def.role ? { k: "role", name: def.name, p: body } : body, [], side)];
+      return [node("IO-Call", p, { k: "tau" }, def.role ? { k: "role", name: def.role, p: body } : body, [], side)];
     }
 
     // A role's component steps as its process does; each transition is
