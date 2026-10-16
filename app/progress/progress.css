@@ -1505,36 +1505,56 @@
   transform: translateX(1.1rem);
 }
 
-/* The spec slides down from under the agent's header. */
+/* The spec is its own box above the agent; it slides down when Complier is on. */
+
+.demo .side {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.demo .side .agent {
+  flex: 1;
+}
 
 .demo .pane {
   display: grid;
   grid-template-rows: 0fr;
-  transition: grid-template-rows 0.35s ease;
+  margin-bottom: 0;
+  opacity: 0;
+  transform: translateY(-1rem);
+  transition: grid-template-rows 0.4s ease, margin-bottom 0.4s ease, opacity 0.3s ease, transform 0.4s ease;
 }
 
 .demo .pane.open {
   grid-template-rows: 1fr;
+  margin-bottom: 1.5rem;
+  opacity: 1;
+  transform: none;
 }
 
 .demo .pane .inner {
   min-height: 0;
   overflow: hidden;
+  border: 1px solid var(--line);
 }
 
-.demo .pane.open .inner {
-  margin-top: 0.9rem;
-  border-top: 1px solid var(--line);
-  border-bottom: 1px solid var(--line);
+.demo .pane header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 1rem 1.5rem 0.75rem;
+  font-size: 1.2rem;
 }
 
 .demo .pane textarea {
   display: block;
   width: 100%;
-  height: 13rem;
+  height: 15rem;
   padding: 0.75rem 1.5rem;
   border: 0;
-  background: var(--line);
+  border-top: 1px solid var(--line);
+  background: none;
   color: var(--fg);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 0.8rem;
@@ -1544,7 +1564,8 @@
 }
 
 .demo .pane .status {
-  padding: 0.4rem 1.5rem;
+  padding: 0.5rem 1.5rem;
+  border-top: 1px solid var(--line);
   font-size: 0.8rem;
   color: var(--ok);
 }

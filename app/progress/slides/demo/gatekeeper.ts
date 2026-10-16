@@ -17,8 +17,8 @@ AGENT = accept?q -> AGENT
      [] reject -> AGENT
      [] set_minimum?m -> AGENT
 
--- Inventory tracks stock and the minimum: an accept must keep
--- stock at or above the minimum, which never goes below 20.
+-- Inventory tracks stock and the minimum. An accept keeps
+-- stock at or above the minimum; the minimum stays >= 20.
 INVENTORY(stock : {0..100}, min : {0..100}) =
      accept?q:{0..stock - min} -> INVENTORY(stock - q, min)
   [] set_minimum?m:{20..100} -> INVENTORY(stock, m)

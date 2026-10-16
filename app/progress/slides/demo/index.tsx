@@ -170,27 +170,13 @@ export default function Demo() {
         </table>
       </div>
 
-      <aside className="agent">
-        <header>
-          <strong>Fulfilment agent</strong>
-          <button
-            role="switch"
-            aria-checked={complier}
-            className={`switch${complier ? " on" : ""}`}
-            onClick={(e) => {
-              e.currentTarget.blur();
-              setComplier((c) => !c);
-              reset();
-            }}
-          >
-            <span className="track">
-              <span className="thumb" />
-            </span>
-            Complier
-          </button>
-        </header>
+      <div className="side">
         <div className={`pane${complier ? " open" : ""}`} aria-hidden={!complier}>
           <div className="inner">
+            <header>
+              <strong>Specification</strong>
+              <span className="label">CSPio</span>
+            </header>
             <textarea
               spellCheck={false}
               value={spec}
@@ -203,48 +189,68 @@ export default function Demo() {
             <p className={`status${specError ? " bad" : ""}`}>{specError ?? "Spec parses. Agent calls are checked against it."}</p>
           </div>
         </div>
-        <p className="task">Take the first pending order. Accept if inventory stays at or above the minimum, else reject.</p>
-        <ol ref={log}>
-          {shown.map(({ step }, i) =>
-            step ? (
-              <li key={i} className={`${step.call.name}${step.refused ? " refused" : ""}`}>
-                <code>{show(step.call)}</code>
-                {step.refused && <span className="verdict">refused by Complier</span>}
-                <p>{step.call.reason}</p>
+        <aside className="agent">
+          <header>
+            <strong>Fulfilment agent</strong>
+            <button
+              role="switch"
+              aria-checked={complier}
+              className={`switch${complier ? " on" : ""}`}
+              onClick={(e) => {
+                e.currentTarget.blur();
+                setComplier((c) => !c);
+                reset();
+              }}
+            >
+              <span className="track">
+                <span className="thumb" />
+              </span>
+              Complier
+            </button>
+          </header>
+          <p className="task">Take the first pending order. Accept if inventory stays at or above the minimum, else reject.</p>
+          <ol ref={log}>
+            {shown.map(({ step }, i) =>
+              step ? (
+                <li key={i} className={`${step.call.name}${step.refused ? " refused" : ""}`}>
+                  <code>{show(step.call)}</code>
+                  {step.refused && <span className="verdict">refused by Complier</span>}
+                  <p>{step.call.reason}</p>
+                </li>
+              ) : null,
+            )}
+            {busy && view === last && (
+              <li className="thinking">
+                <span />
+                <span />
+                <span />
               </li>
-            ) : null,
-          )}
-          {busy && view === last && (
-            <li className="thinking">
-              <span />
-              <span />
-              <span />
-            </li>
-          )}
-          {error && <li className="error">{error}</li>}
-        </ol>
-        <footer>
-          <div className="scrub">
-            {frames.map((_, i) => (
-              <button
-                key={i}
-                aria-label={`State ${i}`}
-                className={i === view ? "on" : i < view ? "past" : undefined}
-                onClick={() => {
-                  setPlaying(false);
-                  setView(i);
-                }}
-              />
-            ))}
-          </div>
-          <span className="hint">
-            {view === 0 && !playing ? "Space to start" : "Space play/pause · ← → step while paused"}
-          </span>
-          <button className="reset" onClick={reset}>
-            Reset
-          </button>
-        </footer>
-      </aside>
+            )}
+            {error && <li className="error">{error}</li>}
+          </ol>
+          <footer>
+            <div className="scrub">
+              {frames.map((_, i) => (
+                <button
+                  key={i}
+                  aria-label={`State ${i}`}
+                  className={i === view ? "on" : i < view ? "past" : undefined}
+                  onClick={() => {
+                    setPlaying(false);
+                    setView(i);
+                  }}
+                />
+              ))}
+            </div>
+            <span className="hint">
+              {view === 0 && !playing ? "Space to start" : "Space play/pause · ← → step while paused"}
+            </span>
+            <button className="reset" onClick={reset}>
+              Reset
+            </button>
+          </footer>
+        </aside>
+      </div>
 
       {flash && (
         <div key={flash.n} className="flash" aria-hidden="true">
