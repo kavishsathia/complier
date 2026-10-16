@@ -4,6 +4,9 @@
   --muted: #78716c;
   --line: #e7e5e4;
   --bad: #b91c1c;
+  --bad-bg: rgb(185 28 28 / 0.1);
+  --ok: #15803d;
+  --ok-bg: rgb(21 128 61 / 0.1);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -13,6 +16,9 @@
     --muted: #a8a29e;
     --line: #292524;
     --bad: #f87171;
+    --bad-bg: rgb(248 113 113 / 0.14);
+    --ok: #4ade80;
+    --ok-bg: rgb(74 222 128 / 0.12);
   }
 }
 
