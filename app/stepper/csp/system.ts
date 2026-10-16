@@ -65,10 +65,15 @@ export type Outcome =
 // it. Otherwise nothing for an internal event, which only ever happens on its
 // own; nothing yet if S can still take τ; and else [IO-Drop] for a world
 // event and [IO-Refuse] for an agent event.
-export function submit(spec: Spec, s: Proc, a: Event): Outcome {
+// Whether the role's component takes part in the transition.
+const performs = (d: Derivation, role: string): boolean => d.role === role || d.premises.some((p) => performs(p, role));
+
+// With a role, only transitions that role's component takes part in count:
+// an agent can perform only what its own role offers.
+export function submit(spec: Spec, s: Proc, a: Event, role?: string): Outcome {
   const mark = spec.marks.get(a.chan) ?? "internal";
   const all = step(spec, s);
-  const ds = all.filter((d) => d.label.k === "ev" && sameEvent(d.label, a));
+  const ds = all.filter((d) => d.label.k === "ev" && sameEvent(d.label, a) && (!role || performs(d, role)));
   if (ds.length) return { k: "accepted", mark, ds };
   if (mark === "internal") return { k: "blocked", mark };
   if (all.some((d) => d.label.k === "tau")) return { k: "unstable", mark };

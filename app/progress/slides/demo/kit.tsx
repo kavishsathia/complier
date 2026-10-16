@@ -93,7 +93,7 @@ export function usePlayback<F>(first: F, more: (last: F) => Promise<F[]>, done: 
 
 // Tokens of the spec language, for highlighting: comments, the channel
 // keyword, process names, ~ and ^ marks, numbers and operators.
-const TOKEN = /(--.*)|(\bchannel\b)|([A-Z][A-Za-z0-9_']*)|([~^])(?=[a-z])|(\d+)|(->|\[\]|\[\||\|\]|\|~\||\|\|\||\.\.|[?!:=&;{}])/g;
+const TOKEN = /(--.*)|(\bchannel\b|\brole\b)|([A-Z][A-Za-z0-9_']*)|([~^])(?=[a-z])|(\d+)|(->|\[\]|\[\||\|\]|\|~\||\|\|\||\.\.|[?!:=&;{}])/g;
 const KINDS = ["comment", "keyword", "process", "mark", "number", "op"];
 
 function highlight(src: string) {

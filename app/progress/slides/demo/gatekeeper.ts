@@ -12,8 +12,8 @@ channel ^accept : {0..100}
 channel ^reject
 channel ^set_minimum : {0..100}
 
--- The agent may take any action in any order.
-AGENT = ^accept?q -> AGENT
+-- The agent's role: it may take any action in any order.
+role AGENT = ^accept?q -> AGENT
      [] ^reject -> AGENT
      [] ^set_minimum?m -> AGENT
 
@@ -57,12 +57,14 @@ export { parse };
 
 // Performs the event if the state offers it; otherwise it is refused and the
 // state stays as it was. An event outside the spec's alphabet fails closed.
-export function gateEvent(spec: Spec, state: Proc, ev: Event | null): { ok: boolean; state: Proc } {
+export function gateEvent(spec: Spec, state: Proc, ev: Event | null, role?: string): { ok: boolean; state: Proc } {
   const types = ev && spec.chans.get(ev.chan);
   if (!ev || !types || types.length !== ev.values.length) return { ok: false, state };
-  const out = submit(spec, state, ev);
+  const out = submit(spec, state, ev, role);
   if (out.k !== "accepted" || out.mark !== "agent") return { ok: false, state };
   return { ok: true, state: settle(spec, out.ds[0].to) };
 }
 
-export const gate = (spec: Spec, state: Proc, call: Call, desk: Desk) => gateEvent(spec, state, event(call, desk));
+// The demo's agent joins the AGENT role.
+export const gate = (spec: Spec, state: Proc, call: Call, desk: Desk) =>
+  gateEvent(spec, state, event(call, desk), "AGENT");

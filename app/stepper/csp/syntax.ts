@@ -27,11 +27,15 @@ export type Proc =
   | { k: "guard"; b: Expr; p: Proc }
   | { k: "seq"; l: Proc; r: Proc }
   | { k: "par"; sync: string[]; l: Proc; r: Proc }
-  | { k: "call"; name: string; args: Expr[] };
+  | { k: "call"; name: string; args: Expr[] }
+  // A running role component: the process an agent joined, so events can be
+  // attributed to the role that performs them.
+  | { k: "role"; name: string; p: Proc };
 
 export type Type = { k: "range"; lo: number; hi: number } | { k: "bool" };
 
-export type Def = { name: string; params: { name: string; type: Type }[]; body: Proc; line: number };
+// A definition marked role is a component an agent joins.
+export type Def = { name: string; params: { name: string; type: Type }[]; body: Proc; line: number; role: boolean };
 
 // Who submits a channel's events: the world (~c, uncontrollable), an agent
 // (^c, controllable), or nobody (internal: they happen on their own).
@@ -49,6 +53,8 @@ export type Label = { k: "tau" } | { k: "tick" } | Event | { k: "drop"; ev: Even
 // transitions it rests on, and the side conditions it checked.
 export type Derivation = {
   rule: string;
+  // Set when the transition is performed by a role's component.
+  role?: string;
   from: Proc;
   label: Label;
   to: Proc;

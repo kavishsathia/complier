@@ -106,8 +106,17 @@ export function step(spec: Spec, p: Proc): Derivation[] {
       def.params.forEach((x, i) =>
         side.push(`[\\![ ${texExpr(p.args[i])} ]\\!] = ${texValue(vs[i])} \\in ${texType(x.type)}`),
       );
-      return [node("IO-Call", p, { k: "tau" }, subst(def.body, sigma), [], side)];
+      const body = subst(def.body, sigma);
+      return [node("IO-Call", p, { k: "tau" }, def.role ? { k: "role", name: def.name, p: body } : body, [], side)];
     }
+
+    // A role's component steps as its process does; each transition is
+    // attributed to the role. A role that calls itself stays one component.
+    case "role":
+      return step(spec, p.p).map((d) => {
+        const inner = d.to.k === "role" && d.to.name === p.name ? d.to.p : d.to;
+        return { ...d, from: p, to: d.to.k === "omega" ? d.to : { k: "role", name: p.name, p: inner }, role: p.name };
+      });
   }
 }
 
@@ -216,6 +225,8 @@ export function subst(p: Proc, sigma: [string, Value][]): Proc {
       return { ...p, b: e(p.b), p: subst(p.p, sigma) };
     case "call":
       return { ...p, args: p.args.map(e) };
+    case "role":
+      return { ...p, p: subst(p.p, sigma) };
   }
 }
 

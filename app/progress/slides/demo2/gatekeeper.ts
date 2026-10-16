@@ -2,25 +2,23 @@
 // agents, so it holds however many agents act on it.
 
 import type { Event } from "../../../stepper/csp/syntax.ts";
-import type { AgentName } from "./model";
 
-export const SPEC = `-- Each event carries the agent: 1 is A, 2 is B.
-channel ^next : {1..2}
-channel ^send : {1..2}
-channel ^reject : {1..2}
+export const SPEC = `channel ^next, ^send, ^reject
 
--- A critical section around read-then-write. Once an
--- agent reads the next order, no one else may read until
--- that agent has sent it or rejected it.
-LOCK = ^next?a -> (^send.a -> LOCK [] ^reject.a -> LOCK)
+-- Two roles, one agent each. Each reads the next order,
+-- then sends or rejects it.
+role A = ^next -> (^send -> A [] ^reject -> A)
+role B = ^next -> (^send -> B [] ^reject -> B)
 
-MAIN = LOCK
+-- The lock both roles synchronise on: after a read, no
+-- other read until that order is sent or rejected.
+LOCK = ^next -> (^send -> LOCK [] ^reject -> LOCK)
+
+MAIN = (A ||| B) [| {next, send, reject} |] LOCK
 `;
 
-// The translation unit: each tool call becomes an event carrying the agent.
+// The translation unit: each tool call becomes an event, performed by the
+// role the calling agent joined.
 const CHANNEL: Record<string, string> = { next_order: "next", send_to_recipient: "send", reject_order: "reject" };
 
-export function event(agent: AgentName, tool: string): Event | null {
-  const chan = CHANNEL[tool];
-  return chan ? { k: "ev", chan, values: [agent === "A" ? 1 : 2] } : null;
-}
+export const event = (tool: string): Event | null => (CHANNEL[tool] ? { k: "ev", chan: CHANNEL[tool], values: [] } : null);

@@ -20,6 +20,8 @@ function texProc_(p: Proc): string {
       return "\\mathit{SKIP}";
     case "omega":
       return "\\Omega";
+    case "role":
+      return texProc(p.p);
     case "call":
       return p.args.length ? `${id(p.name)}(${p.args.map((e) => texExpr(e)).join(", ")})` : id(p.name);
     case "pre":

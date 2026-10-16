@@ -53,7 +53,7 @@ export async function tick(f: Frame, spec?: Spec, base = ""): Promise<Frame[]> {
   // passes through.
   function check(agent: AgentName, tool: string): boolean {
     if (!spec || !state) return true;
-    const gate = gateEvent(spec, state, event(agent, tool));
+    const gate = gateEvent(spec, state, event(tool), agent);
     state = gate.state;
     return gate.ok;
   }

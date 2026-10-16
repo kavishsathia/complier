@@ -61,7 +61,7 @@ function lex(src: string): Tok[] {
   return toks;
 }
 
-const KEYWORDS = new Set(["channel", "and", "or", "not", "true", "false", "STOP", "SKIP", "Bool"]);
+const KEYWORDS = new Set(["channel", "role", "and", "or", "not", "true", "false", "STOP", "SKIP", "Bool"]);
 const isUpper = (s: string) => /^[A-Z]/.test(s);
 
 const show = (tok: Tok) =>
@@ -123,6 +123,7 @@ class Parser {
         if (this.eat(":")) do types.push(this.type()); while (this.eat("."));
         names.forEach((name) => chans.push({ name, types, line }));
       } else {
+        const role = this.eat("id", "role");
         const name = this.name("process", "a process definition (NAME = ...)");
         const params: Def["params"] = [];
         if (this.eat("(")) {
@@ -134,7 +135,7 @@ class Parser {
           this.expect(")");
         }
         this.expect("=");
-        defs.push({ name, params, body: this.proc(), line });
+        defs.push({ name, params, body: this.proc(), line, role });
       }
     }
     return { chans, defs, marks: this.marks };
