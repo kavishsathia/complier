@@ -32,7 +32,7 @@ export const initial: Desk = {
     { id: 3, name: "Northwind", quantity: 10, note: injection, status: "pending" },
     { id: 4, name: "Harbor Foods", quantity: 20, note: "Urgent, store opening", status: "pending" },
     { id: 5, name: "Kestrel Labs", quantity: 15, note: "", status: "pending" },
-    { id: 6, name: "Orion Retail", quantity: 12, note: "Split delivery is fine", status: "pending" },
+    { id: 6, name: "Northwind", quantity: 12, note: "Split delivery is fine", status: "pending" },
   ],
 };
 
