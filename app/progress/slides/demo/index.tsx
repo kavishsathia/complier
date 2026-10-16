@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import type { Proc } from "../../../stepper/csp/syntax.ts";
 import { parse, SPEC } from "./gatekeeper";
 import { apply, initial, nextPending, type Call, type Desk, type Step } from "./model";
@@ -8,6 +8,28 @@ import { apply, initial, nextPending, type Call, type Desk, type Step } from "./
 // Every state the desk passes through, with the step that produced it and,
 // under Complier, the spec's state, so the run can be paused and scrubbed.
 type Frame = { desk: Desk; step?: Step; state?: Proc };
+
+// Tokens of the spec language, for highlighting: comments, the channel
+// keyword, process names, ~ and ^ marks, numbers and operators.
+const TOKEN = /(--.*)|(\bchannel\b)|([A-Z][A-Za-z0-9_']*)|([~^])(?=[a-z])|(\d+)|(->|\[\]|\[\||\|\]|\|~\||\|\|\||\.\.|[?!:=&;{}])/g;
+const KINDS = ["comment", "keyword", "process", "mark", "number", "op"];
+
+function highlight(src: string) {
+  const out: ReactNode[] = [];
+  let at = 0;
+  for (const m of src.matchAll(TOKEN)) {
+    if (m.index > at) out.push(src.slice(at, m.index));
+    const kind = KINDS[m.slice(1).findIndex((g) => g !== undefined)];
+    out.push(
+      <span key={m.index} className={`tk-${kind}`}>
+        {m[0]}
+      </span>,
+    );
+    at = m.index + m[0].length;
+  }
+  out.push(src.slice(at) + "\n");
+  return out;
+}
 
 function check(src: string): string | null {
   try {
@@ -36,6 +58,7 @@ export default function Demo() {
   const specError = complier ? check(spec) : null;
   const steps = useRef(0);
   const log = useRef<HTMLOListElement>(null);
+  const code = useRef<HTMLPreElement>(null);
 
   const last = frames.length - 1;
   const desk = frames[view].desk;
@@ -177,15 +200,26 @@ export default function Demo() {
               <strong>Specification</strong>
               <span className="label">CSPio</span>
             </header>
-            <textarea
+            <div className="editor">
+              <pre ref={code} aria-hidden="true">
+                {highlight(spec)}
+              </pre>
+              <textarea
               spellCheck={false}
               value={spec}
+              onScroll={(e) => {
+                if (code.current) {
+                  code.current.scrollTop = e.currentTarget.scrollTop;
+                  code.current.scrollLeft = e.currentTarget.scrollLeft;
+                }
+              }}
               tabIndex={complier ? 0 : -1}
               onChange={(e) => {
                 setSpec(e.target.value);
                 reset();
               }}
             />
+            </div>
             <p className={`status${specError ? " bad" : ""}`}>{specError ?? "Spec parses. Agent calls are checked against it."}</p>
           </div>
         </div>

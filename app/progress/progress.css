@@ -1547,20 +1547,76 @@
   font-size: 1.2rem;
 }
 
-.demo .pane textarea {
-  display: block;
-  width: 100%;
+.demo .editor {
+  position: relative;
   height: 15rem;
-  padding: 0.75rem 1.5rem;
-  border: 0;
   border-top: 1px solid var(--line);
-  background: none;
-  color: var(--fg);
+}
+
+/* The highlighted code sits under a transparent textarea with the same metrics. */
+.demo .editor pre,
+.demo .editor textarea {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  padding: 0.75rem 1.5rem;
+  overflow: auto;
+  border: 0;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 0.8rem;
   line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  tab-size: 2;
+}
+
+.demo .editor pre {
+  pointer-events: none;
+  color: var(--fg);
+  scrollbar-width: none;
+}
+
+.demo .editor textarea {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: none;
+  color: transparent;
+  caret-color: var(--fg);
   resize: none;
   outline: none;
+}
+
+.demo .editor textarea::selection {
+  background: var(--hl-sel);
+  color: transparent;
+}
+
+.demo .tk-comment {
+  color: var(--muted);
+  font-style: italic;
+}
+
+.demo .tk-keyword {
+  color: var(--hl-kw);
+  font-weight: 600;
+}
+
+.demo .tk-process {
+  color: var(--hl-proc);
+}
+
+.demo .tk-mark {
+  color: var(--ok);
+  font-weight: 600;
+}
+
+.demo .tk-number {
+  color: var(--hl-num);
+}
+
+.demo .tk-op {
+  color: var(--muted);
 }
 
 .demo .pane .status {

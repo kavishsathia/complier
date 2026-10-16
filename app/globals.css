@@ -7,6 +7,10 @@
   --bad-bg: rgb(185 28 28 / 0.1);
   --ok: #15803d;
   --ok-bg: rgb(21 128 61 / 0.1);
+  --hl-kw: #7c3aed;
+  --hl-proc: #1d4ed8;
+  --hl-num: #c2410c;
+  --hl-sel: rgb(29 78 216 / 0.2);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -19,6 +23,10 @@
     --bad-bg: rgb(248 113 113 / 0.14);
     --ok: #4ade80;
     --ok-bg: rgb(74 222 128 / 0.12);
+    --hl-kw: #c4b5fd;
+    --hl-proc: #93c5fd;
+    --hl-num: #fdba74;
+    --hl-sel: rgb(147 197 253 / 0.25);
   }
 }
 
