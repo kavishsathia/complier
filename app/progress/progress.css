@@ -1294,11 +1294,6 @@
   font-size: 1.2rem;
 }
 
-.demo .agent > header code {
-  font-size: 0.9rem;
-  color: var(--muted);
-}
-
 .demo .task {
   padding: 0.4rem 1.5rem 1rem;
   border-bottom: 1px solid var(--line);

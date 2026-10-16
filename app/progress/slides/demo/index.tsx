@@ -148,7 +148,6 @@ export default function Demo() {
       <aside className="agent">
         <header>
           <strong>Fulfilment agent</strong>
-          <code>gpt-4.1</code>
         </header>
         <p className="task">Take the first pending order. Accept if inventory stays at or above the minimum, else reject.</p>
         <ol ref={log}>
