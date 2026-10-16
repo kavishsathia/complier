@@ -7,8 +7,8 @@ export const SPEC = `channel ^next, ^send, ^reject
 
 -- Two roles, one agent each. Each reads the next order,
 -- then sends or rejects it.
-role A = ^next -> (^send -> A [] ^reject -> A)
-role B = ^next -> (^send -> B [] ^reject -> B)
+[[role]] A = ^next -> (^send -> A [] ^reject -> A)
+[[role]] B = ^next -> (^send -> B [] ^reject -> B)
 
 -- The lock both roles synchronise on: after a read, no
 -- other read until that order is sent or rejected.

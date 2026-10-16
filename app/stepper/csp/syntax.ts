@@ -34,7 +34,7 @@ export type Proc =
 
 export type Type = { k: "range"; lo: number; hi: number } | { k: "bool" };
 
-// A definition marked role is a component an agent joins.
+// A definition marked [[role]] is a component an agent joins.
 export type Def = { name: string; params: { name: string; type: Type }[]; body: Proc; line: number; role: boolean };
 
 // Who submits a channel's events: the world (~c, uncontrollable), an agent

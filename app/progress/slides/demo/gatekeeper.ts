@@ -13,7 +13,7 @@ channel ^reject
 channel ^set_minimum : {0..100}
 
 -- The agent's role: it may take any action in any order.
-role AGENT = ^accept?q -> AGENT
+[[role]] AGENT = ^accept?q -> AGENT
      [] ^reject -> AGENT
      [] ^set_minimum?m -> AGENT
 
