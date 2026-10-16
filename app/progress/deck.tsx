@@ -15,7 +15,7 @@ import Example from "./slides/example";
 import Wellformed from "./slides/wellformed";
 import CSPM from "./slides/cspm";
 import Units from "./slides/units";
-import Boundary from "./slides/boundary";
+import Declarative from "./slides/declarative";
 import Runtime from "./slides/runtime";
 import Demo from "./slides/demo";
 import Lessons from "./slides/lessons";
@@ -41,7 +41,7 @@ const slides: { Slide: React.ComponentType<SlideProps>; steps: number }[] = [
   { Slide: Wellformed, steps: 1 },
   { Slide: CSPM, steps: 1 },
   { Slide: Units, steps: 1 },
-  { Slide: Boundary, steps: 1 },
+  { Slide: Declarative, steps: 1 },
   { Slide: Runtime, steps: 1 },
   { Slide: Demo, steps: 1 },
   { Slide: Lessons, steps: 1 },
