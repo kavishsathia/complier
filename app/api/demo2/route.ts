@@ -1,4 +1,5 @@
 import { complete, type Message } from "../demo/agent";
+import { authorised, denied } from "../demo/auth";
 
 // One turn of one fulfilment agent in demo 2. The tools run in the browser,
 // against the desk both agents share, so this only asks the model for its
@@ -42,6 +43,7 @@ const tools = [
 ];
 
 export async function POST(request: Request) {
+  if (!authorised(request)) return denied();
   const { messages }: { messages: Message[] } = await request.json();
   try {
     return Response.json({ message: await complete(messages, tools) });

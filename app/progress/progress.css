@@ -1417,6 +1417,26 @@
   color: var(--muted);
 }
 
+.demo .password {
+  flex: 1;
+}
+
+.demo .password input {
+  width: 100%;
+  max-width: 14rem;
+  padding: 0.3rem 0.6rem;
+  border: 1px solid var(--line);
+  background: none;
+  color: var(--fg);
+  font: inherit;
+  font-size: 0.85rem;
+  outline: none;
+}
+
+.demo .password input:focus {
+  border-color: var(--muted);
+}
+
 .demo .reset {
   padding: 0.25rem 0.6rem;
   border: 1px solid var(--line);

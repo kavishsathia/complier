@@ -2,7 +2,7 @@
 
 import { useCallback, useMemo, useState } from "react";
 import { parse } from "../demo/gatekeeper";
-import { check, Controls, Flash, SpecPane, Switch, Thinking, useFollow, usePlayback } from "../demo/kit";
+import { check, Controls, Flash, SpecPane, Switch, Thinking, useFollow, usePassword, usePlayback } from "../demo/kit";
 import { SPEC } from "./gatekeeper";
 import { initial, type AgentName, type Step } from "./model";
 import { AGENTS, finished, first, tick, type Frame } from "./run";
@@ -29,11 +29,15 @@ export default function Demo2() {
   const [complier, setComplier] = useState(false);
   const [spec, setSpec] = useState(SPEC);
   const specError = complier ? check(spec) : null;
+  const [password, setPassword] = usePassword();
 
   const parsed = useMemo(() => (complier && !specError ? parse(spec) : undefined), [complier, spec, specError]);
-  const more = useCallback((f: Frame) => tick(f, parsed), [parsed]);
+  const more = useCallback(
+    (f: Frame) => tick(f, parsed, password, () => setPassword(null)),
+    [parsed, password, setPassword],
+  );
 
-  const run = usePlayback(FIRST, more, finished, !!specError);
+  const run = usePlayback(FIRST, more, finished, !!specError || !password);
   const { frames, view, last, busy } = run;
 
   const desk = frames[view].desk;
@@ -130,7 +134,15 @@ export default function Demo2() {
             ))}
           </div>
           {run.error && <p className="error">{run.error}</p>}
-          <Controls count={frames.length} view={view} playing={run.playing} seek={run.seek} reset={run.reset} />
+          <Controls
+            count={frames.length}
+            view={view}
+            playing={run.playing}
+            seek={run.seek}
+            reset={run.reset}
+            password={password}
+            onPassword={setPassword}
+          />
         </aside>
       </div>
 

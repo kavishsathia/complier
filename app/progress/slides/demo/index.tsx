@@ -3,7 +3,7 @@
 import { useCallback, useState } from "react";
 import type { Proc } from "../../../stepper/csp/syntax.ts";
 import { SPEC } from "./gatekeeper";
-import { check, Controls, Flash, SpecPane, Switch, Thinking, useFollow, usePlayback } from "./kit";
+import { check, Controls, Flash, post, SpecPane, Switch, Thinking, useFollow, usePassword, usePlayback } from "./kit";
 import { apply, initial, nextPending, type Call, type Desk, type Step } from "./model";
 
 // A state of the desk, the step that produced it and, under Complier, the
@@ -19,13 +19,14 @@ export default function Demo() {
   const [complier, setComplier] = useState(false);
   const [spec, setSpec] = useState(SPEC);
   const specError = complier ? check(spec) : null;
+  const [password, setPassword] = usePassword();
 
   const more = useCallback(
     async ({ desk, state }: Frame) => {
       const body = complier ? { desk, spec, state } : { desk };
-      const res: { steps?: Step[]; state?: Proc; error?: string } = await (
-        await fetch("/api/demo", { method: "POST", body: JSON.stringify(body) })
-      ).json();
+      const res: { steps?: Step[]; state?: Proc; error?: string } = await post("/api/demo", body, password, () =>
+        setPassword(null),
+      );
       if (res.error || !res.steps) throw new Error(res.error ?? "no calls");
       const out: Frame[] = [];
       let d = desk;
@@ -35,10 +36,10 @@ export default function Demo() {
       }
       return out;
     },
-    [complier, spec],
+    [complier, spec, password, setPassword],
   );
 
-  const run = usePlayback(FIRST, more, (f) => !nextPending(f.desk), !!specError);
+  const run = usePlayback(FIRST, more, (f) => !nextPending(f.desk), !!specError || !password);
   const { frames, view, last, busy } = run;
   const log = useFollow(`${view}${busy}`);
 
@@ -126,7 +127,15 @@ export default function Demo() {
             {busy && view === last && <Thinking />}
             {run.error && <li className="error">{run.error}</li>}
           </ol>
-          <Controls count={frames.length} view={view} playing={run.playing} seek={run.seek} reset={run.reset} />
+          <Controls
+            count={frames.length}
+            view={view}
+            playing={run.playing}
+            seek={run.seek}
+            reset={run.reset}
+            password={password}
+            onPassword={setPassword}
+          />
         </aside>
       </div>
 

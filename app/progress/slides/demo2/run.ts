@@ -4,6 +4,7 @@
 
 import type { Proc, Spec } from "../../../stepper/csp/syntax.ts";
 import { gateEvent, start } from "../demo/gatekeeper";
+import { post } from "../demo/kit";
 import { event } from "./gatekeeper";
 import { next, reject, send, type AgentName, type Desk, type Step } from "./model";
 
@@ -39,7 +40,7 @@ export const first = (desk: Desk): Frame => ({
 
 export const finished = (f: Frame) => AGENTS.every((a) => f.done[a]);
 
-export async function tick(f: Frame, spec?: Spec, base = ""): Promise<Frame[]> {
+export async function tick(f: Frame, spec: Spec | undefined, password: string | null, forget: () => void): Promise<Frame[]> {
   const out: Frame[] = [];
   let { desk, state } = f;
   // Under Complier the run starts from the spec's initial state.
@@ -101,8 +102,7 @@ export async function tick(f: Frame, spec?: Spec, base = ""): Promise<Frame[]> {
 
   await Promise.all(
     AGENTS.filter((a) => !done[a]).map(async (agent) => {
-      const res = await fetch(`${base}/api/demo2`, { method: "POST", body: JSON.stringify({ messages: convo[agent] }) });
-      const { message, error } = (await res.json()) as { message?: Message & { tool_calls?: ToolCall[] }; error?: string };
+      const { message, error } = (await post("/api/demo2", { messages: convo[agent] }, password, forget)) as { message?: Message & { tool_calls?: ToolCall[] }; error?: string };
       if (error || !message) throw new Error(error ?? "no reply");
       const msgs = [...convo[agent], message];
       for (const t of message.tool_calls ?? []) {

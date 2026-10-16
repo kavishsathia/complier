@@ -1,6 +1,7 @@
 import { gate, parse, start } from "../../progress/slides/demo/gatekeeper";
 import { apply, nextPending, type Call, type Desk, type Step } from "../../progress/slides/demo/model";
 import { complete, show, SYSTEM, tools, type Message } from "./agent";
+import { authorised, denied } from "./auth";
 import type { Proc, Spec } from "../../stepper/csp/syntax.ts";
 
 // One step of the order-desk agent: given the desk, decide the first pending order.
@@ -8,6 +9,7 @@ import type { Proc, Spec } from "../../stepper/csp/syntax.ts";
 // Runs the agent until it accepts or rejects the order in front of it. With a
 // spec, Complier checks every call against the spec's state first.
 export async function POST(request: Request) {
+  if (!authorised(request)) return denied();
   const body: { desk: Desk; spec?: string; state?: Proc } = await request.json();
   let { desk, state } = body;
   let spec: Spec | undefined;

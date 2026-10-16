@@ -50,7 +50,10 @@ export function usePlayback<F>(first: F, more: (last: F) => Promise<F[]>, done: 
     setBusy(true);
     rounds.current++;
     more(frames[last])
-      .then((next) => setFrames((fs) => [...fs, ...next]))
+      .then((next) => {
+        setError(null);
+        setFrames((fs) => [...fs, ...next]);
+      })
       .catch((e: Error) => {
         setError(e.message.slice(0, 200));
         setPlaying(false);
@@ -89,6 +92,57 @@ export function usePlayback<F>(first: F, more: (last: F) => Promise<F[]>, done: 
   };
 
   return { frames, view, last, playing, busy, error, flash, reset, seek };
+}
+
+// The presenter's password, remembered in this browser. The demo routes
+// refuse requests without it.
+const KEY = "demo:password";
+
+export function usePassword() {
+  const [password, setPassword] = useState<string | null>(null);
+  useEffect(() => {
+    try {
+      setPassword(localStorage.getItem(KEY));
+    } catch {}
+  }, []);
+  const save = useCallback((p: string | null) => {
+    try {
+      if (p) localStorage.setItem(KEY, p);
+      else localStorage.removeItem(KEY);
+    } catch {}
+    setPassword(p);
+  }, []);
+  return [password, save] as const;
+}
+
+// Posts to a demo route with the password; a refusal forgets it.
+export async function post(url: string, body: unknown, password: string | null, forget: () => void) {
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "x-demo-password": password ?? "" },
+    body: JSON.stringify(body),
+  });
+  if (res.status === 401) {
+    forget();
+    throw new Error("Wrong password");
+  }
+  return res.json();
+}
+
+function PasswordBox({ onSubmit }: { onSubmit: (p: string) => void }) {
+  return (
+    <form
+      className="password"
+      onSubmit={(e) => {
+        e.preventDefault();
+        const input = e.currentTarget.elements.namedItem("password") as HTMLInputElement;
+        if (input.value) onSubmit(input.value);
+        input.blur();
+      }}
+    >
+      <input name="password" type="password" placeholder="Demo password" autoComplete="off" />
+    </form>
+  );
 }
 
 // Tokens of the spec language, for highlighting: comments, the channel
@@ -174,7 +228,23 @@ export function Switch({ on, onToggle }: { on: boolean; onToggle: () => void }) 
   );
 }
 
-export function Controls({ count, view, playing, seek, reset }: { count: number; view: number; playing: boolean; seek: (i: number) => void; reset: () => void }) {
+export function Controls({
+  count,
+  view,
+  playing,
+  seek,
+  reset,
+  password,
+  onPassword,
+}: {
+  count: number;
+  view: number;
+  playing: boolean;
+  seek: (i: number) => void;
+  reset: () => void;
+  password: string | null;
+  onPassword: (p: string) => void;
+}) {
   return (
     <footer>
       <div className="scrub">
@@ -187,7 +257,11 @@ export function Controls({ count, view, playing, seek, reset }: { count: number;
           />
         ))}
       </div>
-      <span className="hint">{view === 0 && !playing ? "Space to start" : "Space play/pause · ← → step while paused"}</span>
+      {password ? (
+        <span className="hint">{view === 0 && !playing ? "Space to start" : "Space play/pause · ← → step while paused"}</span>
+      ) : (
+        <PasswordBox onSubmit={onPassword} />
+      )}
       <button className="reset" onClick={reset}>
         Reset
       </button>
