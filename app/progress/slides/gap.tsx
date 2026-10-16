@@ -8,32 +8,15 @@ export default function Gap() {
   return (
     <section className="slide gap">
       <p className="eyebrow">04 · Research gap</p>
-      <h2>Multi-agent verification is an open problem, and blocking alone leaves agents useless.</h2>
+      <h2>Multi-agent verification is an open problem: checking each agent alone misses what they do together.</h2>
 
-      <div className="grid">
-        <div className="tax">
-          <span className="label">The verifier tax</span>
-          <div className="stats">
-            <div>
-              <strong>94%</strong>
-              <span>of unsafe actions intercepted</span>
-            </div>
-            <div>
-              <strong>&lt;5%</strong>
-              <span>of tasks completed safely</span>
-            </div>
-          </div>
-          <p>A blocked agent searches for a route the monitor did not anticipate.</p>
-        </div>
-
-        <div className="emergent">
-          <span className="label">Missed when each agent is checked alone</span>
-          <ul>
-            <li>Collusion</li>
-            <li>Cascading failures</li>
-            <li>Trust delegation</li>
-          </ul>
-        </div>
+      <div className="emergent">
+        <span className="label">Missed when each agent is checked alone</span>
+        <ul>
+          <li>Collusion</li>
+          <li>Cascading failures</li>
+          <li>Trust delegation</li>
+        </ul>
       </div>
 
       <div className="ours">

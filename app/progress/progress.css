@@ -459,48 +459,23 @@
 
 /* Research gap */
 
-.gap .grid {
-  display: grid;
-  grid-template-columns: 3fr 2fr;
-  gap: 3rem;
-  margin-top: 2rem;
-}
-
-.gap .stats {
-  display: flex;
-  gap: 3rem;
-  margin-top: 0.75rem;
-}
-
-.gap .stats strong {
-  display: block;
-  font-size: 3.5rem;
-  font-weight: 600;
-  line-height: 1.1;
-  letter-spacing: -0.03em;
-}
-
-.gap .stats span {
-  font-size: 1.15rem;
-  color: var(--muted);
-}
-
-.gap .tax p {
-  margin-top: 1rem;
-  font-size: 1.25rem;
-  line-height: 1.45;
+.gap .emergent {
+  margin-top: 2.25rem;
 }
 
 .gap .emergent ul {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 2rem;
   margin-top: 0.75rem;
   padding: 0;
   list-style: none;
 }
 
 .gap .emergent li {
-  padding: 0.5rem 0;
-  border-bottom: 1px solid var(--line);
-  font-size: 1.45rem;
+  padding-top: 0.6rem;
+  border-top: 1px solid var(--line);
+  font-size: 1.6rem;
 }
 
 .gap .ours {
@@ -1138,7 +1113,7 @@
 @media (max-width: 720px) {
   .objectives .table,
   .related .stages,
-  .gap .grid,
+  .gap .emergent ul,
   .gap .ours dl,
   .cspio .kinds,
   .cspio .spec,
