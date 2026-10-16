@@ -1,7 +1,7 @@
 export default function Title() {
   return (
     <section className="slide title">
-      <p className="eyebrow">UROP · CA presentation</p>
+      <p className="eyebrow">CP3209 · CA presentation</p>
       <h1>Complier: Provable Safety for Interacting AI Agents</h1>
       <p className="byline">Kavish Sathia</p>
       <dl className="people">

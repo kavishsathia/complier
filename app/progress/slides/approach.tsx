@@ -36,7 +36,7 @@ const rows = [
 export default function Approach() {
   return (
     <section className="slide approach">
-      <p className="eyebrow">07 · Approach</p>
+      <p className="eyebrow">07 · Design alternatives</p>
       <h2>The gatekeeper is a CSP state machine.</h2>
       <p className="sub">
         Chosen after three two-week iterations, judged on one trade-off:

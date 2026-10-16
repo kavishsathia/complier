@@ -1,61 +1,81 @@
-const steps = [
-  "Define a fragment of CSP",
-  "Extend the fragment's semantics with what helps it compile into a runtime monitor",
-  "Define a symbolic transition system (STS) semantics so the fragment compiles into a runtime monitor",
-  "Ground the work in CSP's operational semantics (Roscoe)",
-  "Model use cases for constrained agents using the fragment",
-];
+// Weeks are inclusive, read off the report's schedule (Figure 1).
+const groups = [
+  {
+    name: "O2 Use cases",
+    span: [1, 5],
+    tasks: [
+      ["Analyse transcripts", 1, 3],
+      ["Specify in CSPio", 3, 5],
+    ],
+  },
+  {
+    name: "O3 Enforcement",
+    span: [2, 7],
+    tasks: [
+      ["Gatekeeper", 2, 6],
+      ["Drop and refusal", 5, 7],
+    ],
+  },
+  {
+    name: "O4 Integration",
+    span: [7, 10],
+    tasks: [
+      ["Claude Code", 7, 8],
+      ["Codex", 9, 10],
+    ],
+  },
+  {
+    name: "O5 Evaluation",
+    span: [6, 13],
+    tasks: [
+      ["Refinement checks", 6, 9],
+      ["Evaluation", 10, 12],
+      ["Final report", 11, 13],
+    ],
+  },
+] as const;
+
+const weeks = Array.from({ length: 13 }, (_, i) => i + 1);
+
+// Grid column for week w: the first column holds the labels.
+const col = (from: number, to: number) => `${from + 1} / ${to + 2}`;
 
 export default function Plan() {
+  let row = 2;
   return (
     <section className="slide plan">
-      <p className="eyebrow">10 · Plan for next semester</p>
-      <h2>
-        Turn CSP into a constrained language that compiles into a runtime
-        monitor, then prove it out on use cases.
-      </h2>
+      <p className="eyebrow">19 · Plan for next semester</p>
+      <h2>Ground Complier in use cases, build the gatekeeper, integrate it, then verify and evaluate.</h2>
 
-      <div className="body">
-        <ol className="steps">
-          {steps.map((s) => (
-            <li key={s}>{s}</li>
-          ))}
-        </ol>
-
-        <div className="side">
-          <h3 className="label">STS intuition</h3>
-          <div className="sts">
-            <span className="loc">ℓ</span>
-            <div className="edge">
-              <span className="math">withdraw(x)</span>
-              <span className="math guard">[balance ≥ x] / balance := balance − x</span>
-            </div>
-            <span className="loc">ℓ′</span>
-          </div>
-          <dl>
-            <div>
-              <dt>Process states</dt>
-              <dd>become control locations</dd>
-            </div>
-            <div>
-              <dt>Events</dt>
-              <dd>become transitions with a guard and an update</dd>
-            </div>
-            <div>
-              <dt>Shared events</dt>
-              <dd>are synchronised</dd>
-            </div>
-          </dl>
-
-          <h3 className="label">Why symbolic</h3>
-          <p>One transition covers every data value, so the state space does not explode.</p>
-
-          <h3 className="label">Why a fragment</h3>
-          <p>
-            Keep the expressiveness agents need; trim what makes checking and
-            compilation costly.
-          </p>
-        </div>
+      <div className="gantt">
+        <span className="label corner">Week</span>
+        {weeks.map((w) => (
+          <span key={w} className="week" style={{ gridColumn: w + 1, gridRow: 1 }}>
+            {w}
+          </span>
+        ))}
+        {groups.map((g) => {
+          const head = row++;
+          return [
+            <span key={g.name} className="name group" style={{ gridRow: head }}>
+              {g.name}
+            </span>,
+            <span key={`${g.name}-bar`} className="bar group" style={{ gridRow: head, gridColumn: col(g.span[0], g.span[1]) }} />,
+            ...g.tasks.map(([t, from, to]) => {
+              const r = row++;
+              return [
+                <span key={t} className="name" style={{ gridRow: r }}>
+                  {t}
+                </span>,
+                <span key={`${t}-bar`} className="bar" style={{ gridRow: r, gridColumn: col(from, to) }} />,
+              ];
+            }),
+          ];
+        })}
+        <span className="name submission" style={{ gridRow: row }}>
+          Submission
+        </span>
+        <span className="diamond" style={{ gridRow: row, gridColumn: 14 }} />
       </div>
     </section>
   );

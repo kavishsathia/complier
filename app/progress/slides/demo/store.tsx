@@ -25,7 +25,7 @@ export default function Store({
     <div className="store">
       <header>
         <span className="brand">Cube Shop</span>
-        <span className="eyebrow">09 · Progress and initial results</span>
+        <span className="eyebrow">17 · Progress and initial results</span>
       </header>
 
       <div className="product">

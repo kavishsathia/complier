@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Deck from "./deck";
+import "katex/dist/katex.min.css";
 import "./progress.css";
 
 export const metadata: Metadata = {

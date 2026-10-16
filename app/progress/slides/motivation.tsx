@@ -1,13 +1,7 @@
-const vend = [
-  ["Operating loss", "Priced items below cost"],
-  ["Acting without authority", "Negotiated to hire a security officer; named a “real” CEO"],
-  ["Order before payment", "Payment links added by hand to enforce the sequence"],
-];
-
-const prior = [
-  ["Law-governed interaction", "Minsky", "Rules governing how multiple parties interact"],
-  ["Security automata", "Schneider", "Execution monitors enforce exactly the safety properties"],
-  ["Edit automata", "Ligatti, Bauer and Walker", "Monitors that suppress or insert actions, not just halt"],
+const alignment = [
+  ["Prompt injection", "Instructions hidden in the data an agent reads"],
+  ["Misjudged context", "Acts on a wrong reading of the situation"],
+  ["Unintended means", "Reaches its objective by a route nobody sanctioned"],
 ];
 
 export default function Motivation() {
@@ -16,14 +10,14 @@ export default function Motivation() {
       <header>
         <p className="eyebrow">02 · Motivation</p>
         <h2>
-          Agents act in unbounded ways, and per-action guardrails cannot see the
-          sequences where the danger lives.
+          Agents now act on our behalf, and one manipulated agent can compromise
+          every agent it interacts with.
         </h2>
       </header>
 
       <div className="grid">
         <figure className="leak">
-          <h3>Example</h3>
+          <h3>Interacting agents</h3>
           <div className="flow">
             <div className="node muted">confidential file</div>
             <div className="edge">read</div>
@@ -40,14 +34,14 @@ export default function Motivation() {
             <div className="node bad">outside</div>
           </div>
           <figcaption>
-            Every per-agent guardrail is satisfied, yet the system leaks the file.
+            Each agent passes its own checks, yet together they leak the file.
           </figcaption>
         </figure>
 
         <div className="vend">
-          <h3>Project Vend (Anthropic)</h3>
+          <h3>Why alignment is not enough</h3>
           <dl>
-            {vend.map(([k, v]) => (
+            {alignment.map(([k, v]) => (
               <div key={k}>
                 <dt>{k}</dt>
                 <dd>{v}</dd>
@@ -57,18 +51,19 @@ export default function Motivation() {
         </div>
       </div>
 
-      <div className="prior">
-        <h3>Done before, for software</h3>
-        <ol>
-          {prior.map(([name, who, what]) => (
-            <li key={name}>
-              <strong>{name}</strong>
-              <span className="who">{who}</span>
-              <span>{what}</span>
-            </li>
-          ))}
-        </ol>
-      </div>
+      <dl className="strips">
+        <div>
+          <dt>Today</dt>
+          <dd>
+            Guardrails, input filters and runtime monitors are best-effort:
+            adaptive attackers routinely bypass them.
+          </dd>
+        </div>
+        <div>
+          <dt>Goal</dt>
+          <dd>Safety properties that are proven to hold, whatever the model does.</dd>
+        </div>
+      </dl>
     </section>
   );
 }

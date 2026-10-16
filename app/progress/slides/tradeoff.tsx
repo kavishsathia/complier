@@ -19,7 +19,7 @@ const corners = [
 export default function Tradeoff() {
   return (
     <section className="slide tradeoff">
-      <p className="eyebrow">06 · Approach</p>
+      <p className="eyebrow">06 · Design alternatives</p>
       <h2>Judged on one trade-off</h2>
 
       <div className="triangle">
