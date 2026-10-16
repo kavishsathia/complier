@@ -3,19 +3,19 @@ const kinds = [
     name: "Inputs",
     mark: "~",
     how: "Poll a side-effect-free tool; diff successive results into world events",
-    eg: ["Notion page listing", "page_added per new child page"],
+    eg: ["list_inbox", "email_received per new message"],
   },
   {
     name: "Outputs",
     mark: "^",
     how: "Map each tool call to an event, possibly by its arguments; an unmapped call is refused, so translation fails closed",
-    eg: ["Notion page update", "overwritten if it replaces content, else edited"],
+    eg: ["send_email", "send_external if a recipient is outside the org, else send_internal"],
   },
   {
     name: "Hidden",
     mark: "",
     how: "Tools with no effect on the modelled world pass through unchecked",
-    eg: ["search, fetch", "no event"],
+    eg: ["search_email, read_email", "no event"],
   },
 ];
 
