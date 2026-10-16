@@ -5,8 +5,8 @@ import type { Event } from "../../../stepper/csp/syntax.ts";
 
 export const SPEC = `channel ^next, ^send, ^reject
 
--- Two roles, agent_a and agent_b, one agent each. Each reads the next order,
--- then sends or rejects it.
+-- Two roles, one agent each. Each reads the next
+-- order, then sends or rejects it.
 [[agent_a]] A = ^next -> (^send -> A [] ^reject -> A)
 [[agent_b]] B = ^next -> (^send -> B [] ^reject -> B)
 
