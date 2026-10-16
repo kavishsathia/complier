@@ -32,7 +32,7 @@ const stages = [
 export default function Related() {
   return (
     <section className="slide related">
-      <p className="eyebrow">04 · Related work</p>
+      <p className="eyebrow">03 · Related work</p>
       <h2>Existing work specifies, verifies or enforces safety, one agent at a time.</h2>
 
       <div className="stages">

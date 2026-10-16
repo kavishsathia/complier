@@ -39,7 +39,7 @@ const objectives = [
 export default function Objectives() {
   return (
     <section className="slide objectives">
-      <p className="eyebrow">03 · Objectives</p>
+      <p className="eyebrow">05 · Objectives</p>
       <h2>Let agents act autonomously while guaranteeing, by construction, that their interactions are safe.</h2>
 
       <div className="table">

@@ -29,9 +29,9 @@ export type SlideProps = { step: number };
 const slides: { Slide: React.ComponentType<SlideProps>; steps: number }[] = [
   { Slide: Title, steps: 1 },
   { Slide: Motivation, steps: 1 },
-  { Slide: Objectives, steps: 1 },
   { Slide: Related, steps: 1 },
   { Slide: Gap, steps: 1 },
+  { Slide: Objectives, steps: 1 },
   { Slide: Tradeoff, steps: 1 },
   { Slide: Approach, steps: 1 },
   { Slide: CSPio, steps: 1 },

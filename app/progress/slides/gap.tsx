@@ -7,7 +7,7 @@ const ours = [
 export default function Gap() {
   return (
     <section className="slide gap">
-      <p className="eyebrow">05 · Research gap</p>
+      <p className="eyebrow">04 · Research gap</p>
       <h2>Multi-agent verification is an open problem, and blocking alone leaves agents useless.</h2>
 
       <div className="grid">
