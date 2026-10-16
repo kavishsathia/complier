@@ -13,15 +13,15 @@ channel ^reject
 channel ^set_minimum : {0..100}
 
 -- The agent may take any action in any order.
-AGENT = accept?q -> AGENT
-     [] reject -> AGENT
-     [] set_minimum?m -> AGENT
+AGENT = ^accept?q -> AGENT
+     [] ^reject -> AGENT
+     [] ^set_minimum?m -> AGENT
 
 -- Inventory tracks stock and the minimum. Accepts keep
 -- stock >= min, and min never drops below 20.
 INVENTORY(stock : {0..100}, min : {0..100}) =
-     accept?q:{0..stock - min} -> INVENTORY(stock - q, min)
-  [] set_minimum?m:{20..100} -> INVENTORY(stock, m)
+     ^accept?q:{0..stock - min} -> INVENTORY(stock - q, min)
+  [] ^set_minimum?m:{20..100} -> INVENTORY(stock, m)
 
 MAIN = AGENT [| {accept, set_minimum} |] INVENTORY(100, 20)
 `;

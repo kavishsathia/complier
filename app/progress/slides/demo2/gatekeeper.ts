@@ -11,13 +11,13 @@ channel ^reject : {1..5}
 -- Each order ships once, in exactly its quantity,
 -- or is rejected.
 ORDER(o : {1..5}, q : {0..100}) =
-  ship.o.q -> SKIP [] reject.o -> SKIP
+  ^ship.o.q -> SKIP [] ^reject.o -> SKIP
 ORDERS = ORDER(1, 15) ||| ORDER(2, 25) ||| ORDER(3, 15)
      ||| ORDER(4, 10) ||| ORDER(5, 12)
 
 -- One shared stock: shipments keep it >= 20.
 INVENTORY(stock : {0..100}) =
-  ship?o?q:{0..stock - 20} -> INVENTORY(stock - q)
+  ^ship?o?q:{0..stock - 20} -> INVENTORY(stock - q)
 
 MAIN = INVENTORY(100) [| {ship} |] ORDERS
 `;
