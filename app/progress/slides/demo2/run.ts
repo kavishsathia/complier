@@ -49,6 +49,15 @@ export async function tick(f: Frame, spec?: Spec, base = ""): Promise<Frame[]> {
   const emit = (step: Step) => out.push({ desk, state, step, convo: { ...convo }, done: { ...done } });
 
   // Performs one call on the shared desk and returns what the agent is told.
+  // Checks the call's event with Complier, if it is on. A call with no event
+  // passes through.
+  function check(agent: AgentName, tool: string): boolean {
+    if (!spec || !state) return true;
+    const gate = gateEvent(spec, state, event(agent, tool));
+    state = gate.state;
+    return gate.ok;
+  }
+
   function perform(agent: AgentName, name: string, args: Record<string, unknown>): string {
     if (name === "next_order") {
       const o = next(desk);
@@ -56,6 +65,10 @@ export async function tick(f: Frame, spec?: Spec, base = ""): Promise<Frame[]> {
         done[agent] = true;
         emit({ agent, kind: "read", call: "next_order()", detail: "no pending orders", refused: false });
         return "No pending orders. You are done.";
+      }
+      if (!check(agent, name)) {
+        emit({ agent, kind: "read", call: "next_order()", detail: "the other agent is mid-order", refused: true });
+        return "Refused by Complier: another agent is between reading an order and sending it. Nothing changed. Call next_order again.";
       }
       emit({
         agent,
@@ -71,12 +84,7 @@ export async function tick(f: Frame, spec?: Spec, base = ""): Promise<Frame[]> {
     const who = String(args.name ?? "");
     const quantity = Number(args.quantity ?? 0);
     const sending = name === "send_to_recipient";
-    let refused = false;
-    if (spec && state) {
-      const gate = gateEvent(spec, state, event(desk, name, who, quantity));
-      refused = !gate.ok;
-      state = gate.state;
-    }
+    const refused = !check(agent, name);
     const target = desk.orders.find((o) => o.name.toLowerCase() === who.trim().toLowerCase());
     if (!refused) desk = sending ? send(desk, agent, who, quantity) : reject(desk, agent, who);
     emit({
