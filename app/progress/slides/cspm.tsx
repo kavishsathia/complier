@@ -8,8 +8,6 @@ const clauses = [
   [String.raw`[\![N(\vec{x} : \vec{\tau}) = P]\!]`, String.raw`N(\vec{x}) = \textstyle\bigwedge_i \texttt{member}(x_i, [\![\tau_i]\!])\ \texttt{\&}\ [\![P]\!]`],
 ];
 
-const sets = String.raw`\Sigma^{\sim} = \{\!|\, c \mid \mathbf{channel}\ {\sim}c \,|\!\} \qquad \Sigma^{\wedge} = \{\!|\, c \mid \mathbf{channel}\ {}^{\wedge}c \,|\!\}`;
-
 export default function CSPM() {
   return (
     <section className="slide cspm">
@@ -29,28 +27,18 @@ export default function CSPM() {
         <span className="box">FDR</span>
       </div>
 
-      <div className="grid">
-        <dl className="clauses">
-          {clauses.map(([l, r]) => (
-            <div key={l}>
-              <dt>
-                <TeX tex={l} />
-              </dt>
-              <dd>
-                <TeX tex={r} />
-              </dd>
-            </div>
-          ))}
-        </dl>
-
-        <div className="notes">
-          <span className="label">Marks become sets</span>
-          <TeX tex={sets} display />
-          <p>Properties may refer to them; drop and refusal come into play only at runtime.</p>
-          <span className="label">Status</span>
-          <p>Formalised by structural recursion; not yet implemented.</p>
-        </div>
-      </div>
+      <dl className="clauses">
+        {clauses.map(([l, r]) => (
+          <div key={l}>
+            <dt>
+              <TeX tex={l} />
+            </dt>
+            <dd>
+              <TeX tex={r} />
+            </dd>
+          </div>
+        ))}
+      </dl>
     </section>
   );
 }

@@ -811,11 +811,9 @@
   order: -1;
 }
 
-.cspm .grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 3rem;
-  margin-top: 2.25rem;
+.cspm .clauses {
+  max-width: 40rem;
+  margin: 2.5rem auto 0;
 }
 
 .cspm .clauses > div {
@@ -831,21 +829,7 @@
 }
 
 .cspm .katex {
-  font-size: 1.1rem;
-}
-
-.cspm .notes .label {
-  display: block;
-}
-
-.cspm .notes p {
-  font-size: 1.15rem;
-  line-height: 1.45;
-  color: var(--muted);
-}
-
-.cspm .notes p + .label {
-  margin-top: 1.5rem;
+  font-size: 1.25rem;
 }
 
 /* Translation units */
@@ -1184,7 +1168,6 @@
   .semantics .rules,
   .example .steps li,
   .wellformed .table,
-  .cspm .grid,
   .units .kinds,
   .boundary .grid,
   .runtime .grid,
