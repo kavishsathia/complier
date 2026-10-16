@@ -55,14 +55,14 @@ export const start = (spec: Spec): Proc => settle(spec, { k: "call", name: "MAIN
 
 export { parse };
 
-// Performs the call's event if the state offers it; otherwise the call is
-// refused and the state stays as it was. An event outside the spec's
-// alphabet fails closed.
-export function gate(spec: Spec, state: Proc, call: Call, desk: Desk): { ok: boolean; state: Proc } {
-  const ev = event(call, desk);
+// Performs the event if the state offers it; otherwise it is refused and the
+// state stays as it was. An event outside the spec's alphabet fails closed.
+export function gateEvent(spec: Spec, state: Proc, ev: Event | null): { ok: boolean; state: Proc } {
   const types = ev && spec.chans.get(ev.chan);
   if (!ev || !types || types.length !== ev.values.length) return { ok: false, state };
   const out = submit(spec, state, ev);
   if (out.k !== "accepted" || out.mark !== "agent") return { ok: false, state };
   return { ok: true, state: settle(spec, out.ds[0].to) };
 }
+
+export const gate = (spec: Spec, state: Proc, call: Call, desk: Desk) => gateEvent(spec, state, event(call, desk));

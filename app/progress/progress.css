@@ -1650,6 +1650,93 @@
   color: var(--ok);
 }
 
+/* Demo 2: two agents on one desk. */
+
+.demo .tag {
+  display: inline-grid;
+  place-items: center;
+  width: 1.35rem;
+  height: 1.35rem;
+  margin-right: 0.25rem;
+  border: 1px solid currentColor;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+
+.demo .tag.A {
+  color: var(--hl-proc);
+}
+
+.demo .tag.B {
+  color: var(--hl-num);
+}
+
+.demo td.by {
+  white-space: nowrap;
+}
+
+.demo tr.double td {
+  background: var(--bad-bg);
+}
+
+.demo tr.double td:first-child {
+  box-shadow: inset 4px 0 0 var(--bad);
+}
+
+.demo .times {
+  font-weight: 600;
+  color: var(--bad);
+}
+
+.demo .pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  flex: 1;
+  min-height: 0;
+}
+
+.demo .pair .one {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding-top: 0.75rem;
+}
+
+.demo .pair .one + .one {
+  border-left: 1px solid var(--line);
+}
+
+.demo .pair .one > .label {
+  display: flex;
+  align-items: center;
+  padding: 0 1.25rem;
+}
+
+.demo .pair ol {
+  padding: 0.25rem 1.25rem;
+}
+
+.demo .pair li code {
+  font-size: 0.95rem;
+}
+
+.demo .pair li p {
+  font-size: 0.85rem;
+}
+
+.demo .pair li.refused {
+  margin: 0.25rem -0.5rem;
+  padding: 0.6rem 0.5rem;
+}
+
+.demo .agent > .error {
+  padding: 0.5rem 1.5rem;
+  font-size: 0.85rem;
+  color: var(--bad);
+}
+
 @media (max-width: 720px) {
   .slide.demo {
     grid-template-columns: 1fr;

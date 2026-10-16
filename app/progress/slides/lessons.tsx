@@ -24,7 +24,7 @@ const lessons = [
 export default function Lessons() {
   return (
     <section className="slide lessons">
-      <p className="eyebrow">18 · Challenges and lessons learned</p>
+      <p className="eyebrow">19 · Challenges and lessons learned</p>
       <h2>Four challenges this semester, and what each taught us.</h2>
 
       <div className="table">

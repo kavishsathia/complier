@@ -29,7 +29,7 @@ const risks = [
 export default function Risks() {
   return (
     <section className="slide risks">
-      <p className="eyebrow">20 · Risks and mitigations</p>
+      <p className="eyebrow">21 · Risks and mitigations</p>
       <h2>Five risks, each with a mitigation.</h2>
 
       <div className="table">

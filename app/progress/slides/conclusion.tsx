@@ -16,7 +16,7 @@ const next = [
 export default function Conclusion() {
   return (
     <section className="slide conclusion">
-      <p className="eyebrow">21 · Conclusion</p>
+      <p className="eyebrow">22 · Conclusion</p>
       <h2>Safety for interacting agents, proven rather than merely expected.</h2>
 
       <div className="grid">

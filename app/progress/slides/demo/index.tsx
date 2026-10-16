@@ -1,150 +1,48 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useState } from "react";
 import type { Proc } from "../../../stepper/csp/syntax.ts";
-import { parse, SPEC } from "./gatekeeper";
+import { SPEC } from "./gatekeeper";
+import { check, Controls, Flash, SpecPane, Switch, Thinking, useFollow, usePlayback } from "./kit";
 import { apply, initial, nextPending, type Call, type Desk, type Step } from "./model";
 
-// Every state the desk passes through, with the step that produced it and,
-// under Complier, the spec's state, so the run can be paused and scrubbed.
+// A state of the desk, the step that produced it and, under Complier, the
+// spec's state.
 type Frame = { desk: Desk; step?: Step; state?: Proc };
 
-// Tokens of the spec language, for highlighting: comments, the channel
-// keyword, process names, ~ and ^ marks, numbers and operators.
-const TOKEN = /(--.*)|(\bchannel\b)|([A-Z][A-Za-z0-9_']*)|([~^])(?=[a-z])|(\d+)|(->|\[\]|\[\||\|\]|\|~\||\|\|\||\.\.|[?!:=&;{}])/g;
-const KINDS = ["comment", "keyword", "process", "mark", "number", "op"];
-
-function highlight(src: string) {
-  const out: ReactNode[] = [];
-  let at = 0;
-  for (const m of src.matchAll(TOKEN)) {
-    if (m.index > at) out.push(src.slice(at, m.index));
-    const kind = KINDS[m.slice(1).findIndex((g) => g !== undefined)];
-    out.push(
-      <span key={m.index} className={`tk-${kind}`}>
-        {m[0]}
-      </span>,
-    );
-    at = m.index + m[0].length;
-  }
-  out.push(src.slice(at) + "\n");
-  return out;
-}
-
-function check(src: string): string | null {
-  try {
-    parse(src);
-    return null;
-  } catch (e) {
-    return (e as Error).message;
-  }
-}
-
-const PACE = 1100;
-const MAX_STEPS = 20;
+const FIRST: Frame = { desk: initial };
 
 const show = (c: Call) =>
   c.name === "set_minimum_inventory" ? `set_minimum_inventory(${c.value})` : `${c.name}(${c.id})`;
 
 export default function Demo() {
-  const [frames, setFrames] = useState<Frame[]>([{ desk: initial }]);
-  const [view, setView] = useState(0);
-  const [playing, setPlaying] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [flash, setFlash] = useState<{ icon: "play" | "pause"; n: number } | null>(null);
   const [complier, setComplier] = useState(false);
   const [spec, setSpec] = useState(SPEC);
   const specError = complier ? check(spec) : null;
-  const steps = useRef(0);
-  const log = useRef<HTMLOListElement>(null);
-  const code = useRef<HTMLPreElement>(null);
 
-  const last = frames.length - 1;
+  const more = useCallback(
+    async ({ desk, state }: Frame) => {
+      const body = complier ? { desk, spec, state } : { desk };
+      const res: { steps?: Step[]; state?: Proc; error?: string } = await (
+        await fetch("/api/demo", { method: "POST", body: JSON.stringify(body) })
+      ).json();
+      if (res.error || !res.steps) throw new Error(res.error ?? "no calls");
+      const out: Frame[] = [];
+      let d = desk;
+      for (const step of res.steps) {
+        if (!step.refused) d = apply(d, step.call);
+        out.push({ desk: d, step, state: res.state });
+      }
+      return out;
+    },
+    [complier, spec],
+  );
+
+  const run = usePlayback(FIRST, more, (f) => !nextPending(f.desk), !!specError);
+  const { frames, view, last, busy } = run;
+  const log = useFollow(`${view}${busy}`);
+
   const desk = frames[view].desk;
-  const done = !nextPending(frames[last].desk) || steps.current >= MAX_STEPS;
-
-  const toggle = useCallback(() => {
-    setPlaying((p) => {
-      setFlash((f) => ({ icon: p ? "pause" : "play", n: (f?.n ?? 0) + 1 }));
-      return !p;
-    });
-  }, []);
-
-  const reset = useCallback(() => {
-    setFrames([{ desk: initial }]);
-    setView(0);
-    setPlaying(false);
-    setError(null);
-    steps.current = 0;
-  }, []);
-
-  // Reveal recorded frames at a steady pace; at the end, ask the agent for more.
-  useEffect(() => {
-    if (!playing) return;
-    if (view < last) {
-      const t = setTimeout(() => setView((v) => Math.min(v + 1, last)), PACE);
-      return () => clearTimeout(t);
-    }
-    if (done || busy) return;
-    if (specError) {
-      setPlaying(false);
-      return;
-    }
-    setBusy(true);
-    steps.current++;
-    const { desk, state } = frames[last];
-    const body = complier ? { desk, spec, state } : { desk };
-    fetch("/api/demo", { method: "POST", body: JSON.stringify(body) })
-      .then((r) => r.json())
-      .then((res: { steps?: Step[]; state?: Proc; error?: string }) => {
-        if (res.error || !res.steps) throw new Error(res.error ?? "no calls");
-        setFrames((fs) => {
-          const out = [...fs];
-          for (const step of res.steps!) {
-            const before = out[out.length - 1].desk;
-            out.push({ desk: step.refused ? before : apply(before, step.call), step, state: res.state });
-          }
-          return out;
-        });
-      })
-      .catch((e: Error) => {
-        setError(e.message.slice(0, 200));
-        setPlaying(false);
-      })
-      .finally(() => setBusy(false));
-  }, [playing, view, last, done, busy, frames, complier, spec, specError]);
-
-  // Space plays and pauses; while paused, the arrows scrub instead of turning the slide.
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      // Typing in the spec keeps its keys.
-      if ((e.target as HTMLElement).closest("textarea, input")) return;
-      if (e.key === " ") {
-        e.preventDefault();
-        e.stopImmediatePropagation();
-        toggle();
-        return;
-      }
-      if (playing) return;
-      if (e.key === "ArrowLeft" && view > 0) {
-        e.preventDefault();
-        e.stopImmediatePropagation();
-        setView(view - 1);
-      } else if (e.key === "ArrowRight" && view < last) {
-        e.preventDefault();
-        e.stopImmediatePropagation();
-        setView(view + 1);
-      }
-    };
-    window.addEventListener("keydown", onKey, true);
-    return () => window.removeEventListener("keydown", onKey, true);
-  }, [toggle, playing, view, last]);
-
-  useEffect(() => {
-    log.current?.lastElementChild?.scrollIntoView({ block: "nearest" });
-  }, [view, busy]);
-
   const shown = frames.slice(1, view + 1);
   const current = frames[view].step?.call;
   const active = current && current.name !== "set_minimum_inventory" ? current.id : nextPending(desk)?.id;
@@ -194,53 +92,25 @@ export default function Demo() {
       </div>
 
       <div className="side">
-        <div className={`pane${complier ? " open" : ""}`} aria-hidden={!complier}>
-          <div className="inner">
-            <header>
-              <strong>Specification</strong>
-              <span className="label">CSPio</span>
-            </header>
-            <div className="editor">
-              <pre ref={code} aria-hidden="true">
-                {highlight(spec)}
-              </pre>
-              <textarea
-              spellCheck={false}
-              value={spec}
-              onScroll={(e) => {
-                if (code.current) {
-                  code.current.scrollTop = e.currentTarget.scrollTop;
-                  code.current.scrollLeft = e.currentTarget.scrollLeft;
-                }
-              }}
-              tabIndex={complier ? 0 : -1}
-              onChange={(e) => {
-                setSpec(e.target.value);
-                reset();
-              }}
-            />
-            </div>
-            <p className={`status${specError ? " bad" : ""}`}>{specError ?? "Spec parses. Agent calls are checked against it."}</p>
-          </div>
-        </div>
+        <SpecPane
+          open={complier}
+          spec={spec}
+          error={specError}
+          onChange={(s) => {
+            setSpec(s);
+            run.reset();
+          }}
+        />
         <aside className="agent">
           <header>
             <strong>Fulfilment agent</strong>
-            <button
-              role="switch"
-              aria-checked={complier}
-              className={`switch${complier ? " on" : ""}`}
-              onClick={(e) => {
-                e.currentTarget.blur();
+            <Switch
+              on={complier}
+              onToggle={() => {
                 setComplier((c) => !c);
-                reset();
+                run.reset();
               }}
-            >
-              <span className="track">
-                <span className="thumb" />
-              </span>
-              Complier
-            </button>
+            />
           </header>
           <p className="task">Take the first pending order. Accept if inventory stays at or above the minimum, else reject.</p>
           <ol ref={log}>
@@ -253,52 +123,14 @@ export default function Demo() {
                 </li>
               ) : null,
             )}
-            {busy && view === last && (
-              <li className="thinking">
-                <span />
-                <span />
-                <span />
-              </li>
-            )}
-            {error && <li className="error">{error}</li>}
+            {busy && view === last && <Thinking />}
+            {run.error && <li className="error">{run.error}</li>}
           </ol>
-          <footer>
-            <div className="scrub">
-              {frames.map((_, i) => (
-                <button
-                  key={i}
-                  aria-label={`State ${i}`}
-                  className={i === view ? "on" : i < view ? "past" : undefined}
-                  onClick={() => {
-                    setPlaying(false);
-                    setView(i);
-                  }}
-                />
-              ))}
-            </div>
-            <span className="hint">
-              {view === 0 && !playing ? "Space to start" : "Space play/pause · ← → step while paused"}
-            </span>
-            <button className="reset" onClick={reset}>
-              Reset
-            </button>
-          </footer>
+          <Controls count={frames.length} view={view} playing={run.playing} seek={run.seek} reset={run.reset} />
         </aside>
       </div>
 
-      {flash && (
-        <div key={flash.n} className="flash" aria-hidden="true">
-          {flash.icon === "play" ? (
-            <svg viewBox="0 0 24 24">
-              <path d="M8 5v14l11-7z" />
-            </svg>
-          ) : (
-            <svg viewBox="0 0 24 24">
-              <path d="M7 5h4v14H7zM13 5h4v14h-4z" />
-            </svg>
-          )}
-        </div>
-      )}
+      <Flash flash={run.flash} />
     </section>
   );
 }

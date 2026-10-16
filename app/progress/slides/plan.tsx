@@ -44,7 +44,7 @@ export default function Plan() {
   let row = 2;
   return (
     <section className="slide plan">
-      <p className="eyebrow">19 · Plan for next semester</p>
+      <p className="eyebrow">20 · Plan for next semester</p>
       <h2>Ground Complier in use cases, build the gatekeeper, integrate it, then verify and evaluate.</h2>
 
       <div className="gantt">

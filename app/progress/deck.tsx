@@ -18,6 +18,7 @@ import Units from "./slides/units";
 import Declarative from "./slides/declarative";
 import Runtime from "./slides/runtime";
 import Demo from "./slides/demo";
+import Demo2 from "./slides/demo2";
 import Lessons from "./slides/lessons";
 import Plan from "./slides/plan";
 import Risks from "./slides/risks";
@@ -44,6 +45,7 @@ const slides: { Slide: React.ComponentType<SlideProps>; steps: number }[] = [
   { Slide: Declarative, steps: 1 },
   { Slide: Runtime, steps: 1 },
   { Slide: Demo, steps: 1 },
+  { Slide: Demo2, steps: 1 },
   { Slide: Lessons, steps: 1 },
   { Slide: Plan, steps: 1 },
   { Slide: Risks, steps: 1 },
