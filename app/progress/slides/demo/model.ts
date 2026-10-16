@@ -9,6 +9,9 @@ export type Call =
   | { name: "reject_order"; id: number; reason: string }
   | { name: "set_minimum_inventory"; value: number; reason: string };
 
+// A call the agent made, and whether Complier refused it.
+export type Step = { call: Call; refused: boolean };
+
 export type Desk = { minimum: number; inventory: number; orders: Order[] };
 
 const MINIMUM = 20;

@@ -120,7 +120,9 @@ function comms(spec: Spec, chan: string, fields: Field[]) {
   fields.forEach((f, i) => {
     const t = types[i];
     if (f.k === "in") {
-      out = out.flatMap((o) => values(t).map((v) => ({ values: [...o.values, v], sigma: [...o.sigma, [f.name, v] as [string, Value]] })));
+      const [lo, hi] = f.range ? f.range.map((e) => eval_(e) as number) : [-Infinity, Infinity];
+      const vs = values(t).filter((v) => typeof v !== "number" || (v >= lo && v <= hi));
+      out = out.flatMap((o) => vs.map((v) => ({ values: [...o.values, v], sigma: [...o.sigma, [f.name, v] as [string, Value]] })));
     } else {
       const v = eval_(f.e);
       out = has(t, v) ? out.map((o) => ({ ...o, values: [...o.values, v] })) : [];
@@ -199,7 +201,9 @@ export function subst(p: Proc, sigma: [string, Value][]): Proc {
       const bound = new Set(p.fields.flatMap((f) => (f.k === "in" ? [f.name] : [])));
       return {
         ...p,
-        fields: p.fields.map((f) => (f.k === "out" ? { k: "out", e: e(f.e) } : f)),
+        fields: p.fields.map((f) =>
+          f.k === "out" ? { k: "out", e: e(f.e) } : f.range ? { ...f, range: [e(f.range[0]), e(f.range[1])] } : f,
+        ),
         next: subst(p.next, sigma.filter(([x]) => !bound.has(x))),
       };
     }

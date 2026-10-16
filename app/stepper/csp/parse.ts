@@ -214,7 +214,19 @@ class Parser {
       if (mark) this.marks.push({ chan, mark, line });
       const fields: Field[] = [];
       for (;;) {
-        if (this.eat("?")) fields.push({ k: "in", name: this.name("lower", "a variable after ?") });
+        if (this.eat("?")) {
+          const name = this.name("lower", "a variable after ?");
+          let range: [Expr, Expr] | undefined;
+          if (this.eat(":")) {
+            this.expect("{", `'{' after ?${name}:`);
+            const lo = this.expr();
+            this.expect("..", "'..' in a range");
+            const hi = this.expr();
+            this.expect("}", "'}' after a range");
+            range = [lo, hi];
+          }
+          fields.push({ k: "in", name, range });
+        }
         else if (this.eat("!") || this.eat(".")) fields.push({ k: "out", e: this.primary() });
         else break;
       }
@@ -342,7 +354,10 @@ export function parse(src: string): Spec {
           const inner = new Set(scope);
           for (const f of p.fields) {
             if (f.k === "out") bound(f.e, scope);
-            else inner.add(f.name);
+            else {
+              f.range?.forEach((e) => bound(e, scope));
+              inner.add(f.name);
+            }
           }
           return walk(p.next, inner);
         }

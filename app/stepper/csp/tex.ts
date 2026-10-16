@@ -45,7 +45,12 @@ export const texSet = (cs: string[]) => (cs.length ? `\\{${cs.map(id).join(", ")
 
 export const texMsg = (chan: string, fields: Field[]) => id(chan) + fields.map(texField).join("");
 
-const texField = (f: Field) => (f.k === "in" ? `?${id(f.name)}` : `!${texPrimary(f.e)}`);
+const texField = (f: Field) =>
+  f.k === "out"
+    ? `!${texPrimary(f.e)}`
+    : f.range
+      ? `?${id(f.name)}{:}\\{${texExpr(f.range[0])}..${texExpr(f.range[1])}\\}`
+      : `?${id(f.name)}`;
 
 const texPrimary = (e: Expr) => (e.k === "val" || e.k === "var" ? texExpr(e) : `(${texExpr(e)})`);
 

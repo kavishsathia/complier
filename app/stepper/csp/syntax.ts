@@ -13,8 +13,9 @@ export type Expr =
 
 export type BinOp = "+" | "-" | "*" | "==" | "!=" | "<" | "<=" | ">" | ">=";
 
-// c?x binds x to the value received; c!e and c.e send ⟦e⟧.
-export type Field = { k: "in"; name: string } | { k: "out"; e: Expr };
+// c?x binds x to the value received, and c?x:{lo..hi} only receives values
+// in that range (CSPM's restricted input); c!e and c.e send ⟦e⟧.
+export type Field = { k: "in"; name: string; range?: [Expr, Expr] } | { k: "out"; e: Expr };
 
 export type Proc =
   | { k: "stop" }

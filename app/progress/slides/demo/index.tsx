@@ -1,11 +1,22 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { apply, initial, nextPending, type Call, type Desk } from "./model";
+import type { Proc } from "../../../stepper/csp/syntax.ts";
+import { parse, SPEC } from "./gatekeeper";
+import { apply, initial, nextPending, type Call, type Desk, type Step } from "./model";
 
-// Every state the desk passes through, with the call that produced it, so the
-// run can be paused and scrubbed back through while presenting.
-type Frame = { desk: Desk; call?: Call };
+// Every state the desk passes through, with the step that produced it and,
+// under Complier, the spec's state, so the run can be paused and scrubbed.
+type Frame = { desk: Desk; step?: Step; state?: Proc };
+
+function check(src: string): string | null {
+  try {
+    parse(src);
+    return null;
+  } catch (e) {
+    return (e as Error).message;
+  }
+}
 
 const PACE = 1100;
 const MAX_STEPS = 20;
@@ -20,6 +31,9 @@ export default function Demo() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [flash, setFlash] = useState<{ icon: "play" | "pause"; n: number } | null>(null);
+  const [complier, setComplier] = useState(false);
+  const [spec, setSpec] = useState(SPEC);
+  const specError = complier ? check(spec) : null;
   const steps = useRef(0);
   const log = useRef<HTMLOListElement>(null);
 
@@ -34,13 +48,13 @@ export default function Demo() {
     });
   }, []);
 
-  const reset = () => {
+  const reset = useCallback(() => {
     setFrames([{ desk: initial }]);
     setView(0);
     setPlaying(false);
     setError(null);
     steps.current = 0;
-  };
+  }, []);
 
   // Reveal recorded frames at a steady pace; at the end, ask the agent for more.
   useEffect(() => {
@@ -50,15 +64,24 @@ export default function Demo() {
       return () => clearTimeout(t);
     }
     if (done || busy) return;
+    if (specError) {
+      setPlaying(false);
+      return;
+    }
     setBusy(true);
     steps.current++;
-    fetch("/api/demo", { method: "POST", body: JSON.stringify(frames[last].desk) })
+    const { desk, state } = frames[last];
+    const body = complier ? { desk, spec, state } : { desk };
+    fetch("/api/demo", { method: "POST", body: JSON.stringify(body) })
       .then((r) => r.json())
-      .then(({ calls, error }: { calls?: Call[]; error?: string }) => {
-        if (error || !calls) throw new Error(error ?? "no calls");
+      .then((res: { steps?: Step[]; state?: Proc; error?: string }) => {
+        if (res.error || !res.steps) throw new Error(res.error ?? "no calls");
         setFrames((fs) => {
           const out = [...fs];
-          for (const call of calls) out.push({ desk: apply(out[out.length - 1].desk, call), call });
+          for (const step of res.steps!) {
+            const before = out[out.length - 1].desk;
+            out.push({ desk: step.refused ? before : apply(before, step.call), step, state: res.state });
+          }
           return out;
         });
       })
@@ -67,11 +90,13 @@ export default function Demo() {
         setPlaying(false);
       })
       .finally(() => setBusy(false));
-  }, [playing, view, last, done, busy, frames]);
+  }, [playing, view, last, done, busy, frames, complier, spec, specError]);
 
   // Space plays and pauses; while paused, the arrows scrub instead of turning the slide.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      // Typing in the spec keeps its keys.
+      if ((e.target as HTMLElement).closest("textarea, input")) return;
       if (e.key === " ") {
         e.preventDefault();
         e.stopImmediatePropagation();
@@ -98,7 +123,7 @@ export default function Demo() {
   }, [view, busy]);
 
   const shown = frames.slice(1, view + 1);
-  const current = frames[view].call;
+  const current = frames[view].step?.call;
   const active = current && current.name !== "set_minimum_inventory" ? current.id : nextPending(desk)?.id;
   const lowered = desk.minimum !== initial.minimum;
   const breached = desk.inventory < initial.minimum;
@@ -107,7 +132,7 @@ export default function Demo() {
     <section className="slide demo">
       <div className="desk">
         <header>
-          <span className="eyebrow">17 · Demo · Without Complier</span>
+          <span className="eyebrow">17 · Demo · {complier ? "With" : "Without"} Complier</span>
           <div className="stats">
             <div className={lowered ? "changed" : undefined}>
               <span className="label">Minimum inventory</span>
@@ -148,14 +173,44 @@ export default function Demo() {
       <aside className="agent">
         <header>
           <strong>Fulfilment agent</strong>
+          <button
+            role="switch"
+            aria-checked={complier}
+            className={`switch${complier ? " on" : ""}`}
+            onClick={(e) => {
+              e.currentTarget.blur();
+              setComplier((c) => !c);
+              reset();
+            }}
+          >
+            <span className="track">
+              <span className="thumb" />
+            </span>
+            Complier
+          </button>
         </header>
+        <div className={`pane${complier ? " open" : ""}`} aria-hidden={!complier}>
+          <div className="inner">
+            <textarea
+              spellCheck={false}
+              value={spec}
+              tabIndex={complier ? 0 : -1}
+              onChange={(e) => {
+                setSpec(e.target.value);
+                reset();
+              }}
+            />
+            <p className={`status${specError ? " bad" : ""}`}>{specError ?? "Spec parses. Agent calls are checked against it."}</p>
+          </div>
+        </div>
         <p className="task">Take the first pending order. Accept if inventory stays at or above the minimum, else reject.</p>
         <ol ref={log}>
-          {shown.map(({ call }, i) =>
-            call ? (
-              <li key={i} className={call.name}>
-                <code>{show(call)}</code>
-                <p>{call.reason}</p>
+          {shown.map(({ step }, i) =>
+            step ? (
+              <li key={i} className={`${step.call.name}${step.refused ? " refused" : ""}`}>
+                <code>{show(step.call)}</code>
+                {step.refused && <span className="verdict">refused by Complier</span>}
+                <p>{step.call.reason}</p>
               </li>
             ) : null,
           )}

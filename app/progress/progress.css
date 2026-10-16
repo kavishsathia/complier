@@ -1288,7 +1288,7 @@
 
 .demo .agent > header {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
   padding: 1.25rem 1.5rem 0;
   font-size: 1.2rem;
@@ -1456,6 +1456,121 @@
     opacity: 0;
     transform: translate(-50%, -50%) scale(1.15);
   }
+}
+
+.demo .switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.95rem;
+  cursor: pointer;
+}
+
+.demo .switch.on {
+  color: var(--fg);
+}
+
+.demo .switch .track {
+  position: relative;
+  width: 2.4rem;
+  height: 1.3rem;
+  border: 1px solid var(--muted);
+  border-radius: 1rem;
+  transition: background 0.2s, border-color 0.2s;
+}
+
+.demo .switch .thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: calc(1.3rem - 6px);
+  height: calc(1.3rem - 6px);
+  border-radius: 50%;
+  background: var(--muted);
+  transition: transform 0.2s, background 0.2s;
+}
+
+.demo .switch.on .track {
+  border-color: var(--ok);
+  background: var(--ok-bg);
+}
+
+.demo .switch.on .thumb {
+  background: var(--ok);
+  transform: translateX(1.1rem);
+}
+
+/* The spec slides down from under the agent's header. */
+
+.demo .pane {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 0.35s ease;
+}
+
+.demo .pane.open {
+  grid-template-rows: 1fr;
+}
+
+.demo .pane .inner {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.demo .pane.open .inner {
+  margin-top: 0.9rem;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+
+.demo .pane textarea {
+  display: block;
+  width: 100%;
+  height: 13rem;
+  padding: 0.75rem 1.5rem;
+  border: 0;
+  background: var(--line);
+  color: var(--fg);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.8rem;
+  line-height: 1.45;
+  resize: none;
+  outline: none;
+}
+
+.demo .pane .status {
+  padding: 0.4rem 1.5rem;
+  font-size: 0.8rem;
+  color: var(--ok);
+}
+
+.demo .pane .status.bad {
+  color: var(--bad);
+}
+
+.demo .agent li.refused {
+  margin: 0.25rem -0.75rem;
+  padding: 0.75rem;
+  border: 1px solid var(--ok);
+}
+
+.demo .agent li.refused code {
+  color: var(--muted);
+  text-decoration: line-through;
+}
+
+.demo .agent li .verdict {
+  margin-left: 0.6rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ok);
 }
 
 @media (max-width: 720px) {
