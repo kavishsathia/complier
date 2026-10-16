@@ -15,13 +15,13 @@ const steps = [
     event: "tea",
     in: "S₀",
     verdict: "refused",
-    tex: String.raw`\dfrac{\mathit{tea} \in \Sigma^{\wedge} \qquad S_0 \text{ stable} \qquad \mathit{tea} \notin \mathit{offered}(S_0)}{S_0 \xrightarrow{\;\times \mathit{tea}\;} S_0}\;\textsf{[IO-Refuse]}`,
+    tex: String.raw`\dfrac{\mathit{tea} \in \Sigma^{\wedge} \qquad S_0 \overset{\tau}{\not\longrightarrow} \qquad \mathit{tea} \notin \mathit{offered}(S_0)}{S_0 \xrightarrow{\;\times \mathit{tea}\;} S_0}\;\textsf{[IO-Refuse]}`,
   },
   {
     event: "power_cut",
     in: "Q",
     verdict: "dropped",
-    tex: String.raw`\dfrac{\mathit{power\_cut} \in \Sigma^{\sim} \qquad Q \text{ stable} \qquad \mathit{power\_cut} \notin \mathit{offered}(Q)}{Q \xrightarrow{\;\downarrow \mathit{power\_cut}\;} Q}\;\textsf{[IO-Drop]}`,
+    tex: String.raw`\dfrac{\mathit{power\_cut} \in \Sigma^{\sim} \qquad Q \overset{\tau}{\not\longrightarrow} \qquad \mathit{power\_cut} \notin \mathit{offered}(Q)}{Q \xrightarrow{\;\downarrow \mathit{power\_cut}\;} Q}\;\textsf{[IO-Drop]}`,
   },
 ];
 

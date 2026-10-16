@@ -1,7 +1,7 @@
 import TeX from "../tex";
 
-const drop = String.raw`\dfrac{a \in \Sigma^{\sim} \qquad S \text{ stable} \qquad a \notin \mathit{offered}(S)}{S \xrightarrow{\;\downarrow a\;} S}`;
-const refuse = String.raw`\dfrac{a \in \Sigma^{\wedge} \qquad S \text{ stable} \qquad a \notin \mathit{offered}(S)}{S \xrightarrow{\;\times a\;} S}`;
+const drop = String.raw`\dfrac{a \in \Sigma^{\sim} \qquad S \overset{\tau}{\not\longrightarrow} \qquad a \notin \mathit{offered}(S)}{S \xrightarrow{\;\downarrow a\;} S}`;
+const refuse = String.raw`\dfrac{a \in \Sigma^{\wedge} \qquad S \overset{\tau}{\not\longrightarrow} \qquad a \notin \mathit{offered}(S)}{S \xrightarrow{\;\times a\;} S}`;
 const offered = String.raw`\mathit{offered}(S) = \{\, a \in \Sigma \mid \exists S'.\ S \xrightarrow{a} S' \,\}`;
 
 export default function Semantics() {
