@@ -1,24 +1,29 @@
 // `complier proxy`: the one MCP server an agent's harness talks to. Bound to a machine and role
 // by COMPLIER_MACHINE and COMPLIER_ROLE, it offers only the tools the machine's units name:
-// - a tool with an output map is translated to an event, which the machine checks as this
-//   role's action; the call goes upstream only if it's accepted (fail closed);
+// - a translated tool's calls are classified by the unit's CEL rules into an event (a rule's, or
+//   the fallback's), which the machine checks as this role's action; the call goes upstream only
+//   if it's accepted (fail closed). A call no event can be given (outside the domain, bad
+//   arguments, a rule erroring, ambiguous) is refused. A unit's rules are proven when the proxy
+//   binds; if they aren't, or the CEL backend can't run, the proxy offers no tools at all;
 // - a hidden tool goes upstream unchecked;
 // - every other tool is left out, and so is any tool whose live schema no longer matches the
 //   hash its service was generated from.
 // Upstream sessions and credentials stay in this process; the agent never sees them.
 
+use crate::cel;
 use crate::codegen;
 use crate::daemon::{self, Request};
 use crate::host::Host;
 use crate::mcp;
+use crate::translate::{self, Translator};
 use anyhow::{bail, Result};
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
 use std::io::{BufRead, Write};
 
 enum Route {
-    // Checked: (unit host, upstream).
-    Output(usize, usize),
+    // Checked: (translator, upstream).
+    Translated(usize, usize),
     // Unchecked: (upstream).
     Hidden(usize),
 }
@@ -26,7 +31,8 @@ enum Route {
 struct Proxy {
     machine: String,
     role: String,
-    hosts: Vec<Host>,
+    cel: Option<cel::Backend>,
+    translators: Vec<Translator>,
     upstreams: Vec<mcp::Client>,
     tools: Vec<Value>,
     routes: BTreeMap<String, Route>,
@@ -64,7 +70,7 @@ pub fn serve() -> Result<()> {
 
 impl Proxy {
     fn empty(machine: String, role: String, problem: String) -> Self {
-        Self { machine, role, hosts: vec![], upstreams: vec![], tools: vec![], routes: BTreeMap::new(), problem: Some(problem) }
+        Self { machine, role, cel: None, translators: vec![], upstreams: vec![], tools: vec![], routes: BTreeMap::new(), problem: Some(problem) }
     }
 
     fn bind(machine: String, role: String) -> Result<Self> {
@@ -73,10 +79,16 @@ impl Proxy {
         proxy.problem = None;
         let mut servers: BTreeMap<String, usize> = BTreeMap::new();
 
-        for unit in info["units"].as_array().into_iter().flatten().filter_map(Value::as_str) {
-            let (host, unit) = Host::spawn(std::path::Path::new(unit))?;
-            let h = proxy.hosts.len();
-            proxy.hosts.push(host);
+        for path in info["units"].as_array().into_iter().flatten().filter_map(Value::as_str) {
+            let (_host, unit) = Host::spawn(std::path::Path::new(path))?;
+            let translated = match translate::admit(&unit, &mut proxy.cel)? {
+                Some((translator, report)) => {
+                    eprintln!("complier proxy: {path} admitted with {}", report.backend);
+                    proxy.translators.push(translator);
+                    Some(proxy.translators.len() - 1)
+                }
+                None => None,
+            };
 
             let u = match servers.get(&unit.server) {
                 Some(&u) => u,
@@ -91,8 +103,8 @@ impl Proxy {
 
             for tool in proxy.upstreams[u].list_tools()? {
                 let Some(name) = tool["name"].as_str().map(String::from) else { continue };
-                let route = if unit.outputs.contains(&name) {
-                    Route::Output(h, u)
+                let route = if let Some(t) = translated.filter(|&t| proxy.translators[t].translation.tools.contains(&name)) {
+                    Route::Translated(t, u)
                 } else if unit.hidden.contains(&name) {
                     Route::Hidden(u)
                 } else {
@@ -144,9 +156,10 @@ impl Proxy {
         let upstream = match self.routes.get(name) {
             None => return Ok(refuse(format!("complier: {name} isn't available to role {}.", self.role))),
             Some(Route::Hidden(u)) => *u,
-            Some(Route::Output(h, u)) => {
-                let (h, u) = (*h, *u);
-                let event = match self.hosts[h].output(name, args)? {
+            Some(Route::Translated(t, u)) => {
+                let (t, u) = (*t, *u);
+                let cel = self.cel.as_mut().expect("a translated route has a CEL backend");
+                let event = match self.translators[t].translate(cel, name, args)? {
                     Ok(event) => event,
                     Err(e) => return Ok(refuse(format!("complier: couldn't translate this {name} call: {e}"))),
                 };

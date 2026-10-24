@@ -1,0 +1,2 @@
+-- The fallback is an event like any other: here the spec lets the writer do it once.
+WRITER = !other -> STOP

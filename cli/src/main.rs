@@ -1,3 +1,4 @@
+mod cel;
 mod codegen;
 mod config;
 mod csp;
@@ -9,6 +10,7 @@ mod oauth;
 mod poller;
 mod proxy;
 mod secrets;
+mod translate;
 
 use anyhow::{bail, Result};
 use clap::{Parser, Subcommand};
@@ -66,6 +68,20 @@ enum Command {
     },
     /// Run a translation unit's polls and print the input events they produce.
     Run { unit: PathBuf },
+    /// Prove a unit's output translation with the CEL backend, as `machine up` and the proxy do
+    /// before running it, and print the report. Fails if the unit isn't admitted.
+    Check { unit: PathBuf },
+    /// Classify one tool call with an admitted unit's translation and print its event, without
+    /// calling anything upstream.
+    ///
+    /// complier translate units/notion.ts notion-update-page '{"page_id": "p1", "command": "replace_content"}'
+    Translate {
+        unit: PathBuf,
+        tool: String,
+        /// Tool arguments as JSON.
+        #[arg(default_value = "{}")]
+        arguments: String,
+    },
     /// Run the complier daemon in the foreground. `machine up` starts it in the background if needed.
     Up,
     /// Start, stop and inspect machines: running instances of a spec.
@@ -133,6 +149,8 @@ fn main() -> Result<()> {
         Command::Gen { names, out } => generate(&names, &out),
         Command::Call { name, tool, arguments } => call(&name, &tool, &arguments),
         Command::Run { unit } => run(&unit),
+        Command::Check { unit } => check(&unit).map(|_| ()),
+        Command::Translate { unit, tool, arguments } => translate(&unit, &tool, &arguments),
         Command::Up => daemon::serve(),
         Command::Machine { command } => machine(command),
         Command::Proxy => proxy::serve(),
@@ -210,6 +228,32 @@ fn run(unit: &Path) -> Result<()> {
     println!("polling {}", unit.display());
     let stop = std::sync::atomic::AtomicBool::new(false);
     poller::poll(unit, &stop, |event| println!("{}", poller::show(&event)))
+}
+
+// Admits the unit as `machine up` does, printing the report either way.
+fn check(unit: &Path) -> Result<(Option<translate::Translator>, Option<cel::Backend>)> {
+    let (_host, description) = host::Host::spawn(unit)?;
+    let mut cel = None;
+    match translate::admit(&description, &mut cel) {
+        Ok(Some((translator, report))) => {
+            println!("{report}");
+            Ok((Some(translator), cel))
+        }
+        Ok(None) => {
+            println!("{} has no output translation; its polls only read read-only tools", unit.display());
+            Ok((None, cel))
+        }
+        Err(e) => bail!("{} isn't admitted: {e:#}", unit.display()),
+    }
+}
+
+fn translate(unit: &Path, tool: &str, arguments: &str) -> Result<()> {
+    let (Some(translator), Some(mut cel)) = check(unit)? else { bail!("{} translates no tools", unit.display()) };
+    match translator.translate(&mut cel, tool, &serde_json::from_str(arguments)?)? {
+        Ok(event) => println!("{tool} -> {}", poller::show(&event)),
+        Err(reason) => bail!("{tool} call refused: {reason}"),
+    }
+    Ok(())
 }
 
 fn machine(command: MachineCommand) -> Result<()> {
@@ -310,6 +354,7 @@ fn log(name: &str, follow: bool) -> Result<()> {
             role => format!("{role}: {}", text("event")),
         };
         match kind.as_str() {
+            "admission" => println!("{time}  admitted {}", text("unit")),
             "status" => println!("{time}  status   {:<48} {}", text("status"), text("reason")),
             "internal" => println!("{time}  internal {event:<48} → {}", text("state")),
             _ if text("outcome") == "accepted" => println!("{time}  {kind:<7}  {event:<48} → {}", text("state")),

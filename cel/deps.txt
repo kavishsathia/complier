@@ -1,0 +1,23 @@
+# Maven Central jars the CEL backend runs on: dev.cel:verifier:0.14.0 and its resolved
+# dependencies (cel-java 0.14.0, Z3 4.14.1 through z3-turnkey). build.sh checks every sha256.
+908152efa06c7c149dd8a992e663faa0a2f439755a2148c1950fb4028df75dca  dev/cel/verifier/0.14.0/verifier-0.14.0.jar
+6c61a11420a5cddf3313888e9d335d5eedfbeb9a8da26591470fbfe61f5bf859  com/google/auto/value/auto-value-annotations/1.11.1/auto-value-annotations-1.11.1.jar
+dc573e1fca4fd5454f4a5fd3d7da2df03002876a4175bafc14a95980dd7713b3  com/google/guava/guava/33.6.0-jre/guava-33.6.0-jre.jar
+a4345ba2aa009912ff6f90467fea2d104605256b72c50840d75f13256638a472  com/google/protobuf/protobuf-java/4.35.1/protobuf-java-4.35.1.jar
+7b52c72156dd7f98b3237a5b35c1d34fba381b21048c89208913ad80a45dfbd7  com/google/re2j/re2j/1.8/re2j-1.8.jar
+fb097817053766580f74ea6ef1ee345570a44aee84bf0d49a2d3ff5d84b9a910  dev/cel/cel/0.14.0/cel-0.14.0.jar
+dd3e8a13a2d669bf84fb8d834de35ce4875f27157698d206241ec8488aadcaf7  org/antlr/antlr4-runtime/4.13.2/antlr4-runtime-4.13.2.jar
+1fad6e6be7557781e4d33729d49ae1cdc8fdda6fe477bb0cc68ce351eafdfbab  org/jspecify/jspecify/1.0.0/jspecify-1.0.0.jar
+861ea99147f158214950955c82fd2ebc4d7b020c0422945a1086e0686cadb10d  org/threeten/threeten-extra/1.10.0/threeten-extra-1.10.0.jar
+d0907500ec36f2743273420cd9539c4ed79770987f02815b9d5fa1a55c6f782b  tools/aqua/z3-turnkey/4.14.1/z3-turnkey-4.14.1.jar
+cbfc3906b19b8f55dd7cfd6dfe0aa4532e834250d7f080bd8d211a3e246b59cb  com/google/guava/failureaccess/1.0.3/failureaccess-1.0.3.jar
+b372a037d4230aa57fbeffdef30fd6123f9c0c2db85d0aced00c91b974f33f99  com/google/guava/listenablefuture/9999.0-empty-to-avoid-conflict-with-guava/listenablefuture-9999.0-empty-to-avoid-conflict-with-guava.jar
+5364bc6f22e72e98195e406a58d3ba1c09ffa11dea0729592cb870dc2de4056d  com/google/errorprone/error_prone_annotations/2.47.0/error_prone_annotations-2.47.0.jar
+84d3a150518485f8140ea99b8a985656749629f6433c92b80c75b36aba3b099b  com/google/j2objc/j2objc-annotations/3.1/j2objc-annotations-3.1.jar
+e6095487af0d67178b570805397dac180527bbf0c2514c04a8e7511aaecc6597  dev/cel/common/0.14.0/common-0.14.0.jar
+53a17e1b5216843c0d20105eeb31b3eff6304e260d5d021e169fb8b37e3472c3  dev/cel/compiler/0.14.0/compiler-0.14.0.jar
+d2c314946539351e433e3ffc39ba578a5d1f0eb350ab047c58b87241adaeed1b  dev/cel/protobuf/0.14.0/protobuf-0.14.0.jar
+3e2e4267d2c83a5323a6724147082564a18965c19e4a3cbbb4a832821780f26b  dev/cel/runtime/0.14.0/runtime-0.14.0.jar
+429a705bc974d06c63fc14f4d7be7d23e5e7825d6fe76ab657bad2a2d9791c77  dev/cel/v1alpha1/0.14.0/v1alpha1-0.14.0.jar
+c8f7a98e7394adda02f6317249710e4d1b4c7a25aa8c7eace0c2eea52eb8bf85  org/yaml/snakeyaml/2.6/snakeyaml-2.6.jar
+8ec24721f253f33627fb18dee276c3329b8e9fc8f766464340e01c7edab0ff0a  tools/aqua/turnkey-support/1.0.0/turnkey-support-1.0.0.jar

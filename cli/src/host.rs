@@ -1,5 +1,6 @@
 // Runs a translation unit's pure functions in a Node child process. Rust keeps all state
-// (credentials, MCP session, previous snapshots); Node only answers diff(prev, next).
+// (credentials, MCP session, previous snapshots); Node only describes the unit and answers
+// diff(prev, next). The unit's output translation comes back as data, for the CEL backend.
 
 use anyhow::{anyhow, Context, Result};
 use serde::Deserialize;
@@ -16,8 +17,8 @@ pub struct Description {
     #[serde(rename = "readOnly")]
     pub read_only: Vec<String>,
     pub polls: Vec<PollSpec>,
-    // Tools whose calls translate to an output event, and tools the agent may call unchecked.
-    pub outputs: Vec<String>,
+    // CEL rules classifying the agent's calls into output events, and tools it may call unchecked.
+    pub translation: Option<crate::translate::Translation>,
     pub hidden: Vec<String>,
     // Input schema hashes the service's types were generated from.
     #[serde(default)]
@@ -31,7 +32,7 @@ pub struct PollSpec {
     pub args: Value,
 }
 
-#[derive(Deserialize, Clone)]
+#[derive(Deserialize, Clone, Debug, PartialEq)]
 pub struct Event {
     pub channel: String,
     pub value: Value,
@@ -65,17 +66,6 @@ impl Host {
         writeln!(self.stdin, "{}", json!({ "poll": poll, "prev": prev, "next": next }))?;
         self.stdin.flush()?;
         Ok(serde_json::from_value(self.recv()?)?)
-    }
-
-    // Translates an agent's call of `tool` into its output event, or the reason it can't be.
-    pub fn output(&mut self, tool: &str, args: &Value) -> Result<std::result::Result<Event, String>> {
-        writeln!(self.stdin, "{}", json!({ "output": tool, "args": args }))?;
-        self.stdin.flush()?;
-        let reply = self.recv()?;
-        Ok(match reply.get("error") {
-            Some(error) => Err(error.as_str().unwrap_or("translation failed").to_string()),
-            None => Ok(serde_json::from_value(reply["event"].clone())?),
-        })
     }
 
     fn recv(&mut self) -> Result<Value> {

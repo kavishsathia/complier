@@ -8,3 +8,7 @@ next-env.d.ts
 .env*.local
 .vercel
 .env*
+
+# CEL backend downloads and build output (cel/build.sh)
+/cel/.work
+/cel/build

@@ -9,8 +9,9 @@
 // Clients talk to it over a Unix socket, one JSON request and one JSON response per line.
 
 use crate::csp::{self, Contract, Term};
-use crate::host::Event;
+use crate::host::{Event, Host};
 use crate::poller;
+use crate::translate;
 use anyhow::{anyhow, bail, Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -341,6 +342,7 @@ fn respond(request: Request, machines: &Machines) -> Result<Value> {
 fn machine_up(machines: &Machines, name: String, spec: &Path, units: Vec<PathBuf>) -> Result<Value> {
     let source = std::fs::read_to_string(spec).with_context(|| format!("reading {}", spec.display()))?;
     let contract = csp::parse(&source).map_err(|e| anyhow!("{}: {e}", spec.display()))?;
+    let admitted = admit(&units)?;
     let mut all = machines.lock().unwrap();
     if all.contains_key(&name) {
         bail!("a machine named {name} is already running");
@@ -365,6 +367,9 @@ fn machine_up(machines: &Machines, name: String, spec: &Path, units: Vec<PathBuf
         told_ended: Default::default(),
     };
     machine.record(json!({ "kind": "status", "status": Status::Running, "reason": "machine up", "state": machine.show() }));
+    for (unit, report) in admitted {
+        machine.record(json!({ "kind": "admission", "unit": unit, "report": report }));
+    }
     machine.advance();
     all.insert(name.clone(), machine);
 
@@ -385,6 +390,21 @@ fn machine_up(machines: &Machines, name: String, spec: &Path, units: Vec<PathBuf
     }
     println!("machine {name} up");
     Ok(json!(name))
+}
+
+// Admits each unit before the machine starts (translate::admit): polls only of read-only tools and
+// output translations the CEL backend proves. The first unit that isn't admitted keeps the machine
+// from starting, and the reason, with any witness the solver found, goes back to whoever asked.
+fn admit(units: &[PathBuf]) -> Result<Vec<(PathBuf, Option<String>)>> {
+    let mut cel = None;
+    units
+        .iter()
+        .map(|unit| {
+            let (_host, description) = Host::spawn(unit)?;
+            let admitted = translate::admit(&description, &mut cel).with_context(|| format!("{} isn't admitted", unit.display()))?;
+            Ok((unit.clone(), admitted.map(|(_, report)| report.to_string())))
+        })
+        .collect()
 }
 
 // Sends one request to the daemon, starting it in the background first if it isn't running

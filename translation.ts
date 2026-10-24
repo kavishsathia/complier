@@ -1,5 +1,7 @@
-// Translation units: pure maps between external events and the CSP alphabet.
-// Input events come from the world (uncontrollable), output events from the agent (controllable).
+// Translation units: maps between external events and the CSP alphabet.
+// Input events come from the world (uncontrollable): polls and their diffs, plain functions complier
+// makes no claim about. Output events come from the agent (controllable): its tool calls,
+// classified by CEL rules that complier proves partition the calls before it lets any through.
 
 // ---- alphabet ----
 
@@ -13,9 +15,56 @@ export function channel<T = void>(name: string): Channel<T> {
   return Object.defineProperty(make, "name", { value: name }) as Channel<T>;
 }
 
-// ---- translation unit ----
+// ---- output translation: CEL rules over tool calls ----
 
-export type OutputMap<A> = (args: A) => Event;
+// The concrete event a tool call is: `tool`, the called tool's name (always declared, as a string),
+// and each argument named in the schema, as a CEL type in the verifier's syntax (`string`, `int`,
+// `list<string>`, `map<string, dyn>`, ...). An argument a call may leave out is `optional<T>`: it
+// binds to optional.none() when absent. Arguments the schema doesn't name are passed upstream but
+// play no part in classifying the call.
+export type Schema = Record<string, string>;
+
+// A call satisfying the CEL predicate `when` emits the CSP event `emit`, whose value is the CEL
+// expression `value` over the same fields (no value if left out).
+export type Rule = { when: string; emit: string; value?: string };
+
+export type Translation<T extends string = string> = {
+  // The tools whose calls are translated. Each call must be in the domain: its tool listed here
+  // and the `assumption`, a CEL predicate over the schema, true. Anything else is refused.
+  tools: T[];
+  schema: Schema;
+  assumption?: string;
+  // Named rules. Complier proves under the domain that no two can match the same call.
+  units: Record<string, Rule>;
+  // The event for an in-domain call no rule matches, generated as !(P1 || ... || Pn); complier
+  // proves the rules and the fallback together cover the domain. Defaults to `other`.
+  fallback?: { emit: string; value?: string };
+  // Per solver query; and how far list quantifiers are unrolled.
+  timeoutMs?: number;
+  unroll?: number;
+};
+
+// `other`, or `other_2`, `other_3`... if a rule already emits it.
+function defaultFallback(rules: Rule[]): string {
+  const taken = new Set(rules.map((r) => r.emit));
+  if (!taken.has("other")) return "other";
+  let i = 2;
+  while (taken.has(`other_${i}`)) i++;
+  return `other_${i}`;
+}
+
+// What the runtime sees: plain data, ordered, defaults filled in.
+export type TranslationSpec = {
+  tools: string[];
+  schema: { name: string; type: string }[];
+  assumption: string;
+  units: { name: string; when: string; emit: string; value?: string }[];
+  fallback: { emit: string; value?: string };
+  timeoutMs: number;
+  unroll: number;
+};
+
+// ---- translation unit ----
 
 // Parses one tool's text result into a value, throwing if the result isn't what it expects.
 export type Reader<T> = { read: (result: string) => T };
@@ -60,7 +109,7 @@ export type Poll = { tool: string; every: number; args: unknown; diff: Diff<stri
 // and polled results are parsed by the service's reviewed readers.
 export class Unit<Tools extends Record<string, unknown>, R extends Readers<Tools>, RO extends string> {
   readonly polls: Poll[] = [];
-  readonly outputs = new Map<string, OutputMap<any>>();
+  translation: TranslationSpec | null = null;
   readonly hidden = new Set<string>();
   readonly readOnly: Set<string>;
   readonly hashes: Record<string, string>;
@@ -88,13 +137,25 @@ export class Unit<Tools extends Record<string, unknown>, R extends Readers<Tools
     return this;
   }
 
-  // An action the agent takes. Unregistered output events are refused (fail closed).
-  output<K extends keyof Tools & string>(tool: K, map: OutputMap<Tools[K]>): this {
-    this.outputs.set(tool, map);
+  // The agent's actions: calls of `tools`, classified into CSP events by CEL rules. Calls of any
+  // tool neither translated nor hidden are refused (fail closed).
+  translate<K extends keyof Tools & string>(spec: Translation<K>): this {
+    if (this.translation) throw new Error(`${this.name}: translate() can only be called once per unit`);
+    const units = Object.entries(spec.units).map(([name, rule]) => ({ name, ...rule }));
+    this.translation = {
+      tools: [...spec.tools],
+      schema: Object.entries(spec.schema).map(([name, type]) => ({ name, type })),
+      assumption: spec.assumption ?? "",
+      units,
+      fallback: spec.fallback ?? { emit: defaultFallback(units) },
+      timeoutMs: spec.timeoutMs ?? 10_000,
+      unroll: spec.unroll ?? 5,
+    };
     return this;
   }
 
-  // Agent actions declared to have no effect on the modeled world.
+  // Agent actions declared to have no effect on the modeled world: passed upstream unchecked.
+  // This is trusted policy, separate from translation; a hidden tool can't also be translated.
   hide(...tools: (keyof Tools & string)[]): this {
     tools.forEach((t) => this.hidden.add(t));
     return this;
