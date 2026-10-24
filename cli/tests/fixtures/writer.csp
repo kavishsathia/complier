@@ -1,0 +1,3 @@
+-- The writer appends, then replaces, in turn. `other` (the fallback) isn't in the spec, so a call
+-- translated to it is refused.
+WRITER = !appended -> !replaced -> WRITER

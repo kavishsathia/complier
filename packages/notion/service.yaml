@@ -1,0 +1,19 @@
+# Reviewed metadata for the Notion MCP server, which units name with `service:`.
+# name: the server as registered with `complier add notion --url https://mcp.notion.com/mcp`.
+# tools: every tool and its input schema hash, from `complier gen notion`; units may only name
+#   these tools, and the proxy leaves out any whose live schema no longer matches.
+# readOnly: the tools reviewed as side-effect free. Only these can be hidden (passed upstream
+#   unchecked).
+name: notion
+tools: tools.yaml
+readOnly:
+  - notion-fetch
+  - notion-search
+  - notion-get-comments
+  - notion-get-users
+  - notion-get-self
+  - notion-get-teams
+  - notion-list-private-pages
+  - notion-list-shared-pages
+  - notion-list-favorite-pages
+  - notion-list-recent-pages

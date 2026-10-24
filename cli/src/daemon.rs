@@ -1,16 +1,17 @@
 // The complier daemon: owns running machines, each a spec instance (a || composition of
-// components) whose state advances on three kinds of event:
-// - inputs (`?e`), world events from its units' polls: performed when every component sharing
-//   them can, dropped otherwise;
-// - outputs (`!e`), actions an agent submits through its role's component: refused unless enabled;
+// components) whose state advances on two kinds of event:
+// - outputs (`!e`), actions an agent submits through its role's component (the proxy translates
+//   its tool calls into them with the machine's units): refused unless enabled;
 // - internal events (everything else), performed by the daemon as soon as they're enabled.
+// Nothing else moves a machine: complier doesn't observe the world, so a spec that marks an input
+// (`?e`) is refused, since nothing would ever submit it.
 // An agent's Stop hook only reports: it waits while the agent's process has nothing for it to
 // submit, then tells it what its process went through.
 // Clients talk to it over a Unix socket, one JSON request and one JSON response per line.
 
 use crate::csp::{self, Contract, Term};
-use crate::host::Event;
-use crate::poller;
+use crate::translate;
+use crate::unit;
 use anyhow::{anyhow, bail, Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -19,7 +20,6 @@ use std::fs::{File, OpenOptions};
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -65,8 +65,6 @@ enum Status {
     Finished,
     // The spec can do nothing more and cannot terminate (STOP).
     Deadlocked,
-    // A poll failed, so the machine can no longer see the world.
-    Desynced,
     // Internal events alone could go on forever (CSP divergence).
     Diverged,
     Stopped,
@@ -79,14 +77,12 @@ struct Machine {
     // One state per component, in the order of contract.components.
     states: Vec<Vec<Term>>,
     status: Status,
-    stop: Arc<AtomicBool>,
     log: File,
-    // World events performed so far, and per component, the events it took part in with the role
-    // that submitted each (none for world and internal events).
-    world: Vec<String>,
+    // Per component, the events it took part in with the role that submitted each (none for
+    // internal events).
     history: Vec<Vec<(String, Option<String>)>>,
-    // How much of `world` and of its component's history each role has been told about.
-    told: BTreeMap<String, (usize, usize)>,
+    // How much of its component's history each role has been told about.
+    told: BTreeMap<String, usize>,
     // Why the machine left Running, and which roles have been told.
     ended: String,
     told_ended: std::collections::BTreeSet<String>,
@@ -133,30 +129,7 @@ impl Machine {
         parts.map(|(c, s)| format!("{}: {}", c.name, csp::show_state(s))).collect::<Vec<_>>().join("  ||  ")
     }
 
-    // The world can't be refused, only observed, so input fails open: an event outside the
-    // alphabet is ignored, and one the spec refuses right now is dropped. Either way the state
-    // doesn't move and the log keeps a record.
-    fn world(&mut self, event: &Event) {
-        if self.status != Status::Running {
-            return;
-        }
-        let shown = poller::show(event);
-        if !self.contract.alphabet.contains(&event.channel) {
-            return self.record(json!({ "kind": "world", "event": shown, "outcome": "ignored" }));
-        }
-        if !self.contract.inputs.contains(&event.channel) {
-            return self.record(json!({ "kind": "world", "event": shown, "outcome": "ignored", "reason": "the spec doesn't mark it as an input (?)" }));
-        }
-        if !self.enabled(&event.channel) {
-            return self.record(json!({ "kind": "world", "event": shown, "outcome": "dropped", "reason": "the spec doesn't allow it now" }));
-        }
-        self.perform(&event.channel, &shown, None);
-        self.world.push(shown.clone());
-        self.record(json!({ "kind": "world", "event": shown, "outcome": "accepted", "state": self.show() }));
-        self.advance();
-    }
-
-    // Agent actions are controllable, so a refused one is just refused (fail closed).
+    // A refused action is just refused (fail closed).
     fn act(&mut self, role: &str, event: &str, value: &Value) -> Result<()> {
         let shown = match value {
             Value::Null => event.to_string(),
@@ -169,8 +142,6 @@ impl Machine {
         let component = &self.contract.components[self.component(role)?];
         let outcome = if !component.alphabet.contains(event) {
             Err(format!("{event} isn't something role {role} does"))
-        } else if self.contract.inputs.contains(event) {
-            Err(format!("{event} comes from the world (?{event}), so no agent can submit it"))
         } else if !self.contract.outputs.contains(event) {
             Err(format!("{event} is internal to the spec (not marked !), so only the spec performs it"))
         } else if !self.enabled(event) {
@@ -189,13 +160,13 @@ impl Machine {
     }
 
     // What the role's process went through since the role was last told, leaving out its own
-    // actions, and what happened in the world meanwhile.
+    // actions: internal events and other roles' actions on events it shares.
     fn catch_up(&mut self, role: &str) -> Result<Value> {
         let i = self.component(role)?;
-        let (world, history) = self.told.get(role).copied().unwrap_or_default();
-        let happened: Vec<&String> = self.history[i][history..].iter().filter(|(_, by)| by.as_deref() != Some(role)).map(|(e, _)| e).collect();
-        let report = json!({ "happened": happened, "world": self.world[world..], "next": self.next(i) });
-        self.told.insert(role.to_string(), (self.world.len(), self.history[i].len()));
+        let told = self.told.get(role).copied().unwrap_or_default();
+        let happened: Vec<&String> = self.history[i][told..].iter().filter(|(_, by)| by.as_deref() != Some(role)).map(|(e, _)| e).collect();
+        let report = json!({ "happened": happened, "next": self.next(i) });
+        self.told.insert(role.to_string(), self.history[i].len());
         Ok(report)
     }
 
@@ -212,8 +183,8 @@ impl Machine {
             if self.status != Status::Running {
                 return;
             }
-            let (inputs, outputs) = (&self.contract.inputs, &self.contract.outputs);
-            let ready = self.contract.alphabet.iter().find(|e| !inputs.contains(*e) && !outputs.contains(*e) && self.enabled(e)).cloned();
+            let outputs = &self.contract.outputs;
+            let ready = self.contract.alphabet.iter().find(|e| !outputs.contains(*e) && self.enabled(e)).cloned();
             let Some(event) = ready else { return self.check_end() };
             self.perform(&event, &event, None);
             self.record(json!({ "kind": "internal", "event": event, "state": self.show() }));
@@ -235,9 +206,6 @@ impl Machine {
     fn set(&mut self, status: Status, reason: &str) {
         self.status = status.clone();
         self.ended = reason.to_string();
-        if status != Status::Running {
-            self.stop.store(true, Ordering::Relaxed);
-        }
         self.record(json!({ "kind": "status", "status": status, "reason": reason }));
     }
 
@@ -341,13 +309,14 @@ fn respond(request: Request, machines: &Machines) -> Result<Value> {
 fn machine_up(machines: &Machines, name: String, spec: &Path, units: Vec<PathBuf>) -> Result<Value> {
     let source = std::fs::read_to_string(spec).with_context(|| format!("reading {}", spec.display()))?;
     let contract = csp::parse(&source).map_err(|e| anyhow!("{}: {e}", spec.display()))?;
+    no_inputs(&contract).map_err(|e| anyhow!("{}: {e}", spec.display()))?;
+    let admitted = admit(&units)?;
     let mut all = machines.lock().unwrap();
     if all.contains_key(&name) {
         bail!("a machine named {name} is already running");
     }
 
     let log = OpenOptions::new().create(true).append(true).open(log_path(&name)?)?;
-    let stop = Arc::new(AtomicBool::new(false));
     let states = contract.initial_states();
     let history = vec![Vec::new(); states.len()];
     let mut machine = Machine {
@@ -357,34 +326,50 @@ fn machine_up(machines: &Machines, name: String, spec: &Path, units: Vec<PathBuf
         contract,
         states,
         status: Status::Running,
-        stop: stop.clone(),
         log,
-        world: Vec::new(),
         told: BTreeMap::new(),
         ended: String::new(),
         told_ended: Default::default(),
     };
     machine.record(json!({ "kind": "status", "status": Status::Running, "reason": "machine up", "state": machine.show() }));
+    for (unit, report) in admitted {
+        machine.record(json!({ "kind": "admission", "unit": unit, "report": report }));
+    }
     machine.advance();
     all.insert(name.clone(), machine);
-
-    for unit in units {
-        let (machines, name, stop) = (machines.clone(), name.clone(), stop.clone());
-        std::thread::spawn(move || {
-            let result = poller::poll(&unit, &stop, |event| {
-                if let Some(machine) = machines.lock().unwrap().get_mut(&name) {
-                    machine.world(&event);
-                }
-            });
-            if let Err(e) = result {
-                if let Some(machine) = machines.lock().unwrap().get_mut(&name) {
-                    machine.set(Status::Desynced, &format!("{}: {e:#}", unit.display()));
-                }
-            }
-        });
-    }
     println!("machine {name} up");
     Ok(json!(name))
+}
+
+// Nothing outside an agent submits events, so an input (`?e`) could never happen.
+fn no_inputs(contract: &Contract) -> Result<()> {
+    match contract.inputs.iter().next() {
+        Some(e) => bail!("?{e} marks an input from the world, but complier doesn't observe the world, so nothing would ever submit it; agents' actions are outputs (!{e})"),
+        None => Ok(()),
+    }
+}
+
+// Loads and admits each unit before the machine starts: its YAML read and checked against its
+// service (unit::load), and its translation proven by the CEL backend (translate::admit). The first
+// unit that isn't admitted keeps the machine from starting, and the reason, with any witness the
+// solver found, goes back to whoever asked.
+// A tool two units both name is refused here too, as the proxy would.
+fn admit(units: &[PathBuf]) -> Result<Vec<(PathBuf, Option<String>)>> {
+    let mut cel = None;
+    let mut offered: BTreeMap<(String, String), &Path> = BTreeMap::new();
+    units
+        .iter()
+        .map(|path| {
+            let unit = unit::load(path).with_context(|| format!("{} isn't admitted", path.display()))?;
+            for tool in unit.tools() {
+                if let Some(other) = offered.insert((unit.server.clone(), tool.to_string()), path) {
+                    bail!("{} isn't admitted: {tool} is also offered by {}; each tool can be in only one unit", path.display(), other.display());
+                }
+            }
+            let admitted = translate::admit(&unit, &mut cel).with_context(|| format!("{} isn't admitted", path.display()))?;
+            Ok((path.clone(), admitted.map(|(_, report)| report.to_string())))
+        })
+        .collect()
 }
 
 // Sends one request to the daemon, starting it in the background first if it isn't running
@@ -431,13 +416,11 @@ fn start_background(path: &Path) -> Result<UnixStream> {
 mod tests {
     use super::*;
 
-    // The world deletes pages; a size-1 inbox holds each deletion until the writer, busy
-    // drafting, is ready to take it.
+    // The writer drafts, the spec files the draft on its own, and only then may the writer recreate.
     const SPEC: &str = "
-        NOTION = ?page_deleted -> NOTION
-        INBOX  = page_deleted -> deleted -> INBOX
-        WRITER = !draft -> deleted -> !recreate -> WRITER
-        MAIN   = NOTION || INBOX || WRITER";
+        WRITER  = !draft -> filed -> !recreate -> WRITER
+        ARCHIVE = filed -> ARCHIVE
+        MAIN    = WRITER || ARCHIVE";
 
     fn machine() -> Machine {
         spec_machine(SPEC)
@@ -453,91 +436,57 @@ mod tests {
             history: vec![Vec::new(); contract.components.len()],
             contract,
             status: Status::Running,
-            stop: Arc::default(),
             log: File::create(log).unwrap(),
-            world: Vec::new(),
             told: BTreeMap::new(),
             ended: String::new(),
             told_ended: Default::default(),
         }
     }
 
-    fn deleted(id: &str) -> Event {
-        serde_json::from_value(json!({ "channel": "page_deleted", "value": id })).unwrap()
-    }
-
     #[test]
-    fn world_moves_on_while_the_agent_catches_up() {
+    fn internal_events_happen_on_their_own_and_are_reported() {
         let mut m = machine();
-        m.world(&deleted("p1")); // the world doesn't wait for the writer
+        assert!(!m.waiting("writer").unwrap()); // it can draft, so its stop isn't held
+        m.act("writer", "draft", &json!("p1")).unwrap(); // filed happens with it, internally
         assert!(m.status == Status::Running);
-        assert!(!m.waiting("writer").unwrap()); // it still has to draft, so its stop isn't held
-
-        m.act("writer", "draft", &Value::Null).unwrap(); // deleted happens with it, internally
-        assert!(!m.waiting("writer").unwrap());
         let report = m.catch_up("writer").unwrap();
-        assert_eq!(report["happened"], json!(["deleted"])); // its own draft is left out
-        assert_eq!(report["world"], json!(["page_deleted.p1"]));
+        assert_eq!(report["happened"], json!(["filed"])); // its own draft is left out
         assert_eq!(report["next"], json!(["recreate"]));
+        assert!(report.get("world").is_none());
         assert_eq!(m.catch_up("writer").unwrap()["happened"], json!([])); // told once
     }
 
     #[test]
-    fn a_writer_with_nothing_to_submit_waits_for_the_world() {
-        let mut m = machine();
+    fn a_role_waits_for_another_roles_action() {
+        let mut m = spec_machine("
+            WRITER   = !draft -> reviewed -> WRITER
+            REVIEWER = !review -> reviewed -> REVIEWER
+            MAIN     = WRITER || REVIEWER");
         m.act("writer", "draft", &Value::Null).unwrap();
-        assert!(m.waiting("writer").unwrap()); // deleted needs a deletion first
-        m.world(&deleted("p1"));
+        assert!(m.waiting("writer").unwrap()); // reviewed needs the reviewer
+        m.act("reviewer", "review", &Value::Null).unwrap();
         assert!(!m.waiting("writer").unwrap());
-        assert_eq!(m.catch_up("writer").unwrap()["happened"], json!(["deleted"]));
-    }
-
-    #[test]
-    fn a_world_event_the_spec_refuses_is_dropped() {
-        let mut m = machine();
-        m.world(&deleted("p1"));
-        m.world(&deleted("p2")); // the inbox is full, so this one is dropped
-        assert!(m.status == Status::Running);
-        assert_eq!(m.world, ["page_deleted.p1"]);
-        m.act("writer", "draft", &Value::Null).unwrap();
-        m.world(&deleted("p3")); // the writer took p1, so the inbox has room again
-        assert_eq!(m.world, ["page_deleted.p1", "page_deleted.p3"]);
+        assert_eq!(m.catch_up("writer").unwrap()["happened"], json!(["reviewed"]));
     }
 
     #[test]
     fn a_stopping_agent_is_told_once_that_its_machine_ended() {
         let mut m = machine();
-        m.set(Status::Desynced, "notion-fetch failed");
+        m.set(Status::Deadlocked, "the spec can do nothing more");
         let machines: Machines = Arc::new(Mutex::new([("demo".to_string(), m)].into()));
         let stop = || respond(Request::Stop { machine: "demo".into(), role: "writer".into() }, &machines).unwrap();
         let first = stop();
-        assert_eq!(first["ended"], json!("desynced"));
-        assert!(first["reason"].as_str().unwrap().contains("notion-fetch"));
+        assert_eq!(first["ended"], json!("deadlocked"));
+        assert!(first["reason"].as_str().unwrap().contains("nothing more"));
         assert!(stop().get("ended").is_none()); // told once; after that it may stop
     }
 
-    // `archive` is only between the spec's own processes, so it happens without anyone submitting it.
     #[test]
-    fn internal_events_happen_on_their_own() {
-        let mut m = spec_machine("
-            NOTION = ?page_deleted -> NOTION
-            LEDGER = page_deleted -> archive -> LEDGER
-            AUDIT  = archive -> audited -> AUDIT
-            WRITER = audited -> !recreate -> WRITER
-            MAIN   = NOTION || LEDGER || AUDIT || WRITER");
-        m.world(&deleted("p1"));
-        assert!(m.contract.initials(&m.states[1]).contains("page_deleted")); // archive already fired
-        assert!(m.act("writer", "archive", &Value::Null).is_err()); // nobody outside can submit it
-        let report = m.catch_up("writer").unwrap();
-        assert_eq!(report["happened"], json!(["audited"]));
-        assert_eq!(report["next"], json!(["recreate"]));
-    }
-
-    #[test]
-    fn unmarked_events_cant_come_from_outside() {
-        let mut m = spec_machine("NOTION = page_deleted -> NOTION\nWRITER = !draft -> WRITER\nMAIN = NOTION || WRITER");
-        m.world(&deleted("p1"));
-        assert!(m.world.is_empty()); // ignored: the spec would fire it itself, so the world can't
+    fn specs_with_inputs_are_refused() {
+        let contract = csp::parse("NOTION = ?page_deleted -> NOTION\nWRITER = !draft -> WRITER\nMAIN = NOTION || WRITER").unwrap();
+        let e = no_inputs(&contract).unwrap_err().to_string();
+        assert!(e.contains("?page_deleted") && e.contains("doesn't observe the world"), "{e}");
+        assert!(no_inputs(&csp::parse(SPEC).unwrap()).is_ok());
     }
 
     #[test]
@@ -551,10 +500,12 @@ mod tests {
     fn actions_are_checked() {
         let mut m = machine();
         assert!(m.act("writer", "recreate", &Value::Null).is_err()); // not yet
-        assert!(m.act("writer", "deleted", &Value::Null).is_err()); // internal, not submitted
-        assert!(m.act("notion", "page_deleted", &Value::Null).is_err()); // only the world submits it
+        assert!(m.act("writer", "filed", &Value::Null).is_err()); // internal, not submitted
         assert!(m.act("reviewer", "draft", &Value::Null).is_err()); // no such role
+        assert!(m.act("archive", "draft", &Value::Null).is_err()); // not something archive does
         assert!(m.act("writer", "draft", &Value::Null).is_ok());
+        assert!(m.act("writer", "draft", &Value::Null).is_err()); // once, until it recreates
+        assert!(m.act("writer", "recreate", &Value::Null).is_ok());
         assert!(m.status == Status::Running);
     }
 }

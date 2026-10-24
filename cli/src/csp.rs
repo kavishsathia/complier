@@ -5,9 +5,10 @@
 //! both choices are stepped the same way: the next event reveals which branch
 //! was taken. Each component's alphabet is the events it can reach, and an
 //! event shared by several components needs all of them to take part.
-//! Two marks say who submits an event from outside the spec: `?e` is an input,
-//! which the world submits and nobody can refuse (uncontrollable), and `!e` is an
-//! output, which an agent submits and the spec can refuse (controllable). Every
+//! Two marks say who submits an event from outside the spec: `!e` is an output,
+//! which an agent submits and the spec can refuse, and `?e` an input, submitted by
+//! the world. The parser keeps both, but complier's runtime doesn't observe the
+//! world, so the daemon refuses a spec that marks an input (see daemon.rs). Every
 //! unmarked event is internal and happens on its own once every component sharing
 //! it is ready. Marking one occurrence marks the event everywhere. These marks
 //! aren't CSP's `c?x` and `c!v`: they go before the event and bind nothing.
@@ -27,9 +28,9 @@ pub enum Term {
 pub struct Contract {
     defs: HashMap<String, Term>,
     pub alphabet: BTreeSet<String>,
-    // Events written `?e` somewhere: submitted by the world (uncontrollable).
+    // Events written `?e` somewhere: inputs from the world, which the daemon refuses.
     pub inputs: BTreeSet<String>,
-    // Events written `!e` somewhere: submitted by agents (controllable).
+    // Events written `!e` somewhere: submitted by agents.
     pub outputs: BTreeSet<String>,
     pub components: Vec<Component>,
 }

@@ -1,0 +1,26 @@
+# Demo unit: editing a page is drafting, with the page's id; creating pages is recreating, with
+# their titles. Run (after cel/build.sh, which builds the CEL backend that proves the unit):
+#   complier machine up demo --spec demo/draft.csp --unit demo/draft.yaml
+#   COMPLIER_MACHINE=demo COMPLIER_ROLE=writer claude --plugin-dir plugin
+service: ../packages/notion/service.yaml
+
+translate:
+  tools: [notion-update-page, notion-create-pages]
+  schema:
+    page_id: optional<string>
+    pages: optional<list<map<string, dyn>>>
+  assumption: "tool == 'notion-update-page' ? page_id.hasValue() : pages.hasValue()"
+  rules:
+    draft:
+      when: tool == 'notion-update-page'
+      emit: draft
+      value: page_id.value()
+    recreate:
+      when: tool == 'notion-create-pages'
+      emit: recreate
+      value: >-
+        pages.value().map(p,
+          has(p.properties) && has(p.properties.title) && p.properties.title != null
+            ? string(p.properties.title) : 'untitled').join(', ')
+
+hidden: [notion-fetch, notion-search]

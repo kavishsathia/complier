@@ -1,0 +1,3 @@
+# A second unit over the same server: it only passes a reviewed read-only tool through.
+service: fake/service.yaml
+hidden: [list-items]

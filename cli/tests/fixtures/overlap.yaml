@@ -1,0 +1,10 @@
+# Not admissible: a write with no mode is both an append and an unchecked write.
+service: fake/service.yaml
+translate:
+  tools: [write-item]
+  schema:
+    id: string
+    mode: optional<string>
+  rules:
+    append: { when: "mode.orValue('append') == 'append'", emit: appended }
+    any: { when: "!mode.hasValue() || mode.value() != 'replace'", emit: written }
