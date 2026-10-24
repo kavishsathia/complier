@@ -3,7 +3,7 @@
 // (kavishsathia.vercel.app/tools/cel/units, src/lib/cel/units.ts) brought to the runtime: the same
 // queries, the same reading of the verifier's statuses and the same classification, with nothing
 // decided here; cel-java's runtime decides which rules a call matches and its verifier answers the
-// proofs. What tool calls add:
+// proofs. A unit's `rules` are the website's `units`. What tool calls add:
 // - the concrete event is bound from the call: `tool` is the called tool and every other schema
 //   field the argument of that name, written as a CEL literal and type-checked against the field's
 //   declared type by cel-java (an `optional<T>` field binds optional.none() when absent);
@@ -12,34 +12,32 @@
 //   are compiled when the unit is admitted but aren't part of the proof.
 
 use crate::cel::Backend;
-use crate::host::{Description, Event};
+use crate::unit::Unit;
 use anyhow::{bail, Result};
-use serde::Deserialize;
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
-#[derive(Deserialize, Clone, Debug)]
+// A unit's translation as its YAML file gives it (unit.rs reads and validates the file), in file
+// order, with the defaults filled in.
+#[derive(Clone, Debug)]
 pub struct Translation {
     pub tools: Vec<String>,
     pub schema: Vec<Field>,
-    #[serde(default)]
     pub assumption: String,
-    pub units: Vec<Rule>,
+    pub rules: Vec<Rule>,
     pub fallback: Fallback,
-    #[serde(rename = "timeoutMs")]
     pub timeout_ms: u64,
     pub unroll: u32,
 }
 
-#[derive(Deserialize, Clone, Debug)]
+#[derive(Clone, Debug)]
 pub struct Field {
     pub name: String,
-    #[serde(rename = "type")]
     pub ty: String,
 }
 
-#[derive(Deserialize, Clone, Debug)]
+#[derive(Clone, Debug)]
 pub struct Rule {
     pub name: String,
     pub when: String,
@@ -47,10 +45,34 @@ pub struct Rule {
     pub value: Option<String>,
 }
 
-#[derive(Deserialize, Clone, Debug)]
+#[derive(Clone, Debug)]
 pub struct Fallback {
     pub emit: String,
     pub value: Option<String>,
+}
+
+// What a translated call becomes: a CSP event and its value, for the machine to check.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Event {
+    pub channel: String,
+    pub value: Value,
+}
+
+// `channel.value`, without JSON quotes around string values.
+pub fn show(event: &Event) -> String {
+    match event.value.as_str() {
+        Some(value) => format!("{}.{value}", event.channel),
+        None => format!("{}.{}", event.channel, event.value),
+    }
+}
+
+// `other`, or `other_2`, `other_3`... if a rule already emits it.
+pub fn default_fallback(rules: &[Rule]) -> String {
+    let taken: BTreeSet<&str> = rules.iter().map(|r| r.emit.as_str()).collect();
+    if !taken.contains("other") {
+        return "other".into();
+    }
+    (2..).map(|i| format!("other_{i}")).find(|e| !taken.contains(e.as_str())).unwrap()
 }
 
 // ---- types and literals --------------------------------------------------------------------
@@ -193,15 +215,35 @@ fn describe(ty: &Ty) -> String {
 
 // ---- configuration -------------------------------------------------------------------------
 
-fn is_ident(s: &str) -> bool {
+pub fn is_ident(s: &str) -> bool {
     let mut cs = s.chars();
     cs.next().is_some_and(|c| c.is_ascii_alphabetic() || c == '_') && cs.all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
 
 // A fixed CSP event name: dotted identifiers, as in `edited` or `call.read`.
-fn is_event(s: &str) -> bool {
+pub fn is_event(s: &str) -> bool {
     let mut parts = s.split('.');
     parts.next().is_some_and(is_ident) && parts.all(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_alphanumeric() || c == '_'))
+}
+
+// What's wrong with a schema field's name, if anything.
+pub fn field_name_problem(name: &str) -> Option<String> {
+    if !is_ident(name) {
+        Some(format!("field {name:?} must be an identifier (it's the argument's name)"))
+    } else if name == "tool" {
+        Some("`tool` is the called tool's name and is always declared; don't declare it".into())
+    } else {
+        None
+    }
+}
+
+// What's wrong with a schema field's type, if anything.
+pub fn type_problem(ty: &str) -> Option<String> {
+    match parse_type(ty) {
+        Err(e) => Some(e),
+        Ok(t) if contains_optional(&t, true) => Some("optional<T> only goes at the top of a field (it says the argument may be absent)".into()),
+        Ok(_) => None,
+    }
 }
 
 // Problems with the translation itself, before any solver is involved: (errors, warnings).
@@ -218,27 +260,21 @@ pub fn issues(t: &Translation) -> (Vec<String>, Vec<String>) {
     }
     let mut fields = BTreeSet::new();
     for f in &t.schema {
-        if !is_ident(&f.name) {
-            errors.push(format!("schema: field {:?} must be an identifier (it's the argument's name)", f.name));
-        } else if f.name == "tool" {
-            errors.push("schema: `tool` is the called tool's name and is always declared; don't declare it".to_string());
+        if let Some(e) = field_name_problem(&f.name) {
+            errors.push(format!("schema: {e}"));
         } else if !fields.insert(&f.name) {
             errors.push(format!("schema: field {} declared twice", f.name));
         }
-        match parse_type(&f.ty) {
-            Err(e) => errors.push(format!("schema: {}: {e}", f.name)),
-            Ok(ty) if contains_optional(&ty, true) => {
-                errors.push(format!("schema: {}: optional<T> only goes at the top of a field (it says the argument may be absent)", f.name))
-            }
-            Ok(_) => {}
+        if let Some(e) = type_problem(&f.ty) {
+            errors.push(format!("schema: {}: {e}", f.name));
         }
     }
-    if t.units.is_empty() {
+    if t.rules.is_empty() {
         errors.push("add at least one rule".to_string());
     }
     let mut names = BTreeMap::new();
     let mut emits: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
-    for u in &t.units {
+    for u in &t.rules {
         if !is_ident(&u.name) {
             errors.push(format!("rule {:?}: name must be an identifier", u.name));
         }
@@ -324,7 +360,7 @@ impl Translation {
     }
 
     fn preds(&self) -> Vec<&str> {
-        self.units.iter().map(|u| u.when.as_str()).collect()
+        self.rules.iter().map(|u| u.when.as_str()).collect()
     }
 
     fn verify(&self, cel: &mut Backend, op: &str, expr: &str) -> Result<Value> {
@@ -522,7 +558,7 @@ pub fn prove(cel: &mut Backend, t: &Translation) -> Result<Report> {
     let domain = t.domain();
     let compile = |cel: &mut Backend, expr: &str| cel.request(json!({ "op": "compile", "expr": expr, "vars": vars }));
     let mut sources = vec![("the assumption".to_string(), domain.clone(), true)];
-    for u in &t.units {
+    for u in &t.rules {
         sources.push((format!("rule {}", u.name), u.when.clone(), true));
         if let Some(v) = &u.value {
             sources.push((format!("rule {}'s value", u.name), v.clone(), false));
@@ -557,7 +593,7 @@ pub fn prove(cel: &mut Backend, t: &Translation) -> Result<Report> {
     }
 
     let preds = t.preds();
-    for u in &t.units {
+    for u in &t.rules {
         let v = read_emptiness(&t.verify(cel, "sat", &conjoin(&[&domain, &u.when]))?);
         let r = reading(&v, "never matches in the domain (vacuous)", "matches");
         if matches!(v, Verdict::Proved) {
@@ -565,9 +601,9 @@ pub fn prove(cel: &mut Backend, t: &Translation) -> Result<Report> {
         }
         add(&mut report, format!("rule {} → {}", u.name, u.emit), Role::Info, v, true, r);
     }
-    for i in 0..t.units.len() {
-        for j in i + 1..t.units.len() {
-            let (a, b) = (&t.units[i], &t.units[j]);
+    for i in 0..t.rules.len() {
+        for j in i + 1..t.rules.len() {
+            let (a, b) = (&t.rules[i], &t.rules[j]);
             let v = read_emptiness(&t.verify(cel, "sat", &conjoin(&[&domain, &a.when, &b.when]))?);
             let passed = matches!(v, Verdict::Proved);
             let r = reading(&v, "disjoint", "OVERLAP: both match the same call");
@@ -630,7 +666,7 @@ impl Translator {
         let mut exprs = vec![t.domain()];
         exprs.extend(preds.iter().map(|p| p.to_string()));
         exprs.push(fallback_pred(&preds));
-        let mut values: Vec<Option<String>> = t.units.iter().map(|u| u.value.clone()).collect();
+        let mut values: Vec<Option<String>> = t.rules.iter().map(|u| u.value.clone()).collect();
         values.push(t.fallback.value.clone());
         Ok(Self { vars: t.vars(), exprs, values, types, translation: t })
     }
@@ -708,10 +744,10 @@ impl Translator {
             Ok(v) => v,
             Err(e) => return Classification::AssumptionError(e),
         };
-        let units = &self.translation.units;
+        let rules = &self.translation.rules;
         let mut errors = vec![];
         let mut matches = vec![];
-        for (i, u) in units.iter().enumerate() {
+        for (i, u) in rules.iter().enumerate() {
             match result(i + 1) {
                 Ok(true) => matches.push(i),
                 Ok(false) => {}
@@ -724,7 +760,7 @@ impl Translator {
         if !in_domain {
             return Classification::OutsideDomain;
         }
-        match result(units.len() + 1) {
+        match result(rules.len() + 1) {
             Ok(fb) if fb == matches.is_empty() => {}
             Ok(fb) => return Classification::FallbackError(format!("fallback evaluated to {fb}")),
             Err(e) => return Classification::FallbackError(e),
@@ -743,18 +779,18 @@ impl Translator {
             return Ok(Err(format!("{tool} isn't translated by this unit")));
         }
         let (class, values) = self.evaluate(cel, tool, args)?;
-        let units = &self.translation.units;
+        let rules = &self.translation.rules;
         let list = |errors: &[(String, String)]| errors.iter().map(|(k, e)| format!("{k}: {e}")).collect::<Vec<_>>().join("; ");
         let (emit, i) = match class {
-            Classification::Mapped(i) => (&units[i].emit, i),
-            Classification::Fallback => (&self.translation.fallback.emit, units.len()),
+            Classification::Mapped(i) => (&rules[i].emit, i),
+            Classification::Fallback => (&self.translation.fallback.emit, rules.len()),
             Classification::InputError(e) => return Ok(Err(format!("bad arguments ({})", list(&e)))),
             Classification::AssumptionError(e) => return Ok(Err(format!("the domain assumption failed: {e}"))),
             Classification::RuleError(e) => return Ok(Err(format!("a rule failed ({})", list(&e)))),
             Classification::OutsideDomain => return Ok(Err("the call is outside the unit's domain (its assumption is false)".into())),
             Classification::FallbackError(e) => return Ok(Err(format!("the fallback disagreed with the rules: {e}"))),
             Classification::Ambiguous(m) => {
-                let names = m.iter().map(|&i| units[i].name.as_str()).collect::<Vec<_>>().join(", ");
+                let names = m.iter().map(|&i| rules[i].name.as_str()).collect::<Vec<_>>().join(", ");
                 return Ok(Err(format!("ambiguous: rules {names} all match, and complier won't pick one")));
             }
         };
@@ -762,7 +798,7 @@ impl Translator {
             Value::Null => Value::Null, // no value expression
             v if v["ok"] == true => v["value"].clone(),
             v => {
-                let what = units.get(i).map_or("the fallback's value".to_string(), |u| format!("rule {}'s value", u.name));
+                let what = rules.get(i).map_or("the fallback's value".to_string(), |u| format!("rule {}'s value", u.name));
                 return Ok(Err(format!("{what} failed: {}: {}", v["kind"].as_str().unwrap_or("error"), v["error"].as_str().unwrap_or("?"))));
             }
         };
@@ -770,15 +806,11 @@ impl Translator {
     }
 }
 
-// Checks a unit before any of it runs: it polls only tools its service reviewed as read-only, no
-// tool is both hidden and translated, and its translation, if it has one, is proven. Starts the CEL
-// backend in `cel` the first time a translation needs it.
-pub fn admit(unit: &Description, cel: &mut Option<Backend>) -> Result<Option<(Translator, Report)>> {
-    crate::poller::check(unit)?;
+// Proves a unit's translation before any of it runs, if it has one (unit.rs has already checked
+// its tools against the service's metadata). Starts the CEL backend in `cel` the first time a
+// translation needs it.
+pub fn admit(unit: &Unit, cel: &mut Option<Backend>) -> Result<Option<(Translator, Report)>> {
     let Some(t) = &unit.translation else { return Ok(None) };
-    if let Some(tool) = t.tools.iter().find(|t| unit.hidden.contains(t)) {
-        bail!("{tool} is both hidden and translated; a hidden tool goes upstream unchecked, so it can't also be translated");
-    }
     if cel.is_none() {
         *cel = Some(Backend::spawn()?);
     }
@@ -794,17 +826,15 @@ mod tests {
     }
 
     fn translation(schema: &[(&str, &str)], assumption: &str, rules: &[(&str, &str, &str)], fallback: &str) -> Translation {
-        let rules: Vec<Value> = rules.iter().map(|(n, w, e)| json!({ "name": n, "when": w, "emit": e })).collect();
-        serde_json::from_value(json!({
-            "tools": ["agent"],
-            "schema": schema.iter().map(|(n, t)| json!({ "name": n, "type": t })).collect::<Vec<_>>(),
-            "assumption": assumption,
-            "units": rules,
-            "fallback": { "emit": fallback },
-            "timeoutMs": 10000,
-            "unroll": 5,
-        }))
-        .unwrap()
+        Translation {
+            tools: vec!["agent".into()],
+            schema: schema.iter().map(|(n, t)| Field { name: n.to_string(), ty: t.to_string() }).collect(),
+            assumption: assumption.into(),
+            rules: rules.iter().map(|(n, w, e)| Rule { name: n.to_string(), when: w.to_string(), emit: e.to_string(), value: None }).collect(),
+            fallback: Fallback { emit: fallback.into(), value: None },
+            timeout_ms: 10_000,
+            unroll: 5,
+        }
     }
 
     // The website's "agent tool calls" example, with the tool name as an argument (`op`).

@@ -1,10 +1,12 @@
-// A stand-in MCP server for the end-to-end test: `list-items` reads <dir>/items.json (the world),
-// every other call is appended to <dir>/calls.jsonl, so the test can see what reached upstream.
+// A stand-in MCP server for the end-to-end test. Each start is appended to <dir>/starts.log and
+// every tool call to <dir>/calls.jsonl, so the test can see what was started and what reached
+// upstream.
 
-import { appendFileSync, readFileSync } from "node:fs";
+import { appendFileSync } from "node:fs";
 import { createInterface } from "node:readline";
 
 const dir = process.argv[2];
+appendFileSync(`${dir}/starts.log`, `${process.pid}\n`);
 const object = (properties) => ({ type: "object", properties });
 const tools = [
   { name: "list-items", inputSchema: object({}) },
@@ -23,7 +25,6 @@ for await (const line of createInterface({ input: process.stdin })) {
   if (id === undefined) continue;
   if (method === "initialize") reply(id, { protocolVersion: "2025-06-18", capabilities: { tools: {} }, serverInfo: { name: "fake", version: "0" } });
   else if (method === "tools/list") reply(id, { tools });
-  else if (method === "tools/call" && params.name === "list-items") reply(id, text(readFileSync(`${dir}/items.json`, "utf8")));
   else if (method === "tools/call") {
     appendFileSync(`${dir}/calls.jsonl`, JSON.stringify(params) + "\n");
     reply(id, text(`did ${params.name}`));

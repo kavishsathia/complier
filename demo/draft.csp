@@ -1,0 +1,4 @@
+-- Demo machine: the writer drafts, then recreates, in turn. A second draft before a recreate (or
+-- a recreate first) is refused, and so is any other Notion write, which demo/draft.yaml translates
+-- to `other` (not in this spec). Complier doesn't observe Notion, so nothing here waits on the world.
+WRITER = !draft -> !recreate -> WRITER

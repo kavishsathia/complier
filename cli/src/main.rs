@@ -4,13 +4,13 @@ mod config;
 mod csp;
 mod daemon;
 mod hooks;
-mod host;
 mod mcp;
 mod oauth;
-mod poller;
 mod proxy;
 mod secrets;
 mod translate;
+mod unit;
+mod yaml;
 
 use anyhow::{bail, Result};
 use clap::{Parser, Subcommand};
@@ -51,7 +51,8 @@ enum Command {
     },
     /// List registered servers.
     Ls,
-    /// Generate TypeScript types for each server's tools into <out>/<name>/tools.ts.
+    /// Write each server's tool metadata into <out>/<name>/: tools.yaml, which units are checked against,
+    /// and tools.ts, the tools' input types.
     Gen {
         #[arg(required = true)]
         names: Vec<String>,
@@ -66,15 +67,13 @@ enum Command {
         #[arg(default_value = "{}")]
         arguments: String,
     },
-    /// Run a translation unit's polls and print the input events they produce.
-    Run { unit: PathBuf },
-    /// Prove a unit's output translation with the CEL backend, as `machine up` and the proxy do
-    /// before running it, and print the report. Fails if the unit isn't admitted.
+    /// Load a translation unit (YAML) and prove its translation with the CEL backend, as `machine up`
+    /// and the proxy do before running it, and print the report. Fails if the unit isn't admitted.
     Check { unit: PathBuf },
     /// Classify one tool call with an admitted unit's translation and print its event, without
     /// calling anything upstream.
     ///
-    /// complier translate units/notion.ts notion-update-page '{"page_id": "p1", "command": "replace_content"}'
+    /// complier translate units/notion.yaml notion-update-page '{"page_id": "p1", "command": "replace_content"}'
     Translate {
         unit: PathBuf,
         tool: String,
@@ -102,12 +101,12 @@ enum Command {
 
 #[derive(Subcommand)]
 enum MachineCommand {
-    /// Start a machine from a spec, fed by the input events of the given units.
+    /// Start a machine from a spec; its agents' tool calls are translated by the given units.
     Up {
         name: String,
         #[arg(long)]
         spec: PathBuf,
-        /// Translation unit whose polls feed this machine (repeatable).
+        /// Translation unit (YAML) for the tools the machine's agents may call (repeatable).
         #[arg(long = "unit")]
         units: Vec<PathBuf>,
     },
@@ -148,7 +147,6 @@ fn main() -> Result<()> {
         Command::Ls => ls(),
         Command::Gen { names, out } => generate(&names, &out),
         Command::Call { name, tool, arguments } => call(&name, &tool, &arguments),
-        Command::Run { unit } => run(&unit),
         Command::Check { unit } => check(&unit).map(|_| ()),
         Command::Translate { unit, tool, arguments } => translate(&unit, &tool, &arguments),
         Command::Up => daemon::serve(),
@@ -209,8 +207,9 @@ fn generate(names: &[String], out: &PathBuf) -> Result<()> {
         let tools = client.list_tools()?;
         let dir = out.join(name);
         std::fs::create_dir_all(&dir)?;
-        let path = dir.join("tools.ts");
-        std::fs::write(&path, codegen::module(name, &tools))?;
+        std::fs::write(dir.join("tools.ts"), codegen::module(name, &tools))?;
+        let path = dir.join("tools.yaml");
+        std::fs::write(&path, codegen::metadata(name, &tools))?;
         println!("{name}: {} tools -> {}", tools.len(), path.display());
     }
     Ok(())
@@ -224,15 +223,9 @@ fn call(name: &str, tool: &str, arguments: &str) -> Result<()> {
     Ok(())
 }
 
-fn run(unit: &Path) -> Result<()> {
-    println!("polling {}", unit.display());
-    let stop = std::sync::atomic::AtomicBool::new(false);
-    poller::poll(unit, &stop, |event| println!("{}", poller::show(&event)))
-}
-
 // Admits the unit as `machine up` does, printing the report either way.
 fn check(unit: &Path) -> Result<(Option<translate::Translator>, Option<cel::Backend>)> {
-    let (_host, description) = host::Host::spawn(unit)?;
+    let description = unit::load(unit)?;
     let mut cel = None;
     match translate::admit(&description, &mut cel) {
         Ok(Some((translator, report))) => {
@@ -240,7 +233,7 @@ fn check(unit: &Path) -> Result<(Option<translate::Translator>, Option<cel::Back
             Ok((Some(translator), cel))
         }
         Ok(None) => {
-            println!("{} has no output translation; its polls only read read-only tools", unit.display());
+            println!("{} translates nothing; it only passes its hidden tools through: {}", unit.display(), description.hidden.join(", "));
             Ok((None, cel))
         }
         Err(e) => bail!("{} isn't admitted: {e:#}", unit.display()),
@@ -250,7 +243,7 @@ fn check(unit: &Path) -> Result<(Option<translate::Translator>, Option<cel::Back
 fn translate(unit: &Path, tool: &str, arguments: &str) -> Result<()> {
     let (Some(translator), Some(mut cel)) = check(unit)? else { bail!("{} translates no tools", unit.display()) };
     match translator.translate(&mut cel, tool, &serde_json::from_str(arguments)?)? {
-        Ok(event) => println!("{tool} -> {}", poller::show(&event)),
+        Ok(event) => println!("{tool} -> {}", translate::show(&event)),
         Err(reason) => bail!("{tool} call refused: {reason}"),
     }
     Ok(())
@@ -311,10 +304,6 @@ fn hook_stop() -> Result<()> {
         return Ok(());
     }
     let mut reason = format!("complier: you are {role} in machine {machine}. Since you last stopped, your process went through: {}.", happened.join(", "));
-    let world = list("world");
-    if !world.is_empty() {
-        reason += &format!(" What happened in the world since you last stopped: {}.", world.join(", "));
-    }
     reason += &match list("next").as_slice() {
         [] => " Your process has nothing more for you to do.".to_string(),
         next => format!(" Your spec now lets you: {}.", next.join(", ")),

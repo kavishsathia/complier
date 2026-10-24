@@ -5,17 +5,19 @@
 //   if it's accepted (fail closed). A call no event can be given (outside the domain, bad
 //   arguments, a rule erroring, ambiguous) is refused. A unit's rules are proven when the proxy
 //   binds; if they aren't, or the CEL backend can't run, the proxy offers no tools at all;
-// - a hidden tool goes upstream unchecked;
+// - a hidden tool (one its service reviewed as read-only) goes upstream unchecked;
 // - every other tool is left out, and so is any tool whose live schema no longer matches the
-//   hash its service was generated from.
+//   hash `complier gen` recorded for it in the service's metadata.
+// Units are YAML (unit.rs): loading one runs nothing, and a unit that doesn't load or isn't
+// proven leaves the proxy with no tools before it connects to anything upstream.
 // Upstream sessions and credentials stay in this process; the agent never sees them.
 
 use crate::cel;
 use crate::codegen;
 use crate::daemon::{self, Request};
-use crate::host::Host;
 use crate::mcp;
 use crate::translate::{self, Translator};
+use crate::unit;
 use anyhow::{bail, Result};
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
@@ -79,8 +81,10 @@ impl Proxy {
         proxy.problem = None;
         let mut servers: BTreeMap<String, usize> = BTreeMap::new();
 
+        // Every unit is loaded and proven before anything upstream is touched.
+        let mut units = Vec::new();
         for path in info["units"].as_array().into_iter().flatten().filter_map(Value::as_str) {
-            let (_host, unit) = Host::spawn(std::path::Path::new(path))?;
+            let unit = unit::load(std::path::Path::new(path))?;
             let translated = match translate::admit(&unit, &mut proxy.cel)? {
                 Some((translator, report)) => {
                     eprintln!("complier proxy: {path} admitted with {}", report.backend);
@@ -89,7 +93,10 @@ impl Proxy {
                 }
                 None => None,
             };
+            units.push((unit, translated));
+        }
 
+        for (unit, translated) in units {
             let u = match servers.get(&unit.server) {
                 Some(&u) => u,
                 None => {
@@ -110,12 +117,12 @@ impl Proxy {
                 } else {
                     continue;
                 };
-                if let Some(expected) = unit.hashes.get(&name) {
-                    let live = codegen::hash(&tool["inputSchema"]);
-                    if &live != expected {
-                        eprintln!("complier proxy: leaving out {name}: its schema changed since it was generated ({expected} -> {live})");
-                        continue;
-                    }
+                // unit::load made sure every routed tool is in the service's metadata.
+                let expected = &unit.hashes[&name];
+                let live = codegen::hash(&tool["inputSchema"]);
+                if &live != expected {
+                    eprintln!("complier proxy: leaving out {name}: its schema changed since it was generated ({expected} -> {live})");
+                    continue;
                 }
                 if proxy.routes.insert(name.clone(), route).is_some() {
                     bail!("two units both offer {name}");

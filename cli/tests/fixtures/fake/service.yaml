@@ -1,0 +1,4 @@
+# Reviewed metadata for fake-server.mjs.
+name: fake
+tools: tools.yaml
+readOnly: [list-items, peek]
