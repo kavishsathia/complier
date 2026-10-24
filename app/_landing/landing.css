@@ -942,315 +942,332 @@ body:has(.landing) {
 
 /* ---- diagram ---- */
 
+.how-title {
+  margin-bottom: 28px;
+}
+
 .diagram {
   margin: 0;
 }
 
-.d-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 76px minmax(0, 1.25fr) 64px minmax(0, 1.25fr) 96px minmax(0, 1fr);
-  grid-template-areas:
-    "lane1 . unit . spec . ."
-    "lane2 . down1 . down2 . ."
-    "agent a1 proxy a2 daemon a3 svc"
-    "back back back back back . .";
-  align-items: stretch;
-  gap: 0;
-  padding: 28px;
-  border: 1px solid var(--line-2);
-  border-radius: 16px;
-  background:
-    radial-gradient(circle at 1px 1px, rgb(155 133 217 / 0.22) 1px, transparent 0) 0 0 / 20px 20px,
-    var(--raised);
+.dg {
+  display: block;
+  width: 100%;
+  height: auto;
+  font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+  overflow: visible;
 }
 
-.d-lane {
-  align-self: center;
-  font-size: 0.78rem;
-  font-weight: 650;
-  text-transform: uppercase;
-  letter-spacing: 0.12em;
-  color: var(--ink-3);
-  padding-right: 12px;
+.dg-tall {
+  display: none;
+  max-width: 420px;
+  margin: 0 auto;
 }
 
-.d-lane-run {
-  align-self: end;
-  padding-bottom: 10px;
+.dg text {
+  fill: var(--ink);
+  font-size: 13px;
 }
 
-.d-node {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 14px 16px;
-  border-radius: var(--radius);
-  border: 1.5px solid var(--ink);
-  background: #fff;
-  box-shadow: 3px 3px 0 var(--ink);
-  min-width: 0;
+.dg .dg-mono {
+  font-family: var(--mono);
+  font-size: 12px;
 }
 
-.d-node.is-file {
-  background: var(--sunk);
+.dg .dg-small {
+  fill: var(--ink-3);
+  font-size: 12.5px;
 }
 
-.d-node.is-agent {
-  background: var(--purple-wash);
-}
-
-.d-node.is-service {
-  background: var(--mint-wash);
-}
-
-.d-node.is-demo {
-  outline: 2px dashed var(--purple);
-  outline-offset: 5px;
-}
-
-.d-kind {
-  font-size: 0.74rem;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  color: var(--ink-3);
-}
-
-.d-title {
-  font-size: 1.05rem;
-  line-height: 1.25;
+.dg .dg-title {
+  font-size: 16px;
+  font-weight: 700;
   letter-spacing: -0.01em;
 }
 
-.d-body {
-  font-size: 0.87rem;
-  line-height: 1.45;
-  color: var(--ink-2);
+.dg .dg-brand {
+  fill: var(--purple-ink);
+  font-size: 17px;
+  font-weight: 750;
+  letter-spacing: -0.03em;
 }
 
-.d-demo {
-  margin-top: 6px;
-  align-self: flex-start;
-  font-size: 0.72rem;
+.dg .dg-lane {
+  fill: var(--ink-3);
+  font-size: 11.5px;
   font-weight: 600;
-  color: var(--purple-ink);
-  background: var(--purple-wash);
-  padding: 1px 8px;
-  border-radius: 999px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
 }
 
-.d-arrow {
-  position: relative;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 0;
+.dg-band {
+  fill: var(--sunk);
 }
 
-.d-line {
-  position: absolute;
-  background: var(--ink);
+.dg-doc path {
+  fill: var(--raised);
+  stroke: var(--ink);
+  stroke-width: 1.5;
+  stroke-linejoin: round;
 }
 
-.d-arrow.is-right .d-line {
-  left: 6px;
-  right: 6px;
-  top: 50%;
-  height: 2px;
+.dg-doc .dg-fold {
+  fill: var(--purple-wash);
 }
 
-.d-arrow.is-right .d-line::after {
-  content: "";
-  position: absolute;
-  right: -2px;
-  top: -5px;
-  border: 6px solid transparent;
-  border-left: 9px solid currentColor;
-  border-right: 0;
-  color: var(--ink);
+.dg-doc.is-rejected path {
+  fill: var(--red-wash);
+  stroke: var(--red-ink);
+  stroke-dasharray: 5 4;
 }
 
-.d-arrow.is-down {
-  min-height: 70px;
+.dg-doc.is-rejected text {
+  fill: var(--red-ink);
 }
 
-.d-arrow.is-down .d-line {
-  top: 12px;
-  bottom: 10px;
-  left: 50%;
-  width: 2px;
-}
-
-.d-arrow.is-down .d-line::after {
-  content: "";
-  position: absolute;
-  bottom: -2px;
-  left: -5px;
-  border: 6px solid transparent;
-  border-top: 9px solid var(--ink);
-  border-bottom: 0;
-}
-
-.d-arrow.is-ok .d-line,
-.d-arrow.is-ok .d-line::after {
-  background-color: var(--mint-ink);
-  color: var(--mint-ink);
-}
-
-.d-arrow.is-ok .d-line::after {
-  background: none;
-}
-
-.d-label {
-  position: relative;
-  z-index: 1;
-  max-width: 100%;
-  padding: 2px 6px;
-  border-radius: 6px;
-  background: var(--raised);
-  font-size: 0.74rem;
+.dg .dg-doc-name {
+  font-size: 13px;
   font-weight: 600;
-  line-height: 1.3;
-  text-align: center;
-  color: var(--ink-2);
 }
 
-.d-arrow.is-right .d-label {
-  transform: translateY(-17px);
+.dg-load {
+  fill: none;
+  stroke: var(--ink-3);
+  stroke-width: 1.5;
+  stroke-dasharray: 2 5;
+  stroke-linecap: round;
 }
 
-.d-arrow.is-down .d-label {
-  margin-left: 0;
-  transform: translateX(calc(50% + 14px));
-  text-align: left;
+/* complier itself: the one way through to the service. */
+.dg-wall {
+  fill: var(--purple-wash);
+  stroke: var(--purple);
+  stroke-width: 2.5;
 }
 
-.d-arrow.is-ok .d-label {
-  color: var(--mint-ink);
+.dg-station rect {
+  fill: var(--raised);
+  stroke: var(--line-2);
+  stroke-width: 1.5;
 }
 
-/* The refusal path: from the contract back to the agent, under the row. */
-.d-arrow.is-left {
-  margin-top: 14px;
-  min-height: 52px;
-  border: 2px solid var(--red-ink);
-  border-top: 0;
-  border-radius: 0 0 12px 12px;
-  margin-inline: 12% 12%;
+.dg-service {
+  fill: var(--mint-wash);
+  stroke: var(--mint-ink);
+  stroke-width: 1.5;
 }
 
-.d-arrow.is-left .d-line {
-  display: none;
+.dg-chip rect {
+  stroke-width: 1.5;
 }
 
-.d-arrow.is-left::before {
-  content: "";
-  position: absolute;
-  left: -7px;
-  top: -10px;
-  border: 6px solid transparent;
-  border-bottom: 9px solid var(--red-ink);
-  border-top: 0;
+.dg-chip.is-plain rect {
+  fill: var(--raised);
+  stroke: var(--line-2);
 }
 
-.d-arrow.is-left .d-label {
-  transform: translateY(26px);
-  color: var(--red-ink);
-  background: var(--red-wash);
-  padding: 3px 10px;
+.dg-chip.is-plain text {
+  fill: var(--ink-2);
 }
 
-.d-caption {
-  margin-top: 16px;
-  max-width: 48rem;
+.dg-chip.is-tool rect {
+  fill: var(--raised);
+  stroke: var(--ink);
+}
+
+.dg-chip.is-event rect {
+  fill: var(--purple-btn);
+  stroke: var(--purple-ink);
+}
+
+.dg-chip.is-event text {
+  font-weight: 600;
+}
+
+.dg-chip.is-ok rect {
+  fill: var(--mint-wash);
+  stroke: var(--mint-ink);
+}
+
+.dg-chip.is-ok text {
+  fill: var(--mint-ink);
+  font-weight: 600;
+}
+
+.dg-chip.is-bad rect {
+  fill: var(--red-wash);
+  stroke: var(--red-ink);
+}
+
+.dg-chip.is-bad text {
+  fill: var(--red-ink);
+  font-weight: 600;
+}
+
+.dg-path,
+.dg-flow,
+.dg-ghost,
+.dg-stop {
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.dg-path {
+  stroke-width: 3;
+}
+
+.dg-path.is-ok {
+  stroke: #2fbf98;
+}
+
+.dg-path.is-bad {
+  stroke: #e0786d;
+}
+
+/* Dashes that run along a path, toward where the call goes. Reduced motion stops them. */
+.dg-flow {
+  stroke-width: 3;
+  stroke-dasharray: 3 16;
+  animation: dg-flow 1.1s linear infinite;
+}
+
+.dg-flow.is-ok {
+  stroke: var(--mint-ink);
+}
+
+.dg-flow.is-bad {
+  stroke: var(--red-ink);
+}
+
+@keyframes dg-flow {
+  to {
+    stroke-dashoffset: -19;
+  }
+}
+
+.dg-ghost {
+  stroke: #e0786d;
+  stroke-width: 2;
+  stroke-dasharray: 1 6;
+  opacity: 0.7;
+}
+
+.dg-stop {
+  stroke: var(--red-ink);
+  stroke-width: 4;
+}
+
+.dg-head path {
+  stroke: none;
+}
+
+.dg-head.is-ok path {
+  fill: var(--mint-ink);
+}
+
+.dg-head.is-bad path {
+  fill: var(--red-ink);
+}
+
+.dg-head.is-load path {
+  fill: var(--ink-3);
+}
+
+.dg-mark circle {
+  stroke-width: 2;
+}
+
+.dg-mark path {
+  fill: none;
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.dg-mark.is-ok circle {
+  fill: var(--mint);
+  stroke: var(--mint-ink);
+}
+
+.dg-mark.is-ok path {
+  stroke: var(--ink);
+}
+
+.dg-mark.is-bad circle {
+  fill: var(--red-wash);
+  stroke: var(--red-ink);
+}
+
+.dg-mark.is-bad path {
+  stroke: var(--red-ink);
+}
+
+.dg .dg-edge {
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.dg .dg-edge.is-ok {
+  fill: var(--mint-ink);
+}
+
+.dg .dg-edge.is-bad {
+  fill: var(--red-ink);
+}
+
+.dg .dg-struck {
+  text-decoration: line-through;
+}
+
+.dg-lock rect,
+.dg-lock path {
+  fill: none;
+  stroke: var(--mint-ink);
+  stroke-width: 1.6;
+}
+
+.dg-caption {
+  margin-top: 18px;
   font-size: 0.92rem;
+  color: var(--ink-3);
+  text-align: center;
+}
+
+/* ---- closing ---- */
+
+.cta {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 24px 28px;
+  margin: 56px 0;
+  padding: 28px 32px;
+  border: 1px solid var(--line-2);
+  border-radius: 20px;
+  background: var(--raised);
+  scroll-margin-top: 12px;
+}
+
+.cta-mascot {
+  width: 88px;
+  height: auto;
+}
+
+.cta h2 {
+  font-size: clamp(1.5rem, 2.6vw, 2rem);
+  line-height: 1.15;
+  letter-spacing: -0.035em;
+  font-weight: 750;
+}
+
+.cta p {
+  margin-top: 4px;
   color: var(--ink-3);
 }
 
-/* ---- prose ---- */
-
-/* A heading beside its text on wide screens; stacked below. */
-.block {
-  display: grid;
-  grid-template-columns: minmax(0, 18rem) minmax(0, 44rem);
-  gap: 16px 56px;
-  align-items: start;
-}
-
-.block + .block {
-  margin-top: 56px;
-  padding-top: 40px;
-  border-top: 1px dashed var(--line);
-}
-
-.prose-section .block h2 {
-  font-size: clamp(1.6rem, 2.6vw, 2.1rem);
-}
-
-.prose > * + * {
-  margin-top: 14px;
-}
-
-.prose p {
-  color: var(--ink-2);
-  font-size: 1.05rem;
-}
-
-.defs {
-  margin-top: 22px;
-  display: grid;
-  gap: 4px;
-}
-
-.defs dt {
-  font-weight: 650;
-  margin-top: 14px;
-}
-
-.defs dt:first-child {
+.cta .ctas {
   margin-top: 0;
-}
-
-.defs dd {
-  margin: 0;
-  color: var(--ink-2);
-  padding-left: 16px;
-  border-left: 3px solid var(--purple);
-}
-
-.stops,
-.steps {
-  padding-left: 1.2em;
-  display: grid;
-  gap: 12px;
-  color: var(--ink-2);
-}
-
-.stops strong,
-.steps strong {
-  color: var(--ink);
-}
-
-.stops li::marker {
-  color: var(--purple);
-}
-
-.steps li::marker {
-  color: var(--purple-ink);
-  font-weight: 700;
-}
-
-.aside {
-  margin-top: 22px !important;
-  font-size: 0.95rem !important;
-}
-
-.aside a {
-  color: var(--purple-ink);
-}
-
-.prose-section .ctas {
-  margin-top: 26px;
 }
 
 /* ---- footer ---- */
@@ -1296,96 +1313,27 @@ body:has(.landing) {
     border-right: 0;
     border-bottom: 1px solid var(--line);
   }
-
-  .d-grid {
-    grid-template-columns: minmax(0, 1fr) 56px minmax(0, 1.2fr) 48px minmax(0, 1.2fr) 80px minmax(0, 1fr);
-    padding: 20px;
-  }
 }
 
 @media (max-width: 860px) {
-  .block {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .block + .block {
-    margin-top: 40px;
-    padding-top: 32px;
-  }
-
   .nav-wide {
     display: none;
   }
 
-  .d-grid {
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-areas:
-      "lane1" "unit" "spec" "lane2" "agent" "a1" "proxy" "a2" "daemon" "a3" "svc" "back";
-    gap: 0;
-    padding: 18px;
-  }
-
-  .d-lane-run {
-    padding-top: 28px;
-  }
-
-  .d-grid .d-node.is-file + .d-node.is-file {
-    margin-top: 14px;
-  }
-
-  .d-arrow.is-down {
+  .dg-wide {
     display: none;
   }
 
-  .d-arrow.is-right {
-    min-height: 54px;
+  .dg-tall {
+    display: block;
   }
 
-  .d-arrow.is-right .d-line {
-    left: 50%;
-    right: auto;
-    top: 6px;
-    bottom: 6px;
-    width: 2px;
-    height: auto;
+  .cta {
+    grid-template-columns: auto minmax(0, 1fr);
   }
 
-  .d-arrow.is-right .d-line::after {
-    right: auto;
-    top: auto;
-    bottom: -2px;
-    left: -5px;
-    border: 6px solid transparent;
-    border-top: 9px solid currentColor;
-    border-bottom: 0;
-  }
-
-  .d-arrow.is-right .d-label {
-    transform: translateX(calc(50% + 12px));
-    text-align: left;
-  }
-
-  .d-arrow.is-left {
-    margin: 18px 0 0;
-    min-height: 0;
-    border: 0;
-    justify-content: flex-start;
-  }
-
-  .d-arrow.is-left::before {
-    display: none;
-  }
-
-  .d-arrow.is-left .d-label {
-    transform: none;
-    text-align: left;
-    padding: 10px 12px;
-    font-size: 0.85rem;
-    border: 1.5px solid var(--red-ink);
-  }
-
-  .d-arrow.is-left .d-label::before {
-    content: "↩ ";
+  .cta .ctas {
+    grid-column: 1 / -1;
   }
 }
 
@@ -1412,15 +1360,6 @@ body:has(.landing) {
 
   .call-n {
     display: none;
-  }
-
-  .d-grid .d-node.is-demo {
-    outline-offset: 3px;
-    margin: 4px;
-  }
-
-  .d-lane {
-    padding-bottom: 12px;
   }
 
   .nav li a {
@@ -1503,6 +1442,16 @@ body:has(.landing) {
 
   .status-hint {
     display: none;
+  }
+
+  .cta {
+    margin: 48px 0;
+    padding: 22px 20px;
+    gap: 18px 16px;
+  }
+
+  .cta-mascot {
+    width: 64px;
   }
 
   .footer {

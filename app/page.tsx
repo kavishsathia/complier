@@ -122,144 +122,24 @@ export default function Home() {
         </section>
 
         <section id="how" className="section" aria-labelledby="how-title">
-          <div className="section-head">
-            <h2 id="how-title">Where each check happens.</h2>
-            <p>
-              complier is an MCP proxy plus a small daemon that holds each contract&apos;s state. The proofs happen once, when rules
-              load. After that, each call costs one CEL evaluation and one step of the contract.
-            </p>
-          </div>
+          <h2 id="how-title" className="how-title">Out-of-turn calls never leave.</h2>
           <Diagram />
         </section>
 
-        <section className="section prose-section" aria-labelledby="files-title">
-          <div className="block">
-            <h2 id="files-title">Where the rules live.</h2>
-            <div className="prose">
-              <p>
-                Two files you write and one that&apos;s generated, all plain text next to your code, so rules go through review like
-                any other change.
-              </p>
-              <dl className="defs">
-                <dt>The translation unit</dt>
-                <dd>
-                  A YAML file per service. It names the tools it covers, types the arguments it reads, and gives each rule a CEL
-                  predicate and the event it emits. A generated fallback catches every call no rule matches, and that event still has
-                  to be allowed by the contract. Read-only tools can be listed as hidden, and pass through unchecked.
-                </dd>
-                <dt>The contract</dt>
-                <dd>
-                  A CSP process: which events may happen, in what order, and which role performs them. Several agents can share one
-                  contract, each joining as a role, so one agent&apos;s step can unblock another&apos;s.
-                </dd>
-                <dt>The service&apos;s metadata</dt>
-                <dd>
-                  <code>complier gen</code> records every tool a server offers with a hash of its input schema. A unit can only name
-                  those tools, and the proxy drops any tool whose schema has changed since.
-                </dd>
-              </dl>
-            </div>
+        <section id="get-started" className="cta" aria-labelledby="start-title">
+          <Image src={mascot} alt="" className="cta-mascot" sizes="96px" />
+          <div className="cta-text">
+            <h2 id="start-title">Put your agents on a contract.</h2>
+            <p>A research project. Build it from the repository.</p>
           </div>
-
-          <div className="block">
-            <h2>What it stops.</h2>
-            <div className="prose">
-              <ul className="stops">
-                <li>
-                  <strong>Steps out of order.</strong> Publishing before a review, or paying before an approval, is refused while the
-                  contract is in the wrong state.
-                </li>
-                <li>
-                  <strong>Calls nobody wrote a rule for.</strong> A <code>replace_content</code> where only edits were planned becomes the
-                  fallback event, which your contract can leave out.
-                </li>
-                <li>
-                  <strong>Two agents in the same critical section.</strong> A shared contract can act as a lock: once one agent reads the
-                  next order, no other agent can until it&apos;s sent or rejected.
-                </li>
-                <li>
-                  <strong>Ambiguous or malformed calls.</strong> Arguments of the wrong type, calls outside the unit&apos;s domain and calls
-                  two rules match are refused, never guessed at.
-                </li>
-                <li>
-                  <strong>Going around it.</strong> Tools no unit names are never offered, and inside a machine the plugin blocks direct
-                  calls to other MCP servers and edits to complier&apos;s own configuration.
-                </li>
-              </ul>
-            </div>
-          </div>
-
-          <div className="block">
-            <h2>What it doesn&apos;t claim.</h2>
-            <div className="prose">
-              <p>
-                complier checks the calls an agent makes, not what the agent writes in them: a published post can still be a bad post.
-                It doesn&apos;t watch the world either; only the agents&apos; own calls move a contract. The proofs are about translation:
-                that every call gets exactly one event. They say nothing about whether your contract describes the process you meant,
-                which is why it&apos;s a short file you can read.
-              </p>
-            </div>
-          </div>
-
-          <div className="block">
-            <h2>Fits the harness you have.</h2>
-            <div className="prose">
-              <p>
-                The agent connects to <code>complier proxy</code> as one MCP server, through a Claude Code plugin in the repository. Its
-                hooks tell the agent which role it plays and what the contract allows next, and when a call is refused the agent gets the
-                reason, so it can wait or do something else. The upstream server&apos;s credentials stay in the proxy; the agent never
-                sees them.
-              </p>
-            </div>
-          </div>
-        </section>
-
-        <section id="get-started" className="section prose-section" aria-labelledby="start-title">
-          <div className="block">
-            <h2 id="start-title">Get started.</h2>
-            <div className="prose">
-              <p>
-                complier is a research project and isn&apos;t packaged yet: you build the CLI from the repository. The repository has the
-                Notion unit and a demo contract to start from.
-              </p>
-              <ol className="steps">
-                <li>
-                  <strong>Build the CLI</strong> from <code>cli/</code> with Cargo, and its CEL backend with <code>cel/build.sh</code>{" "}
-                  (it needs a JDK). Register a server with <code>complier add notion --url https://mcp.notion.com/mcp</code>.
-                </li>
-                <li>
-                  <strong>Write a unit and a contract</strong>, or start from the ones in <code>units/</code> and <code>demo/</code>. The
-                  demo above is a good place to try rules first.
-                </li>
-                <li>
-                  <strong>Start a machine</strong> with <code>complier machine up demo --spec &lt;contract&gt; --unit &lt;unit&gt;</code>.
-                  It refuses to start if a unit isn&apos;t proven.
-                </li>
-                <li>
-                  <strong>Run your agent in it</strong> with <code>COMPLIER_MACHINE=demo COMPLIER_ROLE=writer claude --plugin-dir plugin</code>.
-                </li>
-              </ol>
-              <div className="ctas">
-                <a className="btn btn-primary" href={REPO}>
-                  Open the repository
-                  <span aria-hidden="true">→</span>
-                </a>
-                <Link className="btn btn-outline" href="/stepper" prefetch={false}>
-                  Step through a contract
-                </Link>
-              </div>
-              <p className="aside">
-                Curious how the semantics work? The{" "}
-                <Link href="/stepper" prefetch={false}>
-                  stepper
-                </Link>{" "}
-                shows every transition and the rule that proves it, and the{" "}
-                <Link href="/progress" prefetch={false}>
-                  research deck
-                </Link>{" "}
-                covers the theory behind the contracts.
-              </p>
-            </div>
+          <div className="ctas">
+            <a className="btn btn-primary" href={REPO}>
+              Open the repository
+              <span aria-hidden="true">→</span>
+            </a>
+            <Link className="btn btn-outline" href="/stepper" prefetch={false}>
+              Step through a contract
+            </Link>
           </div>
         </section>
       </main>
