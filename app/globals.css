@@ -44,35 +44,3 @@ body {
   color: var(--fg);
   font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
 }
-
-.hero {
-  max-width: 40rem;
-  text-align: center;
-}
-
-.hero h1 {
-  font-size: clamp(2.5rem, 8vw, 4.5rem);
-  font-weight: 600;
-  letter-spacing: -0.03em;
-}
-
-.hero p {
-  margin-top: 1rem;
-  font-size: clamp(1.05rem, 2.5vw, 1.25rem);
-  line-height: 1.6;
-  color: var(--muted);
-}
-
-.hero .link {
-  display: inline-block;
-  margin-top: 2rem;
-  color: var(--fg);
-  font-size: 1rem;
-  text-decoration: none;
-  border-bottom: 1px solid var(--line);
-  transition: border-color 0.2s;
-}
-
-.hero .link:hover {
-  border-color: var(--fg);
-}

@@ -1,16 +1,161 @@
+import type { Metadata } from "next";
+import { Geist, Geist_Mono } from "next/font/google";
+import Image from "next/image";
 import Link from "next/link";
+import Diagram from "./_landing/Diagram";
+import Workbench from "./_landing/Workbench";
+import mascot from "./controllable-chaos.png";
+import "./_landing/landing.css";
+
+const sans = Geist({ subsets: ["latin"], variable: "--font-sans" });
+const mono = Geist_Mono({ subsets: ["latin"], variable: "--font-mono" });
+
+const REPO = "https://github.com/kavishsathia/complier";
+
+export const metadata: Metadata = {
+  title: "complier: give your agents rules, not just instructions",
+  description:
+    "complier checks every tool call an agent makes against a contract you write, and refuses calls that are out of turn before they reach the service.",
+  openGraph: {
+    title: "complier: give your agents rules, not just instructions",
+    description:
+      "Write which tool calls count as which steps and the order those steps may happen in. complier refuses the rest before it reaches the service.",
+    type: "website",
+    siteName: "complier",
+  },
+};
 
 export default function Home() {
   return (
-    <main className="hero">
-      <h1>complier</h1>
-      <p>
-        Contracts for agents. Describe what an agent may do as a process, and
-        every step it takes is checked against it.
-      </p>
-      <Link href="/progress" className="link">
-        Progress →
-      </Link>
-    </main>
+    <div className={`landing ${sans.variable} ${mono.variable}`}>
+      <a className="skip" href="#main">
+        Skip to content
+      </a>
+      <header className="nav">
+        <Link href="/" className="brand" aria-label="complier home">
+          <Image src={mascot} alt="" width={34} height={36} priority />
+          <span>complier</span>
+        </Link>
+        <nav aria-label="Main">
+          <ul>
+            <li>
+              <a href="#demo">Demo</a>
+            </li>
+            <li className="nav-mid">
+              <a href="#how">How it works</a>
+            </li>
+            <li>
+              <a href="#get-started">Get started</a>
+            </li>
+            <li className="nav-wide">
+              <Link href="/progress" prefetch={false}>
+                Research
+              </Link>
+            </li>
+            <li>
+              <a href={REPO} className="nav-gh" aria-label="complier on GitHub">
+                <svg viewBox="0 0 16 16" width="20" height="20" aria-hidden="true">
+                  <path
+                    fill="currentColor"
+                    d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"
+                  />
+                </svg>
+              </a>
+            </li>
+          </ul>
+        </nav>
+      </header>
+
+      <main id="main">
+        <section className="hero" aria-labelledby="hero-title">
+          <div className="hero-text">
+            <h1 id="hero-title">
+              Give your agents rules.
+              <br />
+              Not just instructions.
+            </h1>
+            <p className="lede">
+              A prompt asks an agent to publish only after a review. complier makes it so. You write which tool calls count as which
+              steps, and the order the steps may happen in. Every call is checked before it reaches the service, and refused if
+              it&apos;s out of turn.
+            </p>
+            <div className="ctas">
+              <a className="btn btn-primary" href="#get-started">
+                Get started
+                <span aria-hidden="true">→</span>
+              </a>
+              <a className="btn btn-outline" href="#demo">
+                Try the live demo
+              </a>
+            </div>
+            <ul className="facts" aria-label="At a glance">
+              <li>Sits between your agent and its MCP tools</li>
+              <li>Rules are proven before they load</li>
+              <li>Refuses before anything is sent</li>
+            </ul>
+          </div>
+          <figure className="hero-mascot">
+            <Image
+              src={mascot}
+              alt="Controllable Chaos, complier's mascot: a purple axolotl with mint gills, standing calmly"
+              sizes="(max-width: 760px) 200px, 340px"
+              priority
+            />
+            <figcaption>Controllable Chaos</figcaption>
+          </figure>
+        </section>
+
+        <section id="demo" className="section" aria-labelledby="demo-title">
+          <div className="section-head">
+            <h2 id="demo-title">Try changing the rules.</h2>
+            <p>
+              A writer agent drafts a post in Notion, gets it reviewed and publishes it. Edit the translation or the contract, then run
+              the same calls again. It all runs in your browser: Google&apos;s cel-java and its verifier for the translation, as in the CLI,
+              and the CSP engine behind complier&apos;s{" "}
+              <Link href="/stepper" prefetch={false}>
+                stepper
+              </Link>{" "}
+              for the contract. Nothing is sent to Notion or to a model.
+            </p>
+          </div>
+          <Workbench />
+        </section>
+
+        <section id="how" className="section" aria-labelledby="how-title">
+          <h2 id="how-title" className="how-title">Out-of-turn calls never leave.</h2>
+          <Diagram />
+        </section>
+
+        <section id="get-started" className="cta" aria-labelledby="start-title">
+          <Image src={mascot} alt="" className="cta-mascot" sizes="96px" />
+          <div className="cta-text">
+            <h2 id="start-title">Put your agents on a contract.</h2>
+            <p>A research project. Build it from the repository.</p>
+          </div>
+          <div className="ctas">
+            <a className="btn btn-primary" href={REPO}>
+              Open the repository
+              <span aria-hidden="true">→</span>
+            </a>
+            <Link className="btn btn-outline" href="/stepper" prefetch={false}>
+              Step through a contract
+            </Link>
+          </div>
+        </section>
+      </main>
+
+      <footer className="footer">
+        <span className="footer-brand">complier</span>
+        <nav aria-label="Footer">
+          <a href={REPO}>GitHub</a>
+          <Link href="/stepper" prefetch={false}>
+            Stepper
+          </Link>
+          <Link href="/progress" prefetch={false}>
+            Research
+          </Link>
+        </nav>
+      </footer>
+    </div>
   );
 }
