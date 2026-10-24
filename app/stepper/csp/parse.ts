@@ -7,8 +7,8 @@
 // used without a declaration carries no data. Binding, loosest first:
 // [| {c, ..} |] and |||, then |~|, then [], then ;, then b & P, then
 // c?x!e -> P. Inside !e and .e, compound expressions need parentheses.
-// ~c marks a world channel and ^c an agent channel, on its declaration or on
-// any prefix; unmarked channels are internal.
+// ~c (or ?c) marks a world channel and ^c (or !c) an agent channel, on its
+// declaration or on any prefix; unmarked channels are internal.
 
 import type { BinOp, Def, Expr, Field, Mark, Proc, Spec, Type } from "./syntax.ts";
 
@@ -92,8 +92,9 @@ class Parser {
     if (!this.eat(t)) fail(this.peek().line, `expected ${what}, found ${show(this.peek())}`);
   }
 
+  // Before a channel, the CLI's ?c and !c are the same marks as ~c and ^c.
   mark(): Mark | null {
-    return this.eat("~") ? "world" : this.eat("^") ? "agent" : null;
+    return this.eat("~") || this.eat("?") ? "world" : this.eat("^") || this.eat("!") ? "agent" : null;
   }
 
   name(kind: "process" | "lower", what: string): string {
@@ -214,7 +215,7 @@ class Parser {
   }
 
   prefix(): Proc {
-    if (this.is("~") || this.is("^") || (this.is("id") && !isUpper(this.peek().v as string) && !KEYWORDS.has(this.peek().v as string))) {
+    if (["~", "^", "?", "!"].some((m) => this.is(m)) || (this.is("id") && !isUpper(this.peek().v as string) && !KEYWORDS.has(this.peek().v as string))) {
       const line = this.peek().line;
       const mark = this.mark();
       const chan = this.name("lower", "a channel name");
