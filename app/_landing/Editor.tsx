@@ -2,7 +2,8 @@
 
 // A plain textarea over a highlighted copy of its text. The textarea does all the editing, so
 // keyboard, selection, undo and screen readers behave as they do anywhere; the layer underneath
-// only paints. Both wrap the same way, so line numbers stay on their lines.
+// only paints. Both wrap the same way, so line numbers stay on their lines. On a phone neither
+// wraps: the code keeps its indentation and scrolls sideways as one piece.
 
 import { forwardRef, type ReactNode } from "react";
 
@@ -26,31 +27,33 @@ const Editor = forwardRef<HTMLTextAreaElement, Props>(function Editor(
   const lines = value.split("\n");
   return (
     <div className="editor">
-      <div className="editor-layer" aria-hidden="true">
-        {lines.map((line, i) => (
-          <div key={i} className={`editor-line${errorLines.includes(i + 1) ? " has-error" : ""}`} data-n={i + 1}>
-            {highlight(line, language)}
-            {"​"}
-          </div>
-        ))}
+      <div className="editor-code">
+        <div className="editor-layer" aria-hidden="true">
+          {lines.map((line, i) => (
+            <div key={i} className={`editor-line${errorLines.includes(i + 1) ? " has-error" : ""}`} data-n={i + 1}>
+              {highlight(line, language)}
+              {"​"}
+            </div>
+          ))}
+        </div>
+        <textarea
+          ref={ref}
+          id={id}
+          aria-label={label}
+          aria-describedby={describedBy}
+          aria-invalid={errorLines.length > 0 || undefined}
+          className="editor-input"
+          value={value}
+          spellCheck={false}
+          autoCapitalize="off"
+          autoComplete="off"
+          autoCorrect="off"
+          onChange={(e) => {
+            onChange(e.target.value);
+            onEdit?.();
+          }}
+        />
       </div>
-      <textarea
-        ref={ref}
-        id={id}
-        aria-label={label}
-        aria-describedby={describedBy}
-        aria-invalid={errorLines.length > 0 || undefined}
-        className="editor-input"
-        value={value}
-        spellCheck={false}
-        autoCapitalize="off"
-        autoComplete="off"
-        autoCorrect="off"
-        onChange={(e) => {
-          onChange(e.target.value);
-          onEdit?.();
-        }}
-      />
     </div>
   );
 });

@@ -189,91 +189,113 @@ function Wide() {
   );
 }
 
+// The phone picture: the same story top to bottom, on a canvas a phone shows at about its own size,
+// so the labels stay readable. The two calls take a column each.
 function Tall() {
+  const ok = 128;
+  const bad = 224;
   return (
-    <svg className="dg dg-tall" viewBox="0 0 360 1006" role="presentation">
+    <svg className="dg dg-tall" viewBox="0 0 320 932" role="presentation">
       <Arrowheads />
-      <rect className="dg-band" x="0" y="0" width="360" height="190" rx="16" />
-      <text x="20" y="32" className="dg-lane">
+      <rect className="dg-band" x="0" y="0" width="320" height="172" rx="16" />
+      <text x="16" y="30" className="dg-lane">
         At startup
       </text>
-      <text x="340" y="32" textAnchor="end" className="dg-small">
+      <text x="304" y="30" textAnchor="end" className="dg-small">
         Unproven rules don&apos;t load.
       </text>
-      <Doc x={28} y={50} w={140} name="unit.yaml" kind="CEL rules" />
-      <Doc x={192} y={50} w={140} name="contract.csp" kind="CSP process" />
-      <Chip x={98} y={160} w={150} tone="ok">
+      <Doc x={16} y={44} w={136} name="unit.yaml" kind="CEL rules" />
+      <Doc x={168} y={44} w={136} name="contract.csp" kind="CSP process" />
+      <Chip x={90} y={146} w={166} tone="ok">
         ✓ no overlap · no gap
       </Chip>
-      <Chip x={262} y={160} w={112} tone="plain" mono>
+      <Chip x={240} y={146} w={104} tone="plain" mono>
         machine up
       </Chip>
 
-      <text x="20" y="228" className="dg-lane">
+      <text x="16" y="206" className="dg-lane">
         On every call
       </text>
-      <image href={mascot.src} x="20" y="240" width="96" height={(96 * 831) / 872} />
-      <text x="128" y="296" className="dg-title">
+      <image href={mascot.src} x="12" y="218" width="88" height={(88 * 831) / 872} />
+      <text x="108" y="270" className="dg-title">
         Agent
       </text>
-      <text x="128" y="316" className="dg-small">
+      <text x="108" y="290" className="dg-small">
         Claude Code
       </text>
 
-      <rect className="dg-wall" x="10" y="436" width="340" height="400" rx="20" />
-      <text x="30" y="466" className="dg-brand">
+      <rect className="dg-wall" x="4" y="414" width="300" height="372" rx="20" />
+      <text x="22" y="444" className="dg-brand">
         complier
       </text>
-      <Station x={26} y={482} w={308} h={118} title="Translate" kind="CEL" note="one call → one event" />
-      <Station x={26} y={616} w={308} h={150} title="Contract" kind="CSP" note={<>now: <tspan className="dg-mono">DRAFTED</tspan></>} />
+      <Station
+        x={16}
+        y={458}
+        w={280}
+        h={112}
+        title="Translate"
+        kind="CEL"
+        note={
+          <>
+            <tspan x="34">one call →</tspan>
+            <tspan x="34" dy="18">
+              one event
+            </tspan>
+          </>
+        }
+      />
+      <Station x={16} y={584} w={280} h={150} title="Contract" kind="CSP" note={<>now: <tspan className="dg-mono">DRAFTED</tspan></>} />
 
-      <Flow d="M68 334V346Q68 356 78 356H170Q180 356 180 366V908" tone="ok" head />
-      <Flow d="M68 334V346Q68 356 78 356H258Q268 356 268 366V689" tone="bad" />
-      <Chip x={180} y={380} w={170} tone="tool" mono>
+      {/* in turn: a review, allowed, and the contract moves on */}
+      <Flow d={`M56 304V316Q56 326 66 326H${ok - 10}Q${ok} 326 ${ok} 336V836`} tone="ok" head />
+      {/* out of turn: a publish before any review, stopped at the check */}
+      <Flow d={`M56 304V316Q56 326 66 326H${bad - 10}Q${bad} 326 ${bad} 336V668`} tone="bad" />
+      {/* a little left of its line, clear of the other one */}
+      <Chip x={ok - 10} y={356} w={182} tone="tool" mono>
         notion-create-comment
       </Chip>
-      <Chip x={268} y={410} w={146} tone="tool" mono>
+      <Chip x={bad} y={390} w={154} tone="tool" mono>
         notion-move-pages
       </Chip>
-      <Chip x={180} y={568} w={76} tone="event" mono>
+      <Chip x={ok} y={550} w={76} tone="event" mono>
         review
       </Chip>
-      <Chip x={268} y={568} w={76} tone="event" mono>
+      <Chip x={bad} y={550} w={82} tone="event" mono>
         publish
       </Chip>
-      <Mark x={180} y={702} ok />
-      <Chip x={98} y={738} w={136} tone="ok" mono>
+      <Mark x={ok} y={668} ok />
+      <Chip x={98} y={704} w={158} tone="ok" mono>
         DRAFTED → REVIEWED
       </Chip>
-      <Mark x={268} y={702} ok={false} />
-      <Chip x={268} y={738} w={76} tone="bad">
+      <Mark x={bad} y={668} ok={false} />
+      <Chip x={bad} y={704} w={76} tone="bad">
         not yet
       </Chip>
-      <path className="dg-ghost" d="M268 752V812" />
-      <path className="dg-stop" d="M254 814H282" />
-      <text x="268" y="864" textAnchor="middle" className="dg-edge is-bad dg-struck">
+      <path className="dg-ghost" d={`M${bad} 718V766`} />
+      <path className="dg-stop" d={`M${bad - 14} 768H${bad + 14}`} />
+      <text x={bad} y="812" textAnchor="middle" className="dg-edge is-bad dg-struck">
         nothing sent
       </text>
-      <Flow d="M281 702H342Q352 702 352 692V272Q352 262 342 262H126" tone="bad" head />
-      <Chip x={236} y={262} w={160} tone="bad">
+      <Flow d={`M${bad + 13} 668H302Q312 668 312 658V242Q312 232 302 232H104`} tone="bad" head />
+      <Chip x={206} y={232} w={180} tone="bad">
         ↩ refused, with reason
       </Chip>
-      <text x="168" y="874" textAnchor="end" className="dg-edge is-ok">
+      <text x={ok - 8} y="812" textAnchor="end" className="dg-edge is-ok">
         allowed
       </text>
 
-      <rect className="dg-service" x="26" y="908" width="308" height="86" rx="16" />
-      <text x="48" y="942" className="dg-title">
+      <rect className="dg-service" x="16" y="836" width="280" height="84" rx="16" />
+      <text x="38" y="868" className="dg-title">
         Notion
       </text>
-      <text x="112" y="942" className="dg-small">
+      <text x="102" y="868" className="dg-small">
         MCP server
       </text>
       <g className="dg-lock">
-        <rect x="49" y="960" width="14" height="11" rx="2" />
-        <path d="M52 960v-4a4 4 0 0 1 8 0v4" />
+        <rect x="39" y="886" width="14" height="11" rx="2" />
+        <path d="M42 886v-4a4 4 0 0 1 8 0v4" />
       </g>
-      <text x="72" y="970" className="dg-small">
+      <text x="62" y="896" className="dg-small">
         keys stay in complier
       </text>
     </svg>

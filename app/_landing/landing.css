@@ -115,6 +115,7 @@ body:has(.landing) {
   text-decoration: none;
 }
 
+.nav nav,
 .nav ul {
   display: flex;
   align-items: center;
@@ -123,7 +124,8 @@ body:has(.landing) {
   padding: 0;
 }
 
-.nav li a {
+.nav li a,
+.nav-gh {
   white-space: nowrap;
   display: inline-flex;
   align-items: center;
@@ -134,13 +136,19 @@ body:has(.landing) {
   color: var(--ink-2);
 }
 
-.nav li a:hover {
+.nav li a:hover,
+.nav-gh:hover {
   color: var(--ink);
   background: var(--sunk);
 }
 
 .nav-gh {
   color: var(--ink) !important;
+}
+
+/* Only phones fold the links into a menu. */
+.nav-toggle {
+  display: none;
 }
 
 /* ---- buttons ---- */
@@ -337,6 +345,8 @@ body:has(.landing) {
   background: var(--raised);
   box-shadow: 0 1px 0 rgb(27 20 48 / 0.04), 0 12px 32px -18px rgb(27 20 48 / 0.18);
   overflow: hidden;
+  /* clip, unlike hidden, lets the bar stick on narrow screens */
+  overflow: clip;
 }
 
 .bench-bar {
@@ -403,6 +413,11 @@ body:has(.landing) {
   padding-bottom: 10px;
 }
 
+.reset-tries,
+.bar-progress {
+  display: none;
+}
+
 .bench-body {
   display: grid;
   grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
@@ -428,7 +443,6 @@ body:has(.landing) {
 .editor {
   --lh: 22px;
   --gutter: 48px;
-  position: relative;
   margin: 8px 0 0;
   font-family: var(--mono);
   font-size: 13.5px;
@@ -436,6 +450,10 @@ body:has(.landing) {
   font-variant-ligatures: none;
   font-feature-settings: "liga" 0, "calt" 0;
   tab-size: 2;
+}
+
+.editor-code {
+  position: relative;
 }
 
 .editor-layer,
@@ -627,6 +645,7 @@ body:has(.landing) {
   min-width: 0;
   padding: 16px 18px 18px;
   background: var(--raised);
+  scroll-margin-top: 12px;
 }
 
 .calls-head h3 {
@@ -960,7 +979,7 @@ body:has(.landing) {
 
 .dg-tall {
   display: none;
-  max-width: 420px;
+  max-width: 400px;
   margin: 0 auto;
 }
 
@@ -998,6 +1017,31 @@ body:has(.landing) {
   font-weight: 600;
   letter-spacing: 0.16em;
   text-transform: uppercase;
+}
+
+/* The phone picture is drawn near its on-screen size, with type a step larger. */
+.dg.dg-tall text {
+  font-size: 14px;
+}
+
+.dg.dg-tall .dg-small {
+  font-size: 13px;
+}
+
+.dg.dg-tall .dg-mono {
+  font-size: 12.5px;
+}
+
+.dg.dg-tall .dg-doc-name {
+  font-size: 13.5px;
+}
+
+.dg.dg-tall .dg-lane {
+  font-size: 12.5px;
+}
+
+.dg.dg-tall .dg-edge {
+  font-size: 14px;
 }
 
 .dg-band {
@@ -1304,6 +1348,63 @@ body:has(.landing) {
 
 /* ---- narrower screens ---- */
 
+/* Desktop: the demo is a fixed share of the window whatever it holds. The bar and the status line
+   stay put; the editor, its problems and the calls scroll inside their panes. */
+@media (min-width: 1001px) {
+  .bench {
+    display: flex;
+    flex-direction: column;
+    height: clamp(520px, 82vh, 880px);
+    height: clamp(520px, 82dvh, 880px);
+  }
+
+  .bench-bar,
+  .bench-status {
+    flex: none;
+  }
+
+  .bench-body {
+    flex: 1 1 0;
+    min-height: 0;
+    grid-template-rows: minmax(0, 1fr);
+  }
+
+  .bench-editors {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+
+  .panel {
+    display: flex;
+    flex: 1 1 0;
+    flex-direction: column;
+    min-height: 0;
+  }
+
+  .panel-note,
+  .tries {
+    flex: none;
+  }
+
+  .editor {
+    flex: 1 1 0;
+    min-height: 0;
+    overflow-y: auto;
+  }
+
+  .problems {
+    flex: none;
+    max-height: 9.5rem;
+    overflow-y: auto;
+  }
+
+  .bench-calls {
+    min-height: 0;
+    overflow-y: auto;
+  }
+}
+
 @media (max-width: 1000px) {
   .bench-body {
     grid-template-columns: minmax(0, 1fr);
@@ -1312,6 +1413,65 @@ body:has(.landing) {
   .bench-editors {
     border-right: 0;
     border-bottom: 1px solid var(--line);
+  }
+
+  /* Stacked, the editor and the calls run long: keep the tabs and Run in view. */
+  .bench-bar {
+    position: sticky;
+    top: 0;
+    z-index: 5;
+    background: var(--raised);
+  }
+
+  .bar-progress {
+    display: block;
+    flex-basis: 100%;
+    margin-top: -4px;
+    padding: 0 6px 8px;
+    font-size: 0.84rem;
+    line-height: 1.4;
+    color: var(--purple-ink);
+  }
+
+  .bench-calls {
+    scroll-margin-top: 80px;
+  }
+}
+
+/* Phones, tablets and anything else driven by a finger: 44px targets. */
+@media (max-width: 1000px), (pointer: coarse) {
+  .brand,
+  .nav li a,
+  .nav-gh,
+  .btn-quiet,
+  .btn-run,
+  .add-call,
+  .try {
+    min-height: 44px;
+  }
+
+  .try {
+    padding: 6px 14px;
+  }
+
+  .call-edit {
+    grid-template-columns: 26px minmax(0, 1fr) 44px;
+  }
+
+  .call-tool,
+  .call-args {
+    min-height: 44px;
+  }
+
+  .call-remove {
+    width: 44px;
+    height: 44px;
+  }
+
+  .footer nav a {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
   }
 }
 
@@ -1344,27 +1504,75 @@ body:has(.landing) {
     width: min(1160px, 100% - 32px);
   }
 
+  /* The header: brand, GitHub and a menu button; the links drop down under it. */
+  .nav {
+    position: relative;
+    padding: 10px 0;
+  }
+
+  .nav nav {
+    gap: 4px;
+  }
+
   .nav ul {
-    gap: 0;
-  }
-
-  .nav-mid {
     display: none;
+    position: absolute;
+    top: calc(100% + 6px);
+    left: 0;
+    right: 0;
+    z-index: 20;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 2px;
+    padding: 6px;
+    border: 1px solid var(--line-2);
+    border-radius: 14px;
+    background: var(--raised);
+    box-shadow: 0 16px 32px -16px rgb(27 20 48 / 0.3);
   }
 
-  .call-edit {
-    grid-template-columns: minmax(0, 1fr) 34px;
-    grid-template-areas: "tool rm" "args args";
-    padding: 8px;
+  .nav .is-open ul {
+    display: flex;
   }
 
-  .call-n {
-    display: none;
+  .nav .nav-mid,
+  .nav .nav-wide {
+    display: block;
   }
 
   .nav li a {
-    padding: 8px 8px;
-    font-size: 0.9rem;
+    display: flex;
+    min-height: 48px;
+    padding: 0 14px;
+    font-size: 1rem;
+    color: var(--ink);
+  }
+
+  .nav-gh {
+    justify-content: center;
+    min-width: 44px;
+    padding: 0 !important;
+  }
+
+  .nav-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 44px;
+    padding: 0 14px 0 12px;
+    border: 1.5px solid var(--line-2);
+    border-radius: 10px;
+    background: var(--raised);
+    color: var(--ink);
+    font: inherit;
+    font-size: 0.95rem;
+    font-weight: 600;
+    cursor: pointer;
+  }
+
+  .nav-toggle[aria-expanded="true"] {
+    border-color: var(--purple);
+    background: var(--purple-wash);
   }
 
   .brand {
@@ -1373,8 +1581,8 @@ body:has(.landing) {
 
   .hero {
     grid-template-columns: minmax(0, 1fr);
-    padding: 36px 0 48px;
-    gap: 8px;
+    padding: 24px 0 44px;
+    gap: 6px;
   }
 
   .hero-mascot {
@@ -1386,20 +1594,75 @@ body:has(.landing) {
   }
 
   .hero-mascot img {
-    width: 120px;
+    width: 84px;
   }
 
   .hero-mascot figcaption {
     font-size: 0.68rem;
-    padding-bottom: 10px;
+    padding-bottom: 8px;
+  }
+
+  .lede {
+    margin-top: 16px;
+  }
+
+  .ctas {
+    margin-top: 24px;
   }
 
   .ctas .btn {
     flex: 1 1 auto;
   }
 
+  .facts {
+    margin-top: 24px;
+  }
+
   .section {
     padding: 52px 0;
+  }
+
+  /* One row: the tabs and Run. Reset moves under the editor, next to the suggestions. */
+  .bench-bar {
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 4px 8px 0;
+  }
+
+  .tab {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0;
+    padding: 8px 10px 10px;
+    line-height: 1.3;
+  }
+
+  .tab-dot {
+    position: absolute;
+    top: 10px;
+    right: 0;
+  }
+
+  .bench-actions {
+    margin-left: auto;
+    padding-bottom: 6px;
+  }
+
+  .btn-run {
+    padding: 0 18px;
+  }
+
+  .reset-bar {
+    display: none;
+  }
+
+  .reset-tries {
+    display: inline-flex;
+    margin-left: auto;
+  }
+
+  .panel-note {
+    padding: 12px 12px 0;
   }
 
   /* 16px keeps iOS from zooming into fields on focus. */
@@ -1409,27 +1672,67 @@ body:has(.landing) {
     --gutter: 40px;
   }
 
+  /* The code doesn't wrap, so YAML keeps its indentation; the editor scrolls sideways, line
+     numbers stay put, and a vertical swipe still scrolls the page. */
+  .editor {
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scroll-padding-left: var(--gutter);
+  }
+
+  .editor-code {
+    width: max-content;
+    min-width: 100%;
+  }
+
+  .editor-layer,
+  .editor-input {
+    padding-right: 16px;
+    white-space: pre;
+    overflow-wrap: normal;
+  }
+
+  /* Takes no room in the line (its width and negative margin cancel), so the text lines up with
+     the textarea's; it covers the code that scrolls under it. */
+  .editor-line::before {
+    position: sticky;
+    left: 0;
+    z-index: 1;
+    display: inline-block;
+    box-sizing: border-box;
+    width: var(--gutter);
+    margin-left: calc(-1 * var(--gutter));
+    padding-right: 12px;
+    background: #fdfcfa;
+  }
+
+  /* The focus stripe sits outside the scrolling code, where the numbers can't cover it. */
+  .editor {
+    border-left: 3px solid transparent;
+  }
+
+  .editor:focus-within {
+    box-shadow: none;
+    border-left-color: var(--purple);
+  }
+
+  .tries {
+    padding: 12px 12px 14px;
+  }
+
   .call-tool,
   .call-args {
     font-size: 16px;
   }
 
-  .editor-layer,
-  .editor-input {
-    padding-right: 12px;
+  .call-edit {
+    grid-template-columns: minmax(0, 1fr) 44px;
+    grid-template-areas: "tool rm" "args args";
+    padding: 8px;
   }
 
-  .bench-bar {
-    padding: 6px 8px 0;
-  }
-
-  .tab {
-    padding: 10px 10px 12px;
-  }
-
-  .bench-actions {
-    width: 100%;
-    justify-content: flex-end;
+  .call-n {
+    display: none;
   }
 
   .bench-calls {
@@ -1442,6 +1745,15 @@ body:has(.landing) {
 
   .status-hint {
     display: none;
+  }
+
+  .bench-status {
+    align-items: flex-start;
+    padding: 10px 12px;
+  }
+
+  .status-dot {
+    margin-top: 7px;
   }
 
   .cta {
@@ -1457,6 +1769,18 @@ body:has(.landing) {
   .footer {
     flex-direction: column;
     align-items: flex-start;
+    gap: 4px;
+  }
+}
+
+/* The narrowest phones: Run loses its icon so the bar stays one row. */
+@media (max-width: 350px) {
+  .btn-run svg {
+    display: none;
+  }
+
+  .tab {
+    padding-inline: 8px;
   }
 }
 
@@ -1484,8 +1808,4 @@ body:has(.landing) {
 
 .section-head a {
   color: var(--purple-ink);
-}
-
-.bench-calls {
-  scroll-margin-top: 12px;
 }

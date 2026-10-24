@@ -54,6 +54,7 @@ export default function Workbench() {
 
   const editors = { translation: useRef<HTMLTextAreaElement>(null), contract: useRef<HTMLTextAreaElement>(null) };
   const callsRef = useRef<HTMLElement>(null);
+  const barRef = useRef<HTMLDivElement>(null);
   const tabRefs = { translation: useRef<HTMLButtonElement>(null), contract: useRef<HTMLButtonElement>(null) };
 
   const fp = fingerprint(translation, contract, calls);
@@ -89,6 +90,19 @@ export default function Workbench() {
     return () => clearTimeout(t);
   }, [translation, contract]);
 
+  // Stacked on a narrow screen, the results sit below the editor: once they've rendered, bring them
+  // into view under the sticky bar, unless they're already showing there.
+  useEffect(() => {
+    const panel = callsRef.current;
+    if (!result || !panel || !window.matchMedia("(max-width: 1000px)").matches) return;
+    const top = panel.getBoundingClientRect().top;
+    const bar = barRef.current?.getBoundingClientRect().bottom ?? 0;
+    if (top > window.innerHeight * 0.6 || top < bar - 1) {
+      const smooth = !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      panel.scrollIntoView({ behavior: smooth ? "smooth" : "auto", block: "start" });
+    }
+  }, [result]);
+
   // CEL compile errors from the last run belong to the translation it ran on.
   const compileProblems: Problem[] =
     !stale && result?.res.k === "not-admitted" && result.res.admission.ok === false && result.res.admission.compile
@@ -114,12 +128,6 @@ export default function Workbench() {
         else if (res.unit && !res.contract) setTab("translation");
       }
       setResult({ fp: at, res });
-      // Stacked on a narrow screen, the results sit below the editor: bring them into view.
-      const panel = callsRef.current;
-      if (panel && window.matchMedia("(max-width: 1000px)").matches && panel.getBoundingClientRect().top > window.innerHeight * 0.6) {
-        const smooth = !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-        requestAnimationFrame(() => panel.scrollIntoView({ behavior: smooth ? "smooth" : "auto", block: "start" }));
-      }
     } catch (e) {
       setResult({ fp: at, res: { k: "engine-failed", message: (e as Error).message } });
     } finally {
@@ -136,15 +144,20 @@ export default function Workbench() {
   }
 
   function goTo(which: Tab, line: number) {
-    setTab(which);
-    requestAnimationFrame(() => {
+    const select = () => {
       const el = editors[which].current;
       if (!el) return;
       const text = el.value.split("\n");
       const start = text.slice(0, line - 1).reduce((n, l) => n + l.length + 1, 0);
       el.focus();
       el.setSelectionRange(start, start + (text[line - 1]?.length ?? 0));
-    });
+    };
+    // In the open tab, focus right away: phones only raise the keyboard inside the tap itself.
+    if (which === tab) select();
+    else {
+      setTab(which);
+      requestAnimationFrame(select);
+    }
   }
 
   function onTabKey(e: KeyboardEvent<HTMLButtonElement>) {
@@ -188,7 +201,7 @@ export default function Workbench() {
 
   return (
     <div className="bench" onKeyDown={runOnShortcut} onPointerDown={engage} onFocus={engage}>
-      <div className="bench-bar">
+      <div className="bench-bar" ref={barRef}>
         <div role="tablist" aria-label="Rules" className="tabs">
           {(["translation", "contract"] as const).map((t) => (
             <button
@@ -210,7 +223,7 @@ export default function Workbench() {
           ))}
         </div>
         <div className="bench-actions">
-          <button type="button" className="btn btn-quiet" onClick={reset}>
+          <button type="button" className="btn btn-quiet reset-bar" onClick={reset}>
             Reset example
           </button>
           <button type="button" className="btn btn-run" onClick={run} disabled={running} aria-describedby="bench-status">
@@ -220,6 +233,13 @@ export default function Workbench() {
             {running ? "Running…" : "Run"}
           </button>
         </div>
+        {/* On a narrow screen the bar stays in view while you scroll the demo, and so does the
+            progress of a run. The status line below says the same to screen readers. */}
+        {running && (
+          <p className="bar-progress" aria-hidden="true">
+            {status}
+          </p>
+        )}
       </div>
 
       <div className="bench-body">
@@ -283,6 +303,10 @@ export default function Workbench() {
                 </button>
               );
             })}
+            {/* Phones keep Reset here, under the editor; their bar only has room for Run. */}
+            <button type="button" className="btn btn-quiet reset-tries" onClick={reset}>
+              Reset example
+            </button>
           </div>
         </div>
 
