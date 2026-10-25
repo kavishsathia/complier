@@ -73,7 +73,7 @@ enum Command {
     /// Classify one tool call with an admitted unit's translation and print its event, without
     /// calling anything upstream.
     ///
-    /// complier translate units/notion.yaml notion-update-page '{"page_id": "p1", "command": "replace_content"}'
+    /// complier translate examples/units/notion.yaml notion-update-page '{"page_id": "p1", "command": "replace_content"}'
     Translate {
         unit: PathBuf,
         tool: String,

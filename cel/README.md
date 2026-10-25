@@ -7,15 +7,15 @@ verifier that the rules partition the calls: no call matches two rules, and ever
 rule or the generated fallback. Unproven units are refused.
 
 ```yaml
-# units/notion.yaml (abridged)
-service: ../packages/notion/service.yaml
+# examples/units/notion.yaml (abridged)
+service: ../../packages/notion/service.yaml
 translate:
   tools: [notion-create-comment, notion-update-page, notion-move-pages]
   schema:
     page_id: optional<string>
     command: optional<string>
     page_or_database_ids: optional<list<string>>
-  assumption: ...                      # a well-formed call; see units/notion.yaml
+  assumption: ...                      # a well-formed call; see examples/units/notion.yaml
   rules:
     overwrite:
       when: tool == 'notion-update-page' && command.orValue('') == 'replace_content'
@@ -99,11 +99,11 @@ otherwise observe the world, so a spec that marks an input (`?e`) is refused at 
 ## Setup
 
 ```sh
-cel/build.sh                      # JDK 11+ and curl; writes cel/build/backend.json
-complier check units/notion.yaml  # load and prove a unit, print the report
-complier translate units/notion.yaml notion-update-page '{"page_id": "p1", "command": "replace_content"}'
-                                  # -> notion-update-page -> overwritten.p1
-complier machine up demo --spec demo/draft.csp --unit demo/draft.yaml   # --unit is repeatable
+cel/build.sh                               # JDK 11+ and curl; writes cel/build/backend.json
+complier check examples/units/notion.yaml  # load and prove a unit, print the report
+complier translate examples/units/notion.yaml notion-update-page '{"page_id": "p1", "command": "replace_content"}'
+                                           # -> notion-update-page -> overwritten.p1
+complier machine up demo --spec examples/demo/draft.csp --unit examples/demo/draft.yaml   # --unit is repeatable
 ```
 
 `build.sh` downloads `dev.cel:verifier:0.14.0` and its dependencies from Maven Central (pinned

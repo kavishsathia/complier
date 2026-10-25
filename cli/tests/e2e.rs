@@ -296,7 +296,7 @@ fn bad_or_unproven_units_and_input_specs_let_nothing_through() {
 // empty PATH there's no node to run.
 #[test]
 fn the_notion_unit_is_admitted_and_tells_overwrites_from_edits() {
-    let unit = Path::new(env!("CARGO_MANIFEST_DIR")).join("../units/notion.yaml");
+    let unit = Path::new(env!("CARGO_MANIFEST_DIR")).join("../examples/units/notion.yaml");
     let unit = unit.to_str().unwrap();
     let run = |args: &[&str]| {
         let out = Command::new(BIN).env("PATH", "/nonexistent").args(args).output().unwrap();
@@ -330,7 +330,7 @@ fn the_notion_unit_is_admitted_and_tells_overwrites_from_edits() {
     }
 
     // The demo unit is admitted too.
-    let demo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../demo/draft.yaml");
+    let demo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../examples/demo/draft.yaml");
     let (ok, report) = run(&["check", demo.to_str().unwrap()]);
     assert!(ok && report.contains("draft ⊥ recreate: disjoint"), "{report}");
     let (ok, out) = run(&["translate", demo.to_str().unwrap(), "notion-create-pages", r#"{"pages": [{"properties": {"title": "A"}}, {}]}"#]);

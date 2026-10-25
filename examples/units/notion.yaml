@@ -1,8 +1,8 @@
 # Translation unit for the Notion MCP server: the agent's writes, as CSP events.
 # Complier proves no two rules match the same call and that, with the fallback, they cover every
-# call in the domain; it refuses the unit otherwise. `complier check units/notion.yaml` prints
-# the proof.
-service: ../packages/notion/service.yaml
+# call in the domain; it refuses the unit otherwise. `complier check examples/units/notion.yaml`
+# prints the proof.
+service: ../../packages/notion/service.yaml
 
 translate:
   tools: [notion-create-comment, notion-update-page, notion-move-pages]
