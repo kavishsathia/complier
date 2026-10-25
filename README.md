@@ -1,7 +1,7 @@
 <p align="center">
   <img src=".github/controllable-chaos.png" width="200" alt="Controllable Chaos, complier's mascot: a purple axolotl with mint gills and tail, smiling calmly">
 </p>
-<p align="center"><sub>Controllable Chaos</sub></p>
+
 
 <h1 align="center">complier</h1>
 
