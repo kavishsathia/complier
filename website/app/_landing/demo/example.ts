@@ -33,13 +33,13 @@ hidden: [notion-fetch, notion-search]
 
 export const CONTRACT = `-- The writer drafts, gets a review, then publishes.
 -- Editing after a review needs a fresh one.
-WRITER  = !draft -> DRAFTED
+WRITER  = draft -> DRAFTED
 
-DRAFTED = !draft -> DRAFTED
-       [] !review -> REVIEWED
+DRAFTED = draft -> DRAFTED
+       [] review -> REVIEWED
 
-REVIEWED = !publish -> WRITER
-        [] !draft -> DRAFTED
+REVIEWED = publish -> WRITER
+        [] draft -> DRAFTED
 `;
 
 const page = `"page_id": "launch-post"`;
@@ -64,8 +64,8 @@ export const TRIES = [
   {
     tab: "contract" as const,
     label: "Let the writer publish without a review",
-    find: "       [] !review -> REVIEWED\n",
-    replace: "       [] !review -> REVIEWED\n       [] !publish -> WRITER\n",
+    find: "       [] review -> REVIEWED\n",
+    replace: "       [] review -> REVIEWED\n       [] publish -> WRITER\n",
   },
   {
     tab: "translation" as const,

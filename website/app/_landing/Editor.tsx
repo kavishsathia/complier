@@ -115,13 +115,12 @@ function csp(line: string): ReactNode[] {
   let k = 0;
   const at = line.indexOf("--");
   const code = at < 0 ? line : line.slice(0, at);
-  for (const part of code.split(/(\[\]|->|\|~\||\|\|\||[!?^~][a-z_]\w*|\b[A-Z][A-Za-z0-9_']*\b|\b(?:channel)\b|=)/)) {
+  for (const part of code.split(/(\[\]|->|\|~\||\|\|\||\[\||\|\]|\b[A-Za-z_][A-Za-z0-9_']*\b|=)/)) {
     if (!part) continue;
-    if (/^[!^][a-z_]/.test(part)) out.push(span("tk-event", part, k++));
-    else if (/^[?~][a-z_]/.test(part)) out.push(span("tk-world", part, k++));
-    else if (/^(STOP|SKIP|channel)$/.test(part)) out.push(span("tk-key", part, k++));
+    if (/^(STOP|SKIP|channel|prioritise)$/.test(part)) out.push(span("tk-key", part, k++));
     else if (/^[A-Z]/.test(part)) out.push(span("tk-proc", part, k++));
-    else if (/^(\[\]|->|\|~\||\|\|\||=)$/.test(part)) out.push(span("tk-op", part, k++));
+    else if (/^[a-z_]/.test(part)) out.push(span("tk-event", part, k++));
+    else if (/^(\[\]|->|\|~\||\|\|\||\[\||\|\]|=)$/.test(part)) out.push(span("tk-op", part, k++));
     else out.push(part);
   }
   if (at >= 0) out.push(span("tk-comment", line.slice(at), k++));
