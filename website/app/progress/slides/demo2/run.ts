@@ -2,7 +2,7 @@
 // the same time; each tool call takes effect on the shared desk the moment its
 // response arrives, so arrival order is the order of effect.
 
-import type { Proc, Spec } from "../../../stepper/csp/syntax.ts";
+import type { Proc, Spec } from "../../csp/syntax.ts";
 import { gateEvent, start } from "../demo/gatekeeper";
 import { post } from "../demo/kit";
 import { event } from "./gatekeeper";

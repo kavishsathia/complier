@@ -1,10 +1,10 @@
 // Complier for the order desk: each tool call becomes an agent (^) event, and
 // the call goes through only if the spec's current state offers that event.
 
-import { parse } from "../../../stepper/csp/parse.ts";
-import { step } from "../../../stepper/csp/step.ts";
-import { submit } from "../../../stepper/csp/system.ts";
-import type { Event, Proc, Spec } from "../../../stepper/csp/syntax.ts";
+import { parse } from "../../csp/parse.ts";
+import { step } from "../../csp/step.ts";
+import { submit } from "../../csp/system.ts";
+import type { Event, Proc, Spec } from "../../csp/syntax.ts";
 import type { Call, Desk } from "./model";
 
 export const SPEC = `-- Agent actions carry their quantities.

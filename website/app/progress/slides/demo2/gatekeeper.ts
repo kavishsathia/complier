@@ -1,7 +1,7 @@
 // Complier for two agents on one desk. The spec constrains the desk, not the
 // agents, so it holds however many agents act on it.
 
-import type { Event } from "../../../stepper/csp/syntax.ts";
+import type { Event } from "../../csp/syntax.ts";
 
 export const SPEC = `channel ^next, ^send, ^reject
 

@@ -2,7 +2,7 @@ import { gate, parse, start } from "../../progress/slides/demo/gatekeeper";
 import { apply, nextPending, type Call, type Desk, type Step } from "../../progress/slides/demo/model";
 import { complete, show, SYSTEM, tools, type Message } from "./agent";
 import { authorised, denied } from "./auth";
-import type { Proc, Spec } from "../../stepper/csp/syntax.ts";
+import type { Proc, Spec } from "../../progress/csp/syntax.ts";
 
 // One step of the order-desk agent: given the desk, decide the first pending order.
 
