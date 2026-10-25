@@ -1,0 +1,7 @@
+-- A small policy: any number of requests, then one exec, then nothing (STOP).
+channel req, exec, refuse
+
+A = {req, exec}
+R = {refuse}
+
+Policy = (req -> Policy) [] (exec -> STOP)

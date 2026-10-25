@@ -1,0 +1,9 @@
+# Historical comparison: run with --construction reset (a refusal restarts Policy).
+# allowed actions advance; exec leads Policy to STOP
+req
+req
+exec
+# Policy is STOP: the attempt is blocked, refuse fires and restarts Policy
+req
+?
+exec

@@ -2,6 +2,7 @@
   <img src=".github/controllable-chaos.png" width="200" alt="Controllable Chaos, complier's mascot: a purple axolotl with mint gills and tail, smiling calmly">
 </p>
 
+
 <h1 align="center">complier</h1>
 
 <p align="center"><b>Give your agents rules, not just instructions.</b></p>
@@ -45,6 +46,7 @@ Live demo and walkthrough: [complier.dev](https://www.complier.dev)
 | [`plugin/`](plugin) | Claude Code plugin that routes an agent's tools through `complier proxy` | `claude --plugin-dir plugin` |
 | [`packages/`](packages) | Reviewed metadata for each MCP server (`complier gen` writes here) | `packages/notion/service.yaml` |
 | [`examples/`](examples) | A translation unit for Notion and a small runnable demo machine | `examples/units/notion.yaml`, `examples/demo/` |
+| [`fdr/`](fdr) | Standalone demo: the refusal guard compiled and run with FDR's C++ API (bring your own FDR) | `fdr/demo.sh` |
 
 ## Quickstart
 

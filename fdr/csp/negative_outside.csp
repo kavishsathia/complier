@@ -1,0 +1,5 @@
+-- Negative fixture: Policy uses an event outside A and R.
+channel req, exec, log, refuse
+A = {req, exec}
+R = {refuse}
+Policy = (req -> log -> Policy) [] (exec -> STOP)

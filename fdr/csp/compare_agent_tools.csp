@@ -1,0 +1,65 @@
+-- FDR checks for the agent-tools policy under the current guard design,
+-- GuardInterleave = Policy ||| RefusalLoop(R) (a refusal keeps Policy's state),
+-- next to the historical GuardReset = Policy /\ refusal loop (a refusal restarts Policy).
+-- The "expect" comments were written before FDR ran; tests/check_run.py compares
+-- FDR's verdicts with them. The GuardReset assertions expected to fail show what the
+-- interleave construction fixes.
+--   refines -f plain csp/compare_agent_tools.csp
+external prioritise
+channel read_file, write_file, run_tests, git_push, refuse
+
+A = {read_file, write_file, run_tests, git_push}
+R = {refuse}
+
+-- Policy: after any write, tests must run before a push.
+Clean = read_file -> Clean [] write_file -> Dirty [] run_tests -> Clean [] git_push -> Clean
+Dirty = read_file -> Dirty [] write_file -> Dirty [] run_tests -> Clean
+Policy = Clean
+
+ControllableCHAOS(AA, RR) =
+    (STOP |~| (|~| x:AA @ x -> ControllableCHAOS(AA, RR)))
+    [] ([] r:RR @ r -> ControllableCHAOS(AA, RR))
+RefusalLoop(RR) = [] r:RR @ r -> RefusalLoop(RR)
+GuardInterleave = Policy ||| RefusalLoop(R)
+
+-- Historical comparison only.
+Controlled(PP, RR) = PP /\ ([] r:RR @ r -> Controlled(PP, RR))
+GuardReset = Controlled(Policy, R)
+
+-- Priority on the whole agent-guard composition.
+System(Agent, G) = prioritise(Agent [| union(A, R) |] G, <A, R>)
+
+-- 1. Neither construction can deadlock against an arbitrary agent (expect: both pass).
+assert System(ControllableCHAOS(A, R), GuardReset) :[deadlock free [F]]
+assert System(ControllableCHAOS(A, R), GuardInterleave) :[deadlock free [F]]
+assert GuardReset :[deterministic [F]]
+assert GuardInterleave :[deterministic [F]]
+
+-- 2. With refusals hidden, does the guard allow exactly what Policy allows?
+-- expect: interleave passes both ways; reset fails with <write_file, git_push>.
+assert Policy [T= GuardInterleave \ R
+assert GuardInterleave \ R [T= Policy
+assert Policy [T= GuardReset \ R
+
+-- 3. A stubborn agent writes, then keeps retrying a push.
+Stubborn = write_file -> Push
+Push = git_push -> Idle [] refuse -> Push
+Idle = refuse -> Idle
+NoPushWhileDirty = read_file -> NoPushWhileDirty [] write_file -> MustTest
+                [] run_tests -> NoPushWhileDirty [] git_push -> NoPushWhileDirty
+MustTest = read_file -> MustTest [] write_file -> MustTest [] run_tests -> NoPushWhileDirty
+-- expect: reset fails (<write_file, git_push> once refuse has reset Policy); interleave passes.
+assert NoPushWhileDirty [T= System(Stubborn, GuardReset) \ R
+assert NoPushWhileDirty [T= System(Stubborn, GuardInterleave) \ R
+assert NoPushWhileDirty [T= System(ControllableCHAOS(A, R), GuardReset) \ R
+assert NoPushWhileDirty [T= System(ControllableCHAOS(A, R), GuardInterleave) \ R
+
+-- 4. An agent offering both a blocked action (git_push) and an allowed one (run_tests).
+Eager = write_file -> Choose
+Choose = (git_push -> Idle [] run_tests -> Idle) [] refuse -> Choose
+ExpectEager = write_file -> run_tests -> RUN(R)
+-- expect: with priority the allowed action is taken and refuse never fires first (pass);
+-- without priority refuse may pre-empt it (fail).
+assert ExpectEager [T= System(Eager, GuardInterleave)
+assert System(Eager, GuardInterleave) :[deadlock free [F]]
+assert ExpectEager [T= Eager [| union(A, R) |] GuardInterleave

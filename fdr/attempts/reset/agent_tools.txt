@@ -1,0 +1,13 @@
+# Historical comparison: run with --construction reset (a refusal restarts Policy).
+read_file
+write_file
+# Dirty: a push is refused and refuse resets the policy to Clean
+git_push
+?
+# the retried push is now allowed (reset-on-refusal consequence)
+git_push
+write_file
+run_tests
+git_push
+# not an A event: reported as an error, no transition
+deploy

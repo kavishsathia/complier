@@ -1,0 +1,28 @@
+-- FDR checks for a policy that ends in STOP: what does the guard do afterwards?
+-- GuardInterleave (current): after exec, every attempt is refused for good.
+-- GuardReset (historical comparison): a refusal restarts Policy.
+--   refines -f plain csp/compare_henz_req_exec.csp
+external prioritise
+channel req, exec, refuse
+
+A = {req, exec}
+R = {refuse}
+Policy = (req -> Policy) [] (exec -> STOP)
+
+ControllableCHAOS(AA, RR) =
+    (STOP |~| (|~| x:AA @ x -> ControllableCHAOS(AA, RR)))
+    [] ([] r:RR @ r -> ControllableCHAOS(AA, RR))
+RefusalLoop(RR) = [] r:RR @ r -> RefusalLoop(RR)
+GuardInterleave = Policy ||| RefusalLoop(R)
+Controlled(PP, RR) = PP /\ ([] r:RR @ r -> Controlled(PP, RR))
+GuardReset = Controlled(Policy, R)
+System(Agent, G) = prioritise(Agent [| union(A, R) |] G, <A, R>)
+
+-- expect: both deadlock free against an arbitrary agent.
+assert System(ControllableCHAOS(A, R), GuardReset) :[deadlock free [F]]
+assert System(ControllableCHAOS(A, R), GuardInterleave) :[deadlock free [F]]
+
+-- expect: interleave = "after exec, nothing more" (pass);
+-- reset = "after exec, refuse then start again" (fail, e.g. <exec, req>).
+assert Policy [T= System(ControllableCHAOS(A, R), GuardInterleave) \ R
+assert Policy [T= System(ControllableCHAOS(A, R), GuardReset) \ R

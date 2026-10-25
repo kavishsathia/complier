@@ -1,0 +1,8 @@
+# allowed actions advance; exec leads Policy to STOP
+req
+req
+exec
+# Policy is STOP: the attempt is refused and the guard stays at STOP
+req
+?
+exec
