@@ -3,8 +3,8 @@ import { Geist, Geist_Mono } from "next/font/google";
 import Image from "next/image";
 import Link from "next/link";
 import Diagram from "./_landing/Diagram";
+import Journey from "./_landing/Journey";
 import Nav from "./_landing/Nav";
-import Workbench from "./_landing/Workbench";
 import mascot from "./controllable-chaos.png";
 import "./_landing/landing.css";
 
@@ -16,11 +16,11 @@ const REPO = "https://github.com/kavishsathia/complier";
 export const metadata: Metadata = {
   title: "complier: give your agents rules, not just instructions",
   description:
-    "complier checks every tool call an agent makes against a contract you write, and refuses calls that are out of turn before they reach the service.",
+    "complier checks every tool call an agent attempts against a contract you write. Your agent's harness asks before it runs a call, and out-of-turn calls are refused.",
   openGraph: {
     title: "complier: give your agents rules, not just instructions",
     description:
-      "Write which tool calls count as which steps and the order those steps may happen in. complier refuses the rest before it reaches the service.",
+      "Write which tool calls count as which steps and the order those steps may happen in. complier refuses the rest before the harness runs them.",
     type: "website",
     siteName: "complier",
   },
@@ -50,22 +50,22 @@ export default function Home() {
             </h1>
             <p className="lede">
               A prompt asks an agent to publish only after a review. complier makes it so. You write which tool calls count as which
-              steps, and the order the steps may happen in. Every call is checked before it reaches the service, and refused if
-              it&apos;s out of turn.
+              steps, and the order the steps may happen in. Your agent&apos;s harness checks every call with complier before it runs
+              it, and a call that&apos;s out of turn is refused.
             </p>
             <div className="ctas">
               <a className="btn btn-primary" href="#get-started">
                 Get started
                 <span aria-hidden="true">→</span>
               </a>
-              <a className="btn btn-outline" href="#demo">
-                Try the live demo
-              </a>
+              <Link className="btn btn-outline" href="/playground" prefetch={false}>
+                Open the playground
+              </Link>
             </div>
             <ul className="facts" aria-label="At a glance">
-              <li>Sits between your agent and its MCP tools</li>
+              <li>Runs in your agent&apos;s pre-tool hook</li>
               <li>Rules are proven before they load</li>
-              <li>Refuses before anything is sent</li>
+              <li>Refused calls never run</li>
             </ul>
           </div>
           <figure className="hero-mascot">
@@ -75,28 +75,25 @@ export default function Home() {
               sizes="(max-width: 760px) 200px, 340px"
               priority
             />
-            <figcaption>Controllable Chaos</figcaption>
           </figure>
         </section>
 
-        <section id="demo" className="section" aria-labelledby="demo-title">
+        <section id="refusals" className="section" aria-labelledby="refusals-title">
           <div className="section-head">
-            <h2 id="demo-title">Try changing the rules.</h2>
-            <p>
-              A writer agent drafts a post in Notion, gets it reviewed and publishes it. Edit the translation or the contract, then run
-              the same calls again. It all runs in your browser: Google&apos;s cel-java and its verifier for the translation, as in the CLI,
-              and the CSP engine behind complier&apos;s{" "}
-              <Link href="/stepper" prefetch={false}>
-                stepper
-              </Link>{" "}
-              for the contract. Nothing is sent to Notion or to a model.
-            </p>
+            <h2 id="refusals-title">A refusal changes nothing.</h2>
+            <p>The out-of-turn call doesn&apos;t run, and the contract stays where it was.</p>
           </div>
-          <Workbench />
+          <Journey />
+          <p className="journey-link">
+            <Link href="/playground" prefetch={false}>
+              Run these calls in the playground
+              <span aria-hidden="true"> →</span>
+            </Link>
+          </p>
         </section>
 
         <section id="how" className="section" aria-labelledby="how-title">
-          <h2 id="how-title" className="how-title">Out-of-turn calls never leave.</h2>
+          <h2 id="how-title" className="how-title">The harness asks first.</h2>
           <Diagram />
         </section>
 
@@ -122,6 +119,9 @@ export default function Home() {
         <span className="footer-brand">complier</span>
         <nav aria-label="Footer">
           <a href={REPO}>GitHub</a>
+          <Link href="/playground" prefetch={false}>
+            Playground
+          </Link>
           <Link href="/stepper" prefetch={false}>
             Stepper
           </Link>
