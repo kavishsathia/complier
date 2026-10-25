@@ -5,7 +5,7 @@
 // steps the contract with the site's CSP engine. Nothing calls Notion or a model.
 
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
-import { notionSchemaHashes } from "../../packages/notion/tools.ts";
+import { notionSchemaHashes } from "../../../packages/notion/tools.ts";
 import Editor from "./Editor";
 import { CALLS, CONTRACT, TRANSLATION, TRIES } from "./demo/example";
 import type { Call, CallResult, Progress, RunResult } from "./demo/run";

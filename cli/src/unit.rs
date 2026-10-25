@@ -3,7 +3,7 @@
 // agent's calls of some of the service's tools become CSP events, and which tools it passes
 // through unchecked:
 //
-//   service: ../packages/notion/service.yaml
+//   service: ../../packages/notion/service.yaml
 //   translate:
 //     tools: [notion-create-comment, notion-update-page]
 //     schema: { page_id: optional<string>, command: optional<string> }

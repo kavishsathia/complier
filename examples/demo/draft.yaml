@@ -1,8 +1,8 @@
 # Demo unit: editing a page is drafting, with the page's id; creating pages is recreating, with
 # their titles. Run (after cel/build.sh, which builds the CEL backend that proves the unit):
-#   complier machine up demo --spec demo/draft.csp --unit demo/draft.yaml
+#   complier machine up demo --spec examples/demo/draft.csp --unit examples/demo/draft.yaml
 #   COMPLIER_MACHINE=demo COMPLIER_ROLE=writer claude --plugin-dir plugin
-service: ../packages/notion/service.yaml
+service: ../../packages/notion/service.yaml
 
 translate:
   tools: [notion-update-page, notion-create-pages]

@@ -5,7 +5,7 @@ client-side. Nothing here is reimplemented: it is the browser build from
 [kavishsathia/kavishsathia](https://github.com/kavishsathia/kavishsathia) at `f33109b`, where
 `wasm-src/cel/` holds the build scripts and the facade's Java source.
 
-| file | from | what it is |
+| file (under `website/`) | from | what it is |
 | --- | --- | --- |
 | `public/cel/cel-verifier-web.jar` | `public/cel/` | cel-java 0.14.0's `verifier` package, compiled from its sources unmodified, plus the `CelVerifierWeb` facade (Apache-2.0) |
 | `public/cel/z3-cel.wasm`, `z3-cel.js` | `public/cel/` | Z3 4.14.1 (MIT), single-threaded Emscripten build |
@@ -24,6 +24,6 @@ CheerpJ is loaded from Leaning Technologies' CDN, as its community license requi
 license covers how this site is used. Everything is fetched only when a visitor starts the demo.
 
 `../demo/translation.ts` builds the same queries and reads the verifier's answers the way the
-CLI's YAML translation units do (`cli/src/translate.rs`): the domain is `tool in [tools] &&
+CLI's YAML translation units do (`cli/src/translate.rs` at the repository root): the domain is `tool in [tools] &&
 assumption`, rules must be pairwise disjoint, and with the generated fallback they must cover the
 domain.
