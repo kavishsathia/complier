@@ -1,0 +1,11 @@
+-- A coding agent's tool calls, already translated to CSP events (in complier, a translation
+-- unit does that). The policy: after any write, tests must run before a push.
+-- guard_driver loads this, wraps Policy in the guard and compiles it with FDR.
+channel read_file, write_file, run_tests, git_push, refuse
+
+A = {read_file, write_file, run_tests, git_push}
+R = {refuse}
+
+Clean = read_file -> Clean [] write_file -> Dirty [] run_tests -> Clean [] git_push -> Clean
+Dirty = read_file -> Dirty [] write_file -> Dirty [] run_tests -> Clean
+Policy = Clean

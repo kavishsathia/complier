@@ -1,0 +1,5 @@
+-- Negative fixture: A and R overlap, so admission must be refused.
+channel req, exec, refuse
+A = {req, exec, refuse}
+R = {refuse}
+Policy = (req -> Policy) [] (exec -> STOP)
