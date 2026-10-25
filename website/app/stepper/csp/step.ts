@@ -19,19 +19,19 @@ export function step(spec: Spec, p: Proc): Derivation[] {
     case "omega":
       return [];
 
-    // [IO-Skip]
+    // [Skip]
     case "skip":
-      return [node("IO-Skip", p, { k: "tick" }, { k: "omega" })];
+      return [node("Skip", p, { k: "tick" }, { k: "omega" })];
 
-    // [IO-Prefix]
+    // [Prefix]
     case "pre":
       return comms(spec, p.chan, p.fields).map(({ label, sigma }) =>
-        node("IO-Prefix", p, label, subst(p.next, sigma), [], [
+        node("Prefix", p, label, subst(p.next, sigma), [], [
           `(${texLabel(label)}, ${texSubst(sigma)}) \\in \\mathrm{comms}(${texMsg(p.chan, p.fields)})`,
         ]),
       );
 
-    // [IO-ExtL] [IO-ExtR] [IO-ExtTauL] [IO-ExtTauR]
+    // [ExtL] [ExtR] [ExtTauL] [ExtTauR]
     case "ext": {
       const out: Derivation[] = [];
       for (const [side, d] of [
@@ -40,34 +40,34 @@ export function step(spec: Spec, p: Proc): Derivation[] {
       ]) {
         if (d.label.k === "tau") {
           const to: Proc = side === "L" ? { ...p, l: d.to } : { ...p, r: d.to };
-          out.push(node(`IO-ExtTau${side}`, p, d.label, to, [d]));
+          out.push(node(`ExtTau${side}`, p, d.label, to, [d]));
         } else {
-          out.push(node(`IO-Ext${side}`, p, d.label, d.to, [d], [`${texLabel(d.label)} \\in \\Sigma^{\\checkmark}`]));
+          out.push(node(`Ext${side}`, p, d.label, d.to, [d], [`${texLabel(d.label)} \\in \\Sigma^{\\checkmark}`]));
         }
       }
       return out;
     }
 
-    // [IO-IntL] [IO-IntR]
+    // [IntL] [IntR]
     case "int":
-      return [node("IO-IntL", p, { k: "tau" }, p.l), node("IO-IntR", p, { k: "tau" }, p.r)];
+      return [node("IntL", p, { k: "tau" }, p.l), node("IntR", p, { k: "tau" }, p.r)];
 
-    // [IO-Guard-True]
+    // [Guard-True]
     case "guard": {
       if (eval_(p.b) !== true) return [];
       const side = `[\\![ ${texExpr(p.b)} ]\\!] = \\mathit{true}`;
-      return step(spec, p.p).map((d) => node("IO-Guard-True", p, d.label, d.to, [d], [side]));
+      return step(spec, p.p).map((d) => node("Guard-True", p, d.label, d.to, [d], [side]));
     }
 
-    // [IO-Seq] [IO-SeqTerm]
+    // [Seq] [SeqTerm]
     case "seq":
       return step(spec, p.l).map((d) =>
         d.label.k === "tick"
-          ? node("IO-SeqTerm", p, { k: "tau" }, p.r, [d])
-          : node("IO-Seq", p, d.label, { ...p, l: d.to }, [d], [`${texLabel(d.label)} \\neq \\checkmark`]),
+          ? node("SeqTerm", p, { k: "tau" }, p.r, [d])
+          : node("Seq", p, d.label, { ...p, l: d.to }, [d], [`${texLabel(d.label)} \\neq \\checkmark`]),
       );
 
-    // [IO-ParL] [IO-ParR] [IO-Sync] [IO-ParTermL] [IO-ParTermR] [IO-ParTerm]
+    // [ParL] [ParR] [Sync] [ParTermL] [ParTermR] [ParTerm]
     case "par": {
       const out: Derivation[] = [];
       const X = texSet(p.sync);
@@ -77,23 +77,71 @@ export function step(spec: Spec, p: Proc): Derivation[] {
         for (const d of ds) {
           if (d.label.k === "tick") {
             const to: Proc = side === "L" ? { ...p, l: { k: "omega" } } : { ...p, r: { k: "omega" } };
-            out.push(node(`IO-ParTerm${side}`, p, { k: "tau" }, to, [d]));
+            out.push(node(`ParTerm${side}`, p, { k: "tau" }, to, [d]));
           } else if (!synced(d.label, p.sync)) {
             const to: Proc = side === "L" ? { ...p, l: d.to } : { ...p, r: d.to };
             out.push(
-              node(`IO-Par${side}`, p, d.label, to, [d], [`${texLabel(d.label)} \\notin ${X} \\cup \\{\\checkmark\\}`]),
+              node(`Par${side}`, p, d.label, to, [d], [`${texLabel(d.label)} \\notin ${X} \\cup \\{\\checkmark\\}`]),
             );
           }
         }
       }
       for (const l of ls.filter((d) => synced(d.label, p.sync)))
         for (const r of rs.filter((d) => sameLabel(l.label, d.label)))
-          out.push(node("IO-Sync", p, l.label, { ...p, l: l.to, r: r.to }, [l, r], [`${texLabel(l.label)} \\in ${X}`]));
-      if (p.l.k === "omega" && p.r.k === "omega") out.push(node("IO-ParTerm", p, { k: "tick" }, { k: "omega" }));
+          out.push(node("Sync", p, l.label, { ...p, l: l.to, r: r.to }, [l, r], [`${texLabel(l.label)} \\in ${X}`]));
+      if (p.l.k === "omega" && p.r.k === "omega") out.push(node("ParTerm", p, { k: "tick" }, { k: "omega" }));
       return out;
     }
 
-    // [IO-Call]
+    // [InterL] [InterR] [InterTermL] [InterTermR] [InterTerm]
+    // Every move belongs to one side; the other side is left exactly as it
+    // was. Both sides offering the same event gives two transitions.
+    case "inter": {
+      const out: Derivation[] = [];
+      for (const [side, ds] of [["L", step(spec, p.l)], ["R", step(spec, p.r)]] as const) {
+        for (const d of ds) {
+          if (d.label.k === "tick") {
+            const to: Proc = side === "L" ? { ...p, l: { k: "omega" } } : { ...p, r: { k: "omega" } };
+            out.push(node(`InterTerm${side}`, p, { k: "tau" }, to, [d]));
+          } else {
+            const to: Proc = side === "L" ? { ...p, l: d.to } : { ...p, r: d.to };
+            out.push(node(`Inter${side}`, p, d.label, to, [d], [`${texLabel(d.label)} \\neq \\checkmark`]));
+          }
+        }
+      }
+      if (p.l.k === "omega" && p.r.k === "omega") out.push(node("InterTerm", p, { k: "tick" }, { k: "omega" }));
+      return out;
+    }
+
+    // [Prio] A transition of P survives unless P also has one in a stronger
+    // class. τ and ✓ rank with the first class, and an event in no class is
+    // never held back (as FDR's prioritise does).
+    case "prio": {
+      const rank = (l: Label) => (l.k === "ev" ? p.classes.findIndex((c) => c.includes(l.chan)) : 0);
+      const ds = step(spec, p.p);
+      const out: Derivation[] = [];
+      for (const d of ds) {
+        const i = rank(d.label);
+        if (i > 0 && ds.some((e) => { const j = rank(e.label); return j >= 0 && j < i; })) continue;
+        const to: Proc = d.to.k === "omega" ? d.to : { ...p, p: d.to };
+        const union = (cs: string[][]) => texSet([...new Set(cs.flat())]);
+        const side =
+          i > 0
+            ? [
+                `${texLabel(d.label)} \\in ${texSet(p.classes[i])}`,
+                `\\mathit{initials}(P) \\cap (\\{\\tau, \\checkmark\\} \\cup ${union(p.classes.slice(0, i))}) = \\emptyset`,
+              ]
+            : i === 0 && d.label.k === "ev"
+              ? [`${texLabel(d.label)} \\in ${texSet(p.classes[0])}`]
+              : d.label.k === "ev"
+                ? [`${texLabel(d.label)} \\notin ${union(p.classes)}`]
+                : [`${texLabel(d.label)} \\text{ ranks with the first class}`];
+        out.push(node("Prio", p, d.label, to, [d], side));
+      }
+      return out;
+    }
+
+    // [Call]
     case "call": {
       const def = spec.defs.get(p.name)!;
       const vs = p.args.map(eval_);
@@ -106,18 +154,44 @@ export function step(spec: Spec, p: Proc): Derivation[] {
       def.params.forEach((x, i) =>
         side.push(`[\\![ ${texExpr(p.args[i])} ]\\!] = ${texValue(vs[i])} \\in ${texType(x.type)}`),
       );
-      const body = subst(def.body, sigma);
-      return [node("IO-Call", p, { k: "tau" }, def.role ? { k: "role", name: def.role, p: body } : body, [], side)];
+      return [node("Call", p, { k: "tau" }, subst(def.body, sigma), [], side)];
     }
 
-    // A role's component steps as its process does; each transition is
-    // attributed to the role. A role that calls itself stays one component.
-    case "role":
-      return step(spec, p.p).map((d) => {
-        const inner = d.to.k === "role" && d.to.name === p.name ? d.to.p : d.to;
-        return { ...d, from: p, to: d.to.k === "omega" ? d.to : { k: "role", name: p.name, p: inner }, role: p.name };
-      });
+    // [Call], for the builtin: it unfolds to its definition like any named
+    // process,
+    //   ControllableCHAOS(A, R) = (STOP |~| (|~| x:A @ x -> ControllableCHAOS(A, R)))
+    //                             [] ([] r:R @ r -> ControllableCHAOS(A, R))
+    // with the replicated choices written out over the events of A and R.
+    case "chaos":
+      return [node("Call", p, { k: "tau" }, chaosBody(spec, p), [], [chaosDef, `A = ${texSet(p.a)},\\; R = ${texSet(p.r)}`])];
   }
+}
+
+const chaosDef =
+  "\\mathit{ControllableCHAOS}(A, R) = (\\mathit{STOP} \\sqcap (\\sqcap\\, x{:}A \\bullet x \\to \\mathit{ControllableCHAOS}(A, R))) \\mathbin{\\square} (\\square\\, r{:}R \\bullet r \\to \\mathit{ControllableCHAOS}(A, R))";
+
+// The events on a set of channels, as prefixes that lead back to `next`.
+function prefixes(spec: Spec, chans: string[], next: Proc): Proc[] {
+  return chans.flatMap((chan) => {
+    let tuples: Value[][] = [[]];
+    for (const t of spec.chans.get(chan) ?? []) tuples = tuples.flatMap((vs) => values(t).map((v) => [...vs, v]));
+    return tuples.map(
+      (vs): Proc => ({ k: "pre", chan, fields: vs.map((v) => ({ k: "out", e: { k: "val", v } })), next }),
+    );
+  });
+}
+
+// A replicated choice over a non-empty list, as nested binary choices.
+const fold = (k: "int" | "ext", ps: Proc[]): Proc => ps.reduceRight((r, l) => ({ k, l, r }));
+
+export function chaosBody(spec: Spec, p: Extract<Proc, { k: "chaos" }>): Proc {
+  const actions = prefixes(spec, p.a, p);
+  const refusals = prefixes(spec, p.r, p);
+  return {
+    k: "ext",
+    l: { k: "int", l: { k: "stop" }, r: fold("int", actions) },
+    r: fold("ext", refusals),
+  };
 }
 
 // comms(m): each event the message can perform, with the substitution binding
@@ -223,10 +297,14 @@ export function subst(p: Proc, sigma: [string, Value][]): Proc {
       return { ...p, l: subst(p.l, sigma), r: subst(p.r, sigma) };
     case "guard":
       return { ...p, b: e(p.b), p: subst(p.p, sigma) };
+    case "inter":
+      return { ...p, l: subst(p.l, sigma), r: subst(p.r, sigma) };
+    case "prio":
+      return { ...p, p: subst(p.p, sigma) };
     case "call":
       return { ...p, args: p.args.map(e) };
-    case "role":
-      return { ...p, p: subst(p.p, sigma) };
+    case "chaos":
+      return p;
   }
 }
 

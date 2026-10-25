@@ -1,20 +1,24 @@
 .app {
+  /* complier's palette: ivory paper, ink, purple and mint, as on the homepage. */
+  --bg: #fbfaf6;
   --surface: #ffffff;
-  --sunken: #f5f5f4;
-  --border: #e7e5e4;
-  --border-strong: #d6d3d1;
-  --text: #1c1917;
-  --subtle: #57534e;
-  --muted: #8a8580;
-  --accent: #4f46e5;
-  --accent-soft: #eef2ff;
-  --danger: #b91c1c;
-  --ok: #15803d;
-  --world: #b45309;
-  --world-soft: #fffbeb;
-  --agent: #4f46e5;
-  --agent-soft: #eef2ff;
-  --shadow: 0 1px 2px rgb(28 25 23 / 0.04), 0 1px 1px rgb(28 25 23 / 0.03);
+  --sunken: #f5f2ec;
+  --border: #e6e1d8;
+  --border-strong: #d8d1e6;
+  --text: #1b1430;
+  --subtle: #4b445e;
+  --muted: #6b6480;
+  --accent: #5b3fb5;
+  --accent-soft: #f2eefc;
+  --button: #b9a7f0;
+  --button-hover: #ab96ec;
+  --mint: #8ef5d9;
+  --mint-soft: #e4f8f0;
+  --danger: #b42318;
+  --ok: #0b6b50;
+  --tau: #8a5300;
+  --tau-soft: #fdf3e1;
+  --shadow: 0 1px 2px rgb(27 20 48 / 0.04), 0 1px 1px rgb(27 20 48 / 0.03);
   --sans: var(--font-sans), ui-sans-serif, system-ui, -apple-system, sans-serif;
   --mono: var(--font-mono), ui-monospace, "SF Mono", Menlo, monospace;
 
@@ -28,27 +32,21 @@
   font-size: 14px;
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
+  color-scheme: light;
 }
 
-@media (prefers-color-scheme: dark) {
-  .app {
-    --surface: #151311;
-    --sunken: #0f0e0c;
-    --border: #262320;
-    --border-strong: #3a3632;
-    --text: #f5f5f4;
-    --subtle: #d6d3d1;
-    --muted: #8f8a84;
-    --accent: #a5b4fc;
-    --accent-soft: rgb(165 180 252 / 0.1);
-    --danger: #f87171;
-    --ok: #4ade80;
-    --world: #fbbf24;
-    --world-soft: rgb(251 191 36 / 0.1);
-    --agent: #a5b4fc;
-    --agent-soft: rgb(165 180 252 / 0.1);
-    --shadow: none;
-  }
+.app .sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+}
+
+.app :focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .app *,
@@ -77,7 +75,7 @@
   text-align: center;
   border: 1px solid var(--border-strong);
   border-bottom-width: 2px;
-  border-radius: 0;
+  border-radius: 8px;
   color: var(--muted);
 }
 
@@ -103,7 +101,7 @@
   color: var(--text);
   background: var(--surface);
   border: 1px solid var(--border-strong);
-  border-radius: 0;
+  border-radius: 8px;
   cursor: pointer;
   white-space: nowrap;
   transition: background 0.12s, border-color 0.12s;
@@ -136,13 +134,15 @@
 }
 
 .btn.primary {
-  background: var(--text);
-  border-color: var(--text);
-  color: var(--bg);
+  background: var(--button);
+  border-color: var(--button);
+  color: var(--text);
+  font-weight: 600;
 }
 
 .btn.primary:hover:not(:disabled) {
-  background: var(--subtle);
+  background: var(--button-hover);
+  border-color: var(--button-hover);
 }
 
 .btn.primary kbd {
@@ -169,7 +169,7 @@
     url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' fill='none' stroke='%238a8580' stroke-width='1.5'%3E%3Cpath d='M1 1l4 4 4-4'/%3E%3C/svg%3E")
     no-repeat right 0.55rem center;
   border: 1px solid var(--border-strong);
-  border-radius: 0;
+  border-radius: 8px;
   appearance: none;
   cursor: pointer;
 }
@@ -196,6 +196,22 @@
 
 .brand .logo {
   letter-spacing: -0.02em;
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.topnav {
+  margin-left: auto;
+  font-size: 13px;
+}
+
+.topnav a {
+  color: var(--subtle);
+  text-decoration: none;
+}
+
+.topnav a:hover {
+  color: var(--accent);
 }
 
 .brand .sep {
@@ -225,7 +241,7 @@
 
 .editor {
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-rows: auto minmax(0, 1fr) auto auto;
   border-right: 1px solid var(--border);
   background: var(--surface);
 }
@@ -248,7 +264,7 @@
 .pill {
   font-size: 11px;
   padding: 0.05rem 0.45rem;
-  border-radius: 0;
+  border-radius: 8px;
   color: var(--accent);
   background: var(--accent-soft);
   white-space: nowrap;
@@ -314,7 +330,7 @@
   width: 7px;
   height: 7px;
   flex: none;
-  border-radius: 0;
+  border-radius: 8px;
   background: var(--ok);
 }
 
@@ -335,7 +351,7 @@
 
 .card {
   border: 1px solid var(--border);
-  border-radius: 0;
+  border-radius: 8px;
   background: var(--surface);
   box-shadow: var(--shadow);
   overflow: hidden;
@@ -369,13 +385,14 @@
 
 .badge.stable {
   color: var(--ok);
+  background: var(--mint-soft);
   border-color: color-mix(in srgb, var(--ok) 40%, transparent);
 }
 
 .badge.unstable {
-  color: var(--world);
-  border-color: color-mix(in srgb, var(--world) 40%, transparent);
-  background: var(--world-soft);
+  color: var(--tau);
+  border-color: color-mix(in srgb, var(--tau) 40%, transparent);
+  background: var(--tau-soft);
 }
 
 .count {
@@ -385,7 +402,7 @@
   font-weight: 500;
   color: var(--muted);
   background: var(--sunken);
-  border-radius: 0;
+  border-radius: 8px;
 }
 
 .hint {
@@ -427,7 +444,7 @@
   color: var(--subtle);
   background: var(--sunken);
   border: 1px solid var(--border);
-  border-radius: 0;
+  border-radius: 8px;
   cursor: pointer;
 }
 
@@ -516,140 +533,29 @@
   overflow-wrap: anywhere;
 }
 
-.tag {
-  font-size: 10px;
-  font-weight: 500;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  padding: 0 0.3rem;
-  color: var(--muted);
-  border: 1px solid var(--border);
-}
 
-.tag.world {
-  color: var(--world);
-  border-color: color-mix(in srgb, var(--world) 40%, transparent);
-}
 
-.tag.agent {
-  color: var(--agent);
-  border-color: color-mix(in srgb, var(--agent) 40%, transparent);
-}
 
-.transitions > li.hit {
-  box-shadow: inset 3px 0 0 var(--accent);
-  background: var(--accent-soft);
-}
 
 /* Sending events */
 
-.send {
-  display: flex;
-  gap: 0.5rem;
-  padding: 0.9rem 1rem 0.25rem;
-}
 
-.send input {
-  flex: 1;
-  height: 30px;
-  padding: 0 0.6rem;
-  font: inherit;
-  font-family: var(--mono);
-  font-size: 13px;
-  color: var(--text);
-  background: var(--sunken);
-  border: 1px solid var(--border-strong);
-  border-radius: 0;
-  outline: none;
-}
 
-.send input:focus {
-  border-color: var(--accent);
-}
 
-.send .btn {
-  height: 30px;
-}
 
-.sigma {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  padding: 0.75rem 1rem 1rem;
-}
 
-.sigma-row {
-  display: grid;
-  grid-template-columns: 5.5rem minmax(0, 1fr);
-  align-items: baseline;
-  gap: 0.75rem;
-}
 
-.mark {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 0.35rem;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--muted);
-}
 
-.mark code {
-  font-weight: 500;
-}
 
-.mark.world {
-  color: var(--world);
-}
 
-.mark.agent {
-  color: var(--agent);
-}
 
-.sigma-events {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.35rem;
-}
 
-.chip.ev.world:hover {
-  border-color: var(--world);
-  background: var(--world-soft);
-}
 
-.chip.ev.agent:hover {
-  border-color: var(--agent);
-  background: var(--agent-soft);
-}
 
-.outcome {
-  margin: 0 1rem 1rem;
-  padding: 0.65rem 0.85rem;
-  border: 1px solid var(--border);
-  border-left-width: 3px;
-  display: flex;
-  flex-direction: column;
-  gap: 0.3rem;
-  font-size: 13px;
-}
 
-.outcome.ok {
-  border-left-color: var(--ok);
-}
 
-.outcome.warn {
-  border-left-color: var(--world);
-  background: var(--world-soft);
-}
 
-.outcome.bad {
-  border-left-color: var(--danger);
-}
 
-.outcome.info {
-  border-left-color: var(--accent);
-  background: var(--accent-soft);
-}
 
 .tr-body {
   display: flex;
@@ -699,7 +605,7 @@
 .transitions .tree {
   margin: 0 0.75rem 0.75rem;
   border: 1px solid var(--border);
-  border-radius: 0;
+  border-radius: 8px;
   background: var(--surface);
 }
 
@@ -773,7 +679,7 @@
 .history details[open] .tree {
   margin: 0 0.75rem 0.75rem;
   border: 1px solid var(--border);
-  border-radius: 0;
+  border-radius: 8px;
   background: var(--surface);
 }
 
@@ -834,12 +740,65 @@
     font-size: 0.92em;
   }
 
-  .sigma-row {
-    grid-template-columns: minmax(0, 1fr);
-    gap: 0.35rem;
-  }
 
   .card-head .hint {
     display: none;
   }
+}
+
+/* Rounded like the homepage: cards, then pills. */
+
+.card {
+  border-radius: 12px;
+}
+
+.chip,
+.pill,
+.badge,
+.count {
+  border-radius: 999px;
+}
+
+.app kbd {
+  border-radius: 4px;
+}
+
+.idx {
+  color: var(--ok);
+}
+
+/* Syntax reference, under the editor */
+
+.syntax {
+  border-top: 1px solid var(--border);
+  font-size: 12.5px;
+  color: var(--subtle);
+  max-height: 40vh;
+  overflow-y: auto;
+}
+
+.syntax summary {
+  padding: 0.55rem 1rem;
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.syntax dl {
+  margin: 0;
+  padding: 0 1rem 0.9rem;
+}
+
+.syntax dt {
+  margin-top: 0.55rem;
+}
+
+.syntax dd {
+  margin: 0.1rem 0 0;
+  color: var(--muted);
+}
+
+.syntax code {
+  font-size: 12px;
+  color: var(--accent);
 }

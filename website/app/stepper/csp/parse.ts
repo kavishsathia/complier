@@ -7,24 +7,30 @@
 // used without a declaration carries no data. Binding, loosest first:
 // [| {c, ..} |] and |||, then |~|, then [], then ;, then b & P, then
 // c?x!e -> P. Inside !e and .e, compound expressions need parentheses.
-// ~c (or ?c) marks a world channel and ^c (or !c) an agent channel, on its
-// declaration or on any prefix; unmarked channels are internal.
+//
+// Two forms take sets of channels, each standing for every event on them:
+//
+//   prioritise(P, <{a, b}, {r}>)        FDR's priority: a and b before r
+//   ControllableCHAOS({a, b}, {r})      the builtin agent: any of A, or none, and R always
 
-import type { BinOp, Def, Expr, Field, Mark, Proc, Spec, Type } from "./syntax.ts";
+import type { BinOp, Def, Expr, Field, Proc, Spec, Type } from "./syntax.ts";
 
 type Tok = { t: string; v?: string | number; line: number };
 
 export class SpecError extends Error {}
+
+// The builtin's name, which no definition may take.
+export const CHAOS = "ControllableCHAOS";
 
 const fail = (line: number, msg: string): never => {
   throw new SpecError(`line ${line}: ${msg}`);
 };
 
 const PUNCT = [
-  "|||", "|~|", "[[", "]]", "[|", "|]", "[]", "->", "..", "==", "!=", "<=", ">=",
-  "<", ">", "+", "-", "*", "(", ")", "{", "}", ",", ":", "=", "&", ";", "?", "!", ".", "~", "^",
+  "|||", "|~|", "[|", "|]", "[]", "->", "..", "==", "!=", "<=", ">=",
+  "<", ">", "+", "-", "*", "(", ")", "{", "}", ",", ":", "=", "&", ";", "?", "!", ".",
 ];
-const UNICODE: Record<string, string> = { "→": "->", "□": "[]", "⊓": "|~|" };
+const UNICODE: Record<string, string> = { "→": "->", "□": "[]", "⊓": "|~|", "⫴": "|||" };
 
 function lex(src: string): Tok[] {
   const toks: Tok[] = [];
@@ -61,7 +67,7 @@ function lex(src: string): Tok[] {
   return toks;
 }
 
-const KEYWORDS = new Set(["channel", "and", "or", "not", "true", "false", "STOP", "SKIP", "Bool"]);
+const KEYWORDS = new Set(["channel", "and", "or", "not", "true", "false", "STOP", "SKIP", "Bool", "prioritise", CHAOS]);
 const isUpper = (s: string) => /^[A-Z]/.test(s);
 
 const show = (tok: Tok) =>
@@ -70,8 +76,6 @@ const show = (tok: Tok) =>
 class Parser {
   i = 0;
   toks: Tok[];
-  // Every mark written, on declarations and prefixes alike.
-  marks: { chan: string; mark: Mark; line: number }[] = [];
   constructor(toks: Tok[]) {
     this.toks = toks;
   }
@@ -92,11 +96,6 @@ class Parser {
     if (!this.eat(t)) fail(this.peek().line, `expected ${what}, found ${show(this.peek())}`);
   }
 
-  // Before a channel, the CLI's ?c and !c are the same marks as ~c and ^c.
-  mark(): Mark | null {
-    return this.eat("~") || this.eat("?") ? "world" : this.eat("^") || this.eat("!") ? "agent" : null;
-  }
-
   name(kind: "process" | "lower", what: string): string {
     const tok = this.peek();
     const s = tok.v as string;
@@ -114,23 +113,12 @@ class Parser {
       const line = this.peek().line;
       if (this.eat("id", "channel")) {
         const names: string[] = [];
-        do {
-          const mark = this.mark();
-          const name = this.name("lower", "a channel name");
-          if (mark) this.marks.push({ chan: name, mark, line });
-          names.push(name);
-        } while (this.eat(","));
+        do names.push(this.name("lower", "a channel name"));
+        while (this.eat(","));
         const types: Type[] = [];
         if (this.eat(":")) do types.push(this.type()); while (this.eat("."));
         names.forEach((name) => chans.push({ name, types, line }));
       } else {
-        // [[writer]] before a definition makes it the component an agent
-        // joins in the role named writer.
-        let role: string | undefined;
-        if (this.eat("[[")) {
-          role = this.name("lower", "a role name inside [[ ]]");
-          this.expect("]]", `']]' after ${role}`);
-        }
         const name = this.name("process", "a process definition (NAME = ...)");
         const params: Def["params"] = [];
         if (this.eat("(")) {
@@ -142,10 +130,10 @@ class Parser {
           this.expect(")");
         }
         this.expect("=");
-        defs.push({ name, params, body: this.proc(), line, role });
+        defs.push({ name, params, body: this.proc(), line });
       }
     }
-    return { chans, defs, marks: this.marks };
+    return { chans, defs };
   }
 
   type(): Type {
@@ -170,16 +158,22 @@ class Parser {
     let l = this.int_();
     for (;;) {
       if (this.eat("[|")) {
-        this.expect("{");
-        const sync: string[] = [];
-        if (!this.is("}")) do sync.push(this.name("lower", "a channel name")); while (this.eat(","));
-        this.expect("}");
+        const sync = this.set();
         this.expect("|]");
         l = { k: "par", sync, l, r: this.int_() };
       } else if (this.eat("|||")) {
-        l = { k: "par", sync: [], l, r: this.int_() };
+        l = { k: "inter", l, r: this.int_() };
       } else return l;
     }
+  }
+
+  // {a, b}: a set of channels.
+  set(): string[] {
+    this.expect("{", "a set of channels, such as {a, b}");
+    const out: string[] = [];
+    if (!this.is("}")) do out.push(this.name("lower", "a channel name")); while (this.eat(","));
+    this.expect("}");
+    return out;
   }
 
   int_(): Proc {
@@ -215,11 +209,8 @@ class Parser {
   }
 
   prefix(): Proc {
-    if (["~", "^", "?", "!"].some((m) => this.is(m)) || (this.is("id") && !isUpper(this.peek().v as string) && !KEYWORDS.has(this.peek().v as string))) {
-      const line = this.peek().line;
-      const mark = this.mark();
+    if (this.is("id") && !isUpper(this.peek().v as string) && !KEYWORDS.has(this.peek().v as string)) {
       const chan = this.name("lower", "a channel name");
-      if (mark) this.marks.push({ chan, mark, line });
       const fields: Field[] = [];
       for (;;) {
         if (this.eat("?")) {
@@ -248,6 +239,26 @@ class Parser {
     const tok = this.peek();
     if (this.eat("id", "STOP")) return { k: "stop" };
     if (this.eat("id", "SKIP")) return { k: "skip" };
+    if (this.eat("id", "prioritise")) {
+      this.expect("(", "'(' after prioritise");
+      const p = this.proc();
+      this.expect(",", "',' and then the priority classes, such as <{a}, {b}>");
+      this.expect("<", "'<' before the priority classes");
+      const classes: string[][] = [];
+      do classes.push(this.set());
+      while (this.eat(","));
+      this.expect(">", "'>' after the priority classes");
+      this.expect(")");
+      return { k: "prio", p, classes };
+    }
+    if (this.eat("id", CHAOS)) {
+      this.expect("(", `'(' after ${CHAOS}: it takes two sets of channels, A and R`);
+      const a = this.set();
+      this.expect(",", `',' and then R, the set of refusal channels`);
+      const r = this.set();
+      this.expect(")");
+      return { k: "chaos", a, r };
+    }
     if (this.eat("(")) {
       const p = this.proc();
       this.expect(")");
@@ -325,10 +336,11 @@ class Parser {
 }
 
 // Parses and checks a spec: no duplicate names, every call defined with the
-// right arity, every channel's fields matching its declaration, and every
-// variable bound by a parameter or an earlier input.
+// right arity, every channel's fields matching its declaration, every
+// variable bound by a parameter or an earlier input, and the sets given to
+// prioritise and ControllableCHAOS well formed.
 export function parse(src: string): Spec {
-  const { chans: decls, defs, marks: written } = new Parser(lex(src)).spec();
+  const { chans: decls, defs } = new Parser(lex(src)).spec();
   const chans = new Map<string, Type[]>();
   for (const c of decls) {
     if (chans.has(c.name)) fail(c.line, `channel ${c.name} is declared twice`);
@@ -348,6 +360,14 @@ export function parse(src: string): Spec {
       else if (e.k === "and" || e.k === "or" || e.k === "bin") {
         bound(e.a, scope);
         bound(e.b, scope);
+      }
+    };
+    const known = (cs: string[]) => cs.forEach((c) => chans.has(c) || chans.set(c, []));
+    const disjoint = (sets: string[][], what: string) => {
+      const seen = new Set<string>();
+      for (const c of sets.flat()) {
+        if (seen.has(c)) at(`${c} appears twice in ${what}; the sets must not overlap`);
+        seen.add(c);
       }
     };
     const walk = (p: Proc, scope: Set<string>): void => {
@@ -372,12 +392,22 @@ export function parse(src: string): Spec {
         case "ext":
         case "int":
         case "seq":
+        case "inter":
           walk(p.l, scope);
           return walk(p.r, scope);
         case "par":
-          p.sync.forEach((c) => chans.has(c) || chans.set(c, []));
+          known(p.sync);
           walk(p.l, scope);
           return walk(p.r, scope);
+        case "prio":
+          known(p.classes.flat());
+          disjoint(p.classes, "prioritise's classes");
+          return walk(p.p, scope);
+        case "chaos":
+          if (!p.a.length) at(`${CHAOS}'s A is empty: give it the agent's actions`);
+          if (!p.r.length) at(`${CHAOS}'s R is empty: give it the refusal channel`);
+          known([...p.a, ...p.r]);
+          return disjoint([p.a, p.r], `${CHAOS}'s A and R`);
         case "guard":
           bound(p.b, scope);
           return walk(p.p, scope);
@@ -392,25 +422,5 @@ export function parse(src: string): Spec {
     };
     walk(d.body, new Set(d.params.map((p) => p.name)));
   }
-  // Marking one occurrence marks the channel everywhere.
-  const marks = new Map<string, Mark>([...chans.keys()].map((c) => [c, "internal"]));
-  const seen = new Map<string, Mark>();
-  for (const { chan, mark, line } of written) {
-    const before = seen.get(chan);
-    if (before && before !== mark) fail(line, `${chan} is marked both ~ (world) and ^ (agent)`);
-    seen.set(chan, mark);
-    marks.set(chan, mark);
-  }
-  // Every prefix carries its channel's mark κ, as in (κ m → P).
-  const annotate = (p: Proc): void => {
-    if (p.k === "pre") {
-      p.mark = marks.get(p.chan);
-      annotate(p.next);
-    } else if ("l" in p) {
-      annotate(p.l);
-      annotate(p.r);
-    } else if (p.k === "guard") annotate(p.p);
-  };
-  for (const d of defs) annotate(d.body);
-  return { defs: table, chans, marks };
+  return { defs: table, chans };
 }

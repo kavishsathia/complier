@@ -2,14 +2,16 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import katex from "katex";
-import { EXAMPLE } from "./csp/example.ts";
+import Link from "next/link";
+import { EXAMPLE, EXAMPLES } from "./csp/example.ts";
 import { parse } from "./csp/parse.ts";
 import { step } from "./csp/step.ts";
-import { alphabet, readEvent, showEvent, submit } from "./csp/system.ts";
-import type { Derivation, Event, Label, Mark, Proc, Spec } from "./csp/syntax.ts";
+import type { Derivation, Proc, Spec } from "./csp/syntax.ts";
 import { texDerivation, texLabel, texProc } from "./csp/tex.ts";
 
-const KEY = "stepper:spec";
+// Specs saved before the stepper became plain CSP used ~ and ^ marks, so they
+// live under the old key and aren't loaded.
+const KEY = "stepper:csp";
 
 function TeX({ tex, display = false, className = "" }: { tex: string; display?: boolean; className?: string }) {
   const html = useMemo(
@@ -19,7 +21,7 @@ function TeX({ tex, display = false, className = "" }: { tex: string; display?: 
   return <span className={`tex ${className}`} dangerouslySetInnerHTML={{ __html: html }} />;
 }
 
-// IO-ExtL(IO-Guard-True(IO-Prefix)): the rules used, outermost first.
+// ExtL(Guard-True(Prefix)): the rules used, outermost first.
 const rules = (d: Derivation): string =>
   d.premises.length ? `${d.rule}(${d.premises.map(rules).join(", ")})` : d.rule;
 
@@ -48,16 +50,6 @@ function Tree({ d }: { d: Derivation }) {
   );
 }
 
-const MARKS: { mark: Mark; title: string; sign: string }[] = [
-  { mark: "world", title: "World", sign: "~" },
-  { mark: "agent", title: "Agent", sign: "^" },
-  { mark: "internal", title: "Internal", sign: "" },
-];
-
-const markOf = (spec: Spec, l: Label): Mark | null => (l.k === "ev" ? (spec.marks.get(l.chan) ?? "internal") : null);
-
-type Sent = { event: Event; tone: "ok" | "warn" | "bad" | "info"; text: string };
-
 const starts = (spec: Spec) => [...spec.defs.values()].filter((d) => d.params.length === 0).map((d) => d.name);
 
 const tryParse = (text: string): { spec: Spec; error: "" } | { spec: null; error: string } => {
@@ -74,9 +66,6 @@ export default function Stepper() {
   const [start, setStart] = useState("MAIN");
   const [history, setHistory] = useState<Derivation[]>([]);
   const [open, setOpen] = useState<number | null>(null);
-  const [typed, setTyped] = useState("");
-  const [sent, setSent] = useState<Sent | null>(null);
-  const [typedError, setTypedError] = useState("");
   const gutter = useRef<HTMLPreElement>(null);
 
   // Parsed as you type, so errors show before loading.
@@ -93,7 +82,6 @@ export default function Stepper() {
       setStart((s) => (names.includes(s) ? s : names.includes("MAIN") ? "MAIN" : (names[0] ?? "")));
       setHistory([]);
       setOpen(null);
-      setSent(null);
     },
     [],
   );
@@ -130,59 +118,9 @@ export default function Stepper() {
   const take = useCallback((d: Derivation) => {
     setHistory((h) => [...h, d]);
     setOpen(null);
-    setSent(null);
   }, []);
-  const back = useCallback(() => (setHistory((h) => h.slice(0, -1)), setOpen(null), setSent(null)), []);
-  const restart = useCallback(() => (setHistory([]), setOpen(null), setSent(null)), []);
-
-  const sigma = useMemo(() => (spec ? alphabet(spec) : []), [spec]);
-
-  // Submits an event from outside and reports what the system did with it.
-  const send = (event: Event) => {
-    if (!spec || !current) return;
-    const name = showEvent(event);
-    const out = submit(spec, current, event);
-    if (out.k === "accepted" && out.ds.length === 1) {
-      take(out.ds[0]);
-      setSent({ event, tone: "ok", text: `${name} happened.` });
-    } else if (out.k === "accepted") {
-      setOpen(null);
-      setSent({ event, tone: "info", text: `${out.ds.length} transitions are labelled ${name} here. Pick one below.` });
-    } else if (out.k === "blocked") {
-      setSent({
-        event,
-        tone: "bad",
-        text: `${name} is internal and not offered here, so nothing happens. Internal events only fire when the process offers them.`,
-      });
-    } else if (out.k === "unstable") {
-      setSent({
-        event,
-        tone: "info",
-        text: `${name} isn't offered yet, and this state can still take a τ step, so it isn't stable. ${
-          out.mark === "world" ? "IO-Drop" : "IO-Refuse"
-        } needs S ↛τ: take the τ steps first, then send it again.`,
-      });
-    } else {
-      setHistory((h) => [...h, out.d]);
-      setOpen(null);
-      setSent({
-        event,
-        tone: "warn",
-        text:
-          out.k === "dropped"
-            ? `${name} was dropped: it comes from the world, and this state doesn't offer it [IO-Drop].`
-            : `${name} was refused: it comes from an agent, and this state doesn't offer it [IO-Refuse].`,
-      });
-    }
-  };
-
-  const sendTyped = () => {
-    if (!spec) return;
-    const ev = readEvent(spec, typed);
-    if (typeof ev === "string") return setTypedError(ev);
-    setTypedError("");
-    send(ev);
-  };
+  const back = useCallback(() => (setHistory((h) => h.slice(0, -1)), setOpen(null)), []);
+  const restart = useCallback(() => (setHistory([]), setOpen(null)), []);
 
   // 1-9 take a transition, Backspace steps back, R restarts.
   useEffect(() => {
@@ -221,11 +159,18 @@ export default function Stepper() {
     <div className="app">
       <header className="topbar">
         <div className="brand">
-          <span className="logo">complier</span>
+          <Link href="/" className="logo">
+            complier
+          </Link>
           <span className="sep">/</span>
           <span>Stepper</span>
         </div>
-        <p className="tagline">Operational semantics of CSP, one derivation at a time.</p>
+        <p className="tagline">CSP&apos;s operational semantics, one derivation at a time.</p>
+        <nav className="topnav" aria-label="Site">
+          <Link href="/playground" prefetch={false}>
+            Playground
+          </Link>
+        </nav>
       </header>
 
       <div className="workspace">
@@ -234,9 +179,23 @@ export default function Stepper() {
             <span className="file">spec.csp</span>
             {dirty && <span className="pill">unloaded changes</span>}
             <div className="grow" />
-            <button className="btn ghost sm" onClick={() => edit(EXAMPLE)} disabled={src === EXAMPLE}>
-              Reset
-            </button>
+            <label className="field">
+              <span className="sr-only">Open an example</span>
+              <select
+                value=""
+                onChange={(e) => {
+                  const ex = EXAMPLES.find((x) => x.name === e.target.value);
+                  if (ex) (edit(ex.src), load(ex.src));
+                }}
+              >
+                <option value="" disabled>
+                  Examples
+                </option>
+                {EXAMPLES.map((x) => (
+                  <option key={x.name}>{x.name}</option>
+                ))}
+              </select>
+            </label>
             <button className="btn primary sm" onClick={() => load(src)} disabled={!draft.spec}>
               Load <kbd>⌘↵</kbd>
             </button>
@@ -268,6 +227,26 @@ export default function Stepper() {
               </>
             )}
           </div>
+          <details className="syntax">
+            <summary>Syntax</summary>
+            <dl>
+              <dt><code>a -&gt; P</code></dt>
+              <dd>do <code>a</code>, then behave as <code>P</code></dd>
+              <dt><code>P [] Q</code> · <code>P |~| Q</code></dt>
+              <dd>external choice (the environment picks) · internal choice (the process picks, by τ)</dd>
+              <dt><code>P [| {'{a}'} |] Q</code> · <code>P ||| Q</code></dt>
+              <dd>run side by side, synchronising on <code>a</code> · interleave: each event is one side&apos;s, and the other keeps its state</dd>
+              <dt><code>b &amp; P</code> · <code>P ; Q</code> · <code>STOP</code> · <code>SKIP</code></dt>
+              <dd>guard · sequence · deadlock · termination</dd>
+              <dt><code>prioritise(P, &lt;{'{a}'}, {'{r}'}&gt;)</code></dt>
+              <dd>FDR&apos;s priority: <code>r</code> only when <code>P</code> can do no <code>a</code> (τ and ✓ rank first)</dd>
+              <dt><code>ControllableCHAOS({'{a, b}'}, {'{r}'})</code></dt>
+              <dd>
+                builtin: any agent. It may try any event of A or none (internal choice with <code>STOP</code>), and always
+                offers R (external choice).
+              </dd>
+            </dl>
+          </details>
         </aside>
 
         <main className="pane main">
@@ -280,8 +259,8 @@ export default function Stepper() {
                     className={`badge ${next.ds.some((d) => d.label.k === "tau") ? "unstable" : "stable"}`}
                     title={
                       next.ds.some((d) => d.label.k === "tau")
-                        ? "S can take a τ step, so events it doesn't offer are neither dropped nor refused yet"
-                        : "S has no τ step: an event it doesn't offer is dropped (~) or refused (^)"
+                        ? "This state can still move on its own by a τ step"
+                        : "No τ step: the state waits for one of its events"
                     }
                   >
                     {next.ds.some((d) => d.label.k === "tau") ? "unstable: τ available" : "stable"}
@@ -323,73 +302,6 @@ export default function Stepper() {
               </div>
             </section>
 
-            {spec && (
-              <section className="card">
-                <div className="card-head">
-                  <h2>Send an event</h2>
-                  <div className="grow" />
-                  <span className="hint">not offered in a stable state: world ~ is dropped, agent ^ is refused</span>
-                </div>
-                <form
-                  className="send"
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    sendTyped();
-                  }}
-                >
-                  <input
-                    value={typed}
-                    onChange={(e) => (setTyped(e.target.value), setTypedError(""))}
-                    placeholder="coin, or c.1 for data"
-                    list="sigma"
-                    spellCheck={false}
-                    autoCapitalize="off"
-                    autoComplete="off"
-                    aria-label="event to send"
-                  />
-                  <datalist id="sigma">
-                    {sigma.map(({ event }) => (
-                      <option key={showEvent(event)} value={showEvent(event)} />
-                    ))}
-                  </datalist>
-                  <button className="btn primary sm" type="submit" disabled={!typed.trim()}>
-                    Send
-                  </button>
-                </form>
-                {typedError && <p className="note bad">{typedError}</p>}
-                <div className="sigma">
-                  {MARKS.map(({ mark, title, sign }) => {
-                    const evs = sigma.filter((e) => e.mark === mark);
-                    if (!evs.length) return null;
-                    return (
-                      <div key={mark} className="sigma-row">
-                        <span className={`mark ${mark}`}>
-                          {title}
-                          {sign && <code>{sign}</code>}
-                        </span>
-                        <div className="sigma-events">
-                          {evs.map(({ event }) => (
-                            <button
-                              key={showEvent(event)}
-                              className={`chip ev ${mark}`}
-                              onClick={() => (setTyped(showEvent(event)), setTypedError(""), send(event))}
-                            >
-                              <TeX tex={texLabel(event)} />
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-                {sent && (
-                  <div className={`outcome ${sent.tone}`} role="status">
-                    <p>{sent.text}</p>
-                  </div>
-                )}
-              </section>
-            )}
-
             <section className="card">
               <div className="card-head">
                 <h2>
@@ -410,23 +322,12 @@ export default function Stepper() {
               )}
               <ol className="transitions">
                 {next.ds.map((d, i) => (
-                  <li
-                    key={i}
-                    className={[
-                      open === i ? "open" : "",
-                      sent?.tone === "info" && d.label.k === "ev" && showEvent(d.label) === showEvent(sent.event)
-                        ? "hit"
-                        : "",
-                    ].join(" ")}
-                  >
+                  <li key={i} className={open === i ? "open" : ""}>
                     <div className="tr">
                       <button className="tr-main" onClick={() => take(d)}>
                         <span className="idx">{i + 1}</span>
                         <span className="tr-label">
                           <TeX tex={texLabel(d.label)} />
-                          {spec && markOf(spec, d.label) && (
-                            <span className={`tag ${markOf(spec, d.label)}`}>{markOf(spec, d.label)}</span>
-                          )}
                         </span>
                         <span className="tr-body">
                           <TeX tex={texProc(d.to)} className="tr-target" />

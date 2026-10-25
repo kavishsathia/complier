@@ -6,7 +6,8 @@
     "dev": "next dev website",
     "build": "next build website",
     "start": "next start website",
-    "typecheck": "next typegen website && tsc --noEmit -p website"
+    "typecheck": "next typegen website && tsc --noEmit -p website",
+    "test": "node --test website/app/stepper/csp/*.test.ts"
   },
   "dependencies": {
     "katex": "^0.16.47",
