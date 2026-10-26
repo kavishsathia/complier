@@ -303,13 +303,6 @@ body:has(.landing) {
   filter: drop-shadow(0 18px 18px rgb(91 63 181 / 0.12));
 }
 
-.hero-mascot figcaption {
-  font-size: 0.8rem;
-  letter-spacing: 0.32em;
-  text-transform: uppercase;
-  color: var(--ink-3);
-}
-
 /* ---- sections ---- */
 
 .section {
@@ -537,9 +530,6 @@ body:has(.landing) {
   font-weight: 600;
 }
 
-.tk-world {
-  color: var(--amber-ink);
-}
 
 .tk-string {
   color: #8a3b12;
@@ -1808,4 +1798,131 @@ body:has(.landing) {
 
 .section-head a {
   color: var(--purple-ink);
+}
+
+/* The agent's harness, around the hook and the call it runs. */
+.dg-harness {
+  fill: var(--sunk);
+  stroke: var(--ink-3);
+  stroke-width: 1.5;
+  stroke-dasharray: 7 5;
+}
+
+/* ---- a refusal changes nothing: four attempts and where the contract ends up ---- */
+
+.journey {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: none;
+}
+
+.j-step {
+  position: relative;
+  display: grid;
+  gap: 10px;
+  justify-items: start;
+  padding: 18px 18px 16px;
+  border: 1.5px solid var(--line-2);
+  border-radius: 16px;
+  background: var(--raised);
+}
+
+.j-step.is-bad {
+  border-color: color-mix(in srgb, var(--red-ink) 35%, transparent);
+  background: var(--red-wash);
+}
+
+.j-n {
+  position: absolute;
+  top: 14px;
+  right: 16px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--ink-3);
+}
+
+.j-tool {
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  color: var(--ink-3);
+  overflow-wrap: anywhere;
+}
+
+.j-event {
+  font-family: var(--mono);
+  font-size: 1.35rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--purple-ink);
+}
+
+.j-verdict {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+}
+
+.j-icon {
+  display: inline-grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  font-size: 0.8rem;
+  background: var(--mint);
+  color: var(--mint-ink);
+}
+
+.is-ok .j-verdict {
+  color: var(--mint-ink);
+}
+
+.is-bad .j-verdict {
+  color: var(--red-ink);
+}
+
+.is-bad .j-icon {
+  background: var(--red-ink);
+  color: #fff;
+}
+
+.j-state {
+  margin-top: 4px;
+  padding: 4px 12px;
+  border-radius: 999px;
+  font-family: var(--mono);
+  font-size: 0.85rem;
+  background: var(--purple-wash);
+  color: var(--ink);
+}
+
+.j-kept {
+  color: var(--red-ink);
+  font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+}
+
+.journey-link {
+  margin-top: 22px;
+  font-weight: 600;
+}
+
+.journey-link a {
+  color: var(--purple-ink);
+}
+
+@media (max-width: 860px) {
+  .journey {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 480px) {
+  .journey {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }

@@ -1,0 +1,115 @@
+/* The playground: the workbench from landing.css, edge to edge. On a desktop the page is exactly the
+   window and the panes scroll inside; on a phone it is one long page with the bar kept in view. */
+
+.playground {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+
+.pg-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 20px;
+  border-bottom: 1px solid var(--line);
+  background: var(--paper);
+}
+
+.pg-head .brand {
+  font-size: 1.05rem;
+}
+
+.pg-title {
+  padding-left: 14px;
+  border-left: 1px solid var(--line-2);
+  font-weight: 600;
+  color: var(--purple-ink);
+}
+
+.pg-nav {
+  display: flex;
+  gap: 18px;
+  margin-left: auto;
+  font-size: 0.92rem;
+}
+
+.pg-nav a {
+  color: var(--ink-2);
+  text-decoration: none;
+}
+
+.pg-nav a:hover {
+  color: var(--purple-ink);
+  text-decoration: underline;
+}
+
+/* landing.css centres .landing main in a 1160px column; the playground takes the whole width. */
+.landing.playground .pg-main {
+  width: 100%;
+  margin: 0;
+}
+
+.pg-main {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.pg-intro {
+  padding: 10px 20px;
+  font-size: 0.9rem;
+  line-height: 1.5;
+  color: var(--ink-2);
+  background: var(--purple-wash);
+  border-bottom: 1px solid var(--line-2);
+}
+
+.playground .bench {
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+@media (min-width: 1001px) {
+  .playground {
+    height: 100vh;
+    height: 100dvh;
+    overflow: hidden;
+  }
+
+  .playground .bench {
+    flex: 1 1 0;
+    height: auto;
+    min-height: 0;
+  }
+
+  .playground .bench-body {
+    grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 1000px) {
+  .pg-head {
+    padding: 8px 14px;
+  }
+
+  .pg-intro {
+    padding: 10px 14px;
+    font-size: 0.86rem;
+  }
+
+  .pg-nav a {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+  }
+}
+
+@media (max-width: 420px) {
+  .pg-title {
+    display: none;
+  }
+}

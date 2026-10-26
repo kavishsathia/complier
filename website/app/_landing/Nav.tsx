@@ -54,9 +54,9 @@ export default function Nav({ repo }: { repo: string }) {
       </button>
       <ul id="nav-menu">
         <li>
-          <a href="#demo" onClick={close}>
-            Demo
-          </a>
+          <Link href="/playground" prefetch={false} onClick={close}>
+            Playground
+          </Link>
         </li>
         <li className="nav-mid">
           <a href="#how" onClick={close}>

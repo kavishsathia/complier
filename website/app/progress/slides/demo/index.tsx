@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useState } from "react";
-import type { Proc } from "../../../stepper/csp/syntax.ts";
+import type { Proc } from "../../csp/syntax.ts";
 import { SPEC } from "./gatekeeper";
 import { check, Controls, Flash, post, SpecPane, Switch, Thinking, useFollow, usePassword, usePlayback } from "./kit";
 import { apply, initial, nextPending, type Call, type Desk, type Step } from "./model";

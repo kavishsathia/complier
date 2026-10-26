@@ -1,8 +1,9 @@
 "use client";
 
-// The live demo. Edits stay in the browser; Run loads the CEL engine (once), admits the
+// The playground. Edits stay in the browser; Run loads the CEL engine (once), admits the
 // translation unit with cel-java's verifier, classifies each call with cel-java's runtime and
-// steps the contract with the site's CSP engine. Nothing calls Notion or a model.
+// steps the contract with the site's CSP engine, deciding each call as complier's pre-tool hook
+// would. Nothing calls Notion or a model.
 
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { notionSchemaHashes } from "../../../packages/notion/tools.ts";
@@ -249,7 +250,7 @@ export default function Workbench() {
               <p className="panel-note" id={`note-${t}`}>
                 {t === "translation"
                   ? "Rules that turn each Notion call into a contract event. complier proves no call matches two rules before it loads them."
-                  : "The order events may happen in. An agent's call goes through only if the contract allows its event now."}
+                  : "The order events may happen in, in plain CSP. A call is allowed only if the contract allows its event now; a refused call leaves the contract where it was."}
               </p>
               <Editor
                 ref={editors[t]}
@@ -401,10 +402,10 @@ function summary(res: RunResult): string {
     case "engine-failed":
       return "The CEL engine couldn't run, so nothing was classified.";
     case "not-admitted":
-      return "complier refuses this translation unit, so no call would reach Notion.";
+      return "complier refuses this translation unit, so the contract wouldn't start.";
     case "done": {
-      const f = res.calls.filter((c) => c.verdict.k === "forwarded").length;
-      return `Unit admitted. ${f} of ${res.calls.length} calls forwarded, ${res.calls.length - f} refused.`;
+      const f = res.calls.filter((c) => c.verdict.k === "allowed").length;
+      return `Unit admitted. ${f} of ${res.calls.length} calls allowed, ${res.calls.length - f} refused.`;
     }
   }
 }
@@ -448,10 +449,10 @@ function Outcome({ res, stale }: { res: RunResult; stale: boolean }) {
       <div className={`${cls} is-bad`}>
         <strong>complier would refuse this translation unit</strong>
         {res.admission.ok === false && res.admission.compile ? (
-          <> because a rule doesn&apos;t compile. The proxy offers no tools until it&apos;s fixed.</>
+          <> because a rule doesn&apos;t compile. The contract won&apos;t start until it&apos;s fixed.</>
         ) : (
           <>
-            . The proxy offers no tools until it&apos;s fixed.
+            . The contract won&apos;t start until it&apos;s fixed.
             <ul className="checks">
               {failed.map((c) => (
                 <li key={c.label}>
@@ -514,9 +515,9 @@ function Proving({ labels, verdicts, background }: { labels: string[]; verdicts:
 
 function CallOutcome({ r }: { r: CallResult }) {
   const t = r.translated;
-  const forwarded = r.verdict.k === "forwarded";
+  const allowed = r.verdict.k === "allowed";
   let event: React.ReactNode;
-  if (t.k === "hidden") event = <span className="ev-note">read-only, hidden: not checked</span>;
+  if (t.k === "hidden") event = <span className="ev-note">listed as hidden: passes unchecked</span>;
   else if (t.k === "not-offered") event = <span className="ev-note">not in the unit</span>;
   else if (t.k === "args-error") event = <span className="ev-note">bad JSON: {t.message}</span>;
   else if (t.event)
@@ -543,7 +544,7 @@ function CallOutcome({ r }: { r: CallResult }) {
     );
   }
   return (
-    <div className={`call-out ${forwarded ? "is-ok" : "is-bad"}`}>
+    <div className={`call-out ${allowed ? "is-ok" : "is-bad"}`}>
       <div className="call-event">
         <span className="arrow" aria-hidden="true">
           →
@@ -552,10 +553,10 @@ function CallOutcome({ r }: { r: CallResult }) {
       </div>
       <div className="call-verdict">
         <span className="verdict-icon" aria-hidden="true">
-          {forwarded ? "✓" : "✕"}
+          {allowed ? "✓" : "✕"}
         </span>
         <span>
-          <strong>{forwarded ? "Forwarded to Notion" : "Refused"}</strong>
+          <strong>{allowed ? "Allowed" : "Refused"}</strong>
           {r.verdict.k === "refused" ? `: ${r.verdict.why}.` : r.verdict.to?.length ? `. Contract moves to ${r.verdict.to.join(" or ")}.` : "."}
         </span>
       </div>

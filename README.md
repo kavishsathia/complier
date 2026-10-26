@@ -40,7 +40,7 @@ Live demo and walkthrough: [complier.dev](https://www.complier.dev)
 
 | path | what it is | entry point |
 | --- | --- | --- |
-| [`website/`](website) | The Next.js site: landing page with the in-browser CEL + CSP demo, the CSP stepper, the research deck | `npm run dev` (from the root) |
+| [`website/`](website) | The Next.js site: landing page, the in-browser CEL + CSP playground, the CSP stepper, the research deck | `npm run dev` (from the root) |
 | [`cli/`](cli) | The Rust `complier` CLI: MCP proxy, daemon, Claude Code hooks, unit checker | `cargo build --manifest-path cli/Cargo.toml` |
 | [`cel/`](cel) | CEL backend the CLI runs: cel-java 0.14.0 + verifier behind a small stdio bridge | `cel/build.sh` |
 | [`plugin/`](plugin) | Claude Code plugin that routes an agent's tools through `complier proxy` | `claude --plugin-dir plugin` |
@@ -59,10 +59,22 @@ npm ci
 npm run dev          # http://localhost:3000
 npm run build        # production build (what Vercel runs)
 npm run typecheck
+npm test             # the stepper's CSP tests; set FDR_HOME to also compare its traces with FDR's
 ```
 
-The landing demo runs entirely in the browser. The `/progress` deck's live agent demos also need
+The `/playground` runs entirely in the browser. The `/progress` deck's live agent demos also need
 `DEMO_PASSWORD` and `OPENAI_API_KEY` in the environment.
+
+The `/stepper` runs plain CSP and shows the rule behind every transition. Besides prefix, `[]`,
+`|~|`, `;`, guards and `[| {..} |]`, it has:
+
+- `P ||| Q`: interleaving. Each event is one side's, and the other side keeps its state.
+- `prioritise(P, <{a, b}, {r}>)`: FDR's priority operator. `r` happens only when `P` can do no
+  `a` or `b`; τ and ✓ rank with the first class, and events in no class are never held back.
+- `ControllableCHAOS({a, b}, {r})`: a builtin model of any agent, as in [`fdr/`](fdr):
+  `(STOP |~| (|~| x:A @ x -> ControllableCHAOS(A, R))) [] ([] r:R @ r -> ControllableCHAOS(A, R))`.
+  It may try any event of A or none, and always offers R. Its default example is the refusal
+  guard: `prioritise(ControllableCHAOS(A, R) [| union(A, R) |] (Policy ||| RefusalLoop), <A, R>)`.
 
 ### CEL backend
 

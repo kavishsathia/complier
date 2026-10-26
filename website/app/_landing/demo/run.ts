@@ -1,6 +1,7 @@
 // One run of the demo: load the translation unit and the contract, admit the unit with the CEL
-// verifier, then send each call through the path complier's proxy takes: classify it with CEL's
-// runtime, and forward it only if the contract's current state offers its event.
+// verifier, then decide each call the way complier's pre-tool hook does: classify it with CEL's
+// runtime, and allow it only if the contract's current state offers its event. An allowed call is
+// then run by the agent's harness with its own connection; nothing here calls Notion.
 
 import { checkSatisfiable, checkValid, compileOnly, evaluate, loadEngine, type LoadPhase } from "../cel/engine.ts";
 import { enabled, initial, loadContract, perform, type ContractError, type State } from "./contract.ts";
@@ -40,7 +41,7 @@ export type CallResult = {
     | { k: "classified"; c: Classification; event?: string; rule?: string };
   // What the contract did with it.
   verdict:
-    | { k: "forwarded"; to?: string[] }
+    | { k: "allowed"; to?: string[] }
     | { k: "refused"; why: string };
   next: string[];
 };
@@ -160,12 +161,10 @@ async function translate(unit: Unit, tool: string, args: Record<string, unknown>
   return classify(out.value, unit.rules.map((r) => r.name));
 }
 
-function refusal(reason: "not-in-contract" | "not-agent" | "not-now" | "diverges", event: string, detail?: string) {
+function refusal(reason: "not-in-contract" | "not-now" | "diverges", event: string, detail?: string) {
   switch (reason) {
     case "not-in-contract":
       return `the contract has no ${event} event`;
-    case "not-agent":
-      return `${event} isn't marked !${event}, so no agent can perform it`;
     case "not-now":
       return `the contract doesn't allow ${event} now`;
     case "diverges":
@@ -229,11 +228,11 @@ async function steps(input: { translation: string; contract: string; calls: Call
       continue;
     }
     if (unit.hidden.includes(tool)) {
-      calls.push({ ...base, translated: { k: "hidden" }, verdict: { k: "forwarded" }, next: enabled(contract, state) });
+      calls.push({ ...base, translated: { k: "hidden" }, verdict: { k: "allowed" }, next: enabled(contract, state) });
       continue;
     }
     if (!unit.tools.includes(tool)) {
-      calls.push({ ...base, translated: { k: "not-offered" }, verdict: { k: "refused", why: "the unit neither translates nor hides it, so the agent never sees it" }, next: enabled(contract, state) });
+      calls.push({ ...base, translated: { k: "not-offered" }, verdict: { k: "refused", why: "the unit neither translates it nor lists it as hidden, so complier refuses it" }, next: enabled(contract, state) });
       continue;
     }
     const ck = JSON.stringify([unitKey, tool, args]);
@@ -267,7 +266,7 @@ async function steps(input: { translation: string; contract: string; calls: Call
     const s = perform(contract, state, event);
     if (s.ok === true) {
       state = s.state;
-      calls.push({ ...base, translated, verdict: { k: "forwarded", to: s.to }, next: enabled(contract, state) });
+      calls.push({ ...base, translated, verdict: { k: "allowed", to: s.to }, next: enabled(contract, state) });
     } else {
       calls.push({ ...base, translated, verdict: { k: "refused", why: refusal(s.reason, event, s.detail) }, next: enabled(contract, state) });
     }

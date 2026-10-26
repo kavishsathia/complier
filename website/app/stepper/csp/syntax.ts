@@ -21,40 +21,37 @@ export type Proc =
   | { k: "stop" }
   | { k: "skip" }
   | { k: "omega" }
-  | { k: "pre"; mark?: Mark; chan: string; fields: Field[]; next: Proc }
+  | { k: "pre"; chan: string; fields: Field[]; next: Proc }
   | { k: "ext"; l: Proc; r: Proc }
   | { k: "int"; l: Proc; r: Proc }
   | { k: "guard"; b: Expr; p: Proc }
   | { k: "seq"; l: Proc; r: Proc }
   | { k: "par"; sync: string[]; l: Proc; r: Proc }
+  // P ||| Q: each side moves on its own, and the other side keeps its state.
+  | { k: "inter"; l: Proc; r: Proc }
+  // prioritise(P, <X1, .., Xn>), FDR's priority operator. Each class is a set
+  // of channels; τ and ✓ rank with X1.
+  | { k: "prio"; p: Proc; classes: string[][] }
   | { k: "call"; name: string; args: Expr[] }
-  // A running role component: the process an agent joined, so events can be
-  // attributed to the role that performs them.
-  | { k: "role"; name: string; p: Proc };
+  // ControllableCHAOS(A, R), the builtin model of any agent. A and R are sets
+  // of channels.
+  | { k: "chaos"; a: string[]; r: string[] };
 
 export type Type = { k: "range"; lo: number; hi: number } | { k: "bool" };
 
-// A definition marked [[r]] is the component an agent joins in role r.
-export type Def = { name: string; params: { name: string; type: Type }[]; body: Proc; line: number; role?: string };
+export type Def = { name: string; params: { name: string; type: Type }[]; body: Proc; line: number };
 
-// Who submits a channel's events: the world (~c, uncontrollable), an agent
-// (^c, controllable), or nobody (internal: they happen on their own).
-export type Mark = "world" | "agent" | "internal";
-
-export type Spec = { defs: Map<string, Def>; chans: Map<string, Type[]>; marks: Map<string, Mark> };
+export type Spec = { defs: Map<string, Def>; chans: Map<string, Type[]> };
 
 export type Event = { k: "ev"; chan: string; values: Value[] };
 
-// τ, ✓ and events are process labels; ↓a (dropped) and ×a (refused) are the
-// system's.
-export type Label = { k: "tau" } | { k: "tick" } | Event | { k: "drop"; ev: Event } | { k: "refuse"; ev: Event };
+// τ, ✓ and events.
+export type Label = { k: "tau" } | { k: "tick" } | Event;
 
 // One application of a rule: the conclusion from --label--> to, the
 // transitions it rests on, and the side conditions it checked.
 export type Derivation = {
   rule: string;
-  // Set when the transition is performed by a role's component.
-  role?: string;
   from: Proc;
   label: Label;
   to: Proc;

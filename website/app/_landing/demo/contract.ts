@@ -1,7 +1,8 @@
 // The contract: a CSP spec run by the site's CSP engine (app/stepper/csp, the /stepper page's
-// parser and operational rules). This file only drives it the way complier's daemon monitors a
-// contract in the traces model: it keeps every state the spec could be in, lets internal events
-// and τ happen on their own, and accepts an agent's event if some state offers it.
+// parser and operational rules). This file only drives it the way complier's hook checks a
+// contract in the traces model: every event is an action the agent attempts, τ happens on its own,
+// the monitor keeps every state the spec could be in, and an attempt is allowed if some state
+// offers its event. A refused attempt leaves the states as they were.
 
 import { parse, SpecError } from "../../stepper/csp/parse.ts";
 import { step } from "../../stepper/csp/step.ts";
@@ -23,22 +24,14 @@ export function loadContract(src: string): { ok: true; contract: Contract } | { 
   } catch (e) {
     if (!(e instanceof SpecError)) throw e;
     const m = /^line (\d+): ([\s\S]*)$/.exec(e.message);
-    return { ok: false, error: m ? { line: Number(m[1]), message: m[2] } : { line: 1, message: e.message } };
-  }
-  const lineOf = (re: RegExp) => Math.max(1, src.split("\n").findIndex((l) => re.test(l.replace(/--.*$/, ""))) + 1);
-  for (const [chan, mark] of spec.marks) {
-    if (mark === "world") {
-      return {
-        ok: false,
-        error: {
-          line: lineOf(new RegExp(`[?~]\\s*${chan}\\b`)),
-          message: `?${chan} is an input from the world, which complier doesn't observe: only agents' calls (!events) reach a contract`,
-        },
-      };
-    }
+    const line = m ? Number(m[1]) : 1;
+    // The CLI's contracts mark events !e; here the contract is plain CSP.
+    const marked = /(^|[\s(>=\[\]])[!?^~]\s*[a-z_]/.test((src.split("\n")[line - 1] ?? "").replace(/--.*$/, ""));
+    const message = (m ? m[2] : e.message) + (marked ? ". Events are plain CSP here: write draft, not !draft" : "");
+    return { ok: false, error: { line, message } };
   }
   const defs = [...spec.defs.values()];
-  if (!defs.length) return { ok: false, error: { line: 1, message: "define a process, such as WRITER = !draft -> WRITER" } };
+  if (!defs.length) return { ok: false, error: { line: 1, message: "define a process, such as WRITER = draft -> WRITER" } };
   const start = spec.defs.get("MAIN") ?? defs[0];
   if (start.params.length) {
     return { ok: false, error: { line: start.line, message: `${start.name} takes arguments, so it can't be where the contract starts` } };
@@ -46,7 +39,7 @@ export function loadContract(src: string): { ok: true; contract: Contract } | { 
   return { ok: true, contract: { spec, start: start.name } };
 }
 
-// Everything reachable by τ and internal (unmarked) events, which happen without an agent.
+// Everything reachable by τ, which happens without the agent.
 function closure(spec: Spec, from: Proc[]): State | string {
   const seen = new Map<string, Proc>();
   const todo = [...from];
@@ -57,7 +50,7 @@ function closure(spec: Spec, from: Proc[]): State | string {
     seen.set(k, p);
     if (seen.size > LIMIT) return `the contract reaches more than ${LIMIT} states without an agent acting`;
     for (const d of step(spec, p)) {
-      if (d.label.k === "tau" || (d.label.k === "ev" && spec.marks.get(d.label.chan) === "internal")) todo.push(d.to);
+      if (d.label.k === "tau") todo.push(d.to);
     }
   }
   return [...seen.values()];
@@ -71,14 +64,12 @@ const isEvent = (l: { k: string }, chan: string): l is Event => l.k === "ev" && 
 
 export type Step =
   | { ok: true; state: State; to: string[] }
-  | { ok: false; reason: "not-in-contract" | "not-agent" | "not-now" | "diverges"; detail?: string };
+  | { ok: false; reason: "not-in-contract" | "not-now" | "diverges"; detail?: string };
 
 // The agent performs `chan`: accepted if some state offers it, and refused otherwise, leaving the
 // contract where it was.
 export function perform(c: Contract, state: State, chan: string): Step {
-  const mark = c.spec.marks.get(chan);
-  if (!mark) return { ok: false, reason: "not-in-contract" };
-  if (mark !== "agent") return { ok: false, reason: "not-agent" };
+  if (!c.spec.chans.has(chan)) return { ok: false, reason: "not-in-contract" };
   const next: Proc[] = [];
   for (const p of state) for (const d of step(c.spec, p)) if (isEvent(d.label, chan)) next.push(d.to);
   if (!next.length) return { ok: false, reason: "not-now" };
@@ -87,11 +78,11 @@ export function perform(c: Contract, state: State, chan: string): Step {
   return { ok: true, state: closed, to: [...new Set(next.map(show))] };
 }
 
-// The agent events some state offers next.
+// The events some state offers next.
 export function enabled(c: Contract, state: State): string[] {
   const out = new Set<string>();
   for (const p of state) {
-    for (const d of step(c.spec, p)) if (d.label.k === "ev" && c.spec.marks.get(d.label.chan) === "agent") out.add(d.label.chan);
+    for (const d of step(c.spec, p)) if (d.label.k === "ev") out.add(d.label.chan);
   }
   return [...out];
 }
@@ -108,10 +99,12 @@ export function show(p: Proc): string {
         return "done";
       case "call":
         return p.args.length ? `${p.name}(…)` : p.name;
-      case "role":
-        return s(p.p);
+      case "chaos":
+        return "ControllableCHAOS(…)";
+      case "prio":
+        return `prioritise(${s(p.p)}, …)`;
       case "pre":
-        return `${p.mark === "agent" ? "!" : ""}${p.chan}${p.fields.length ? "…" : ""} -> ${s(p.next)}`;
+        return `${p.chan}${p.fields.length ? "…" : ""} -> ${s(p.next)}`;
       case "ext":
         return `${s(p.l)} [] ${s(p.r)}`;
       case "int":
@@ -122,6 +115,8 @@ export function show(p: Proc): string {
         return `… & ${s(p.p)}`;
       case "par":
         return `${s(p.l)} ‖ ${s(p.r)}`;
+      case "inter":
+        return `${s(p.l)} ||| ${s(p.r)}`;
     }
   };
   const out = s(p);

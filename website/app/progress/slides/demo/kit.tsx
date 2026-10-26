@@ -2,7 +2,7 @@
 // editor, the Complier switch, the controls and the play/pause flash.
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { parse } from "../../../stepper/csp/parse.ts";
+import { parse } from "../../csp/parse.ts";
 
 const PACE = 1100;
 

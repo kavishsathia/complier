@@ -1,11 +1,11 @@
 // LaTeX for terms, labels and derivations, in the notation of the rules.
 
-import type { Derivation, Expr, Field, Label, Mark, Proc, Type, Value } from "./syntax.ts";
+import type { Derivation, Expr, Field, Label, Proc, Type, Value } from "./syntax.ts";
 
 const id = (s: string) => `\\mathit{${s.replace(/_/g, "\\_")}}`;
 
 // How tightly each operator binds; a looser term in a tighter spot gets parentheses.
-const LEVEL: Partial<Record<Proc["k"], number>> = { par: 1, int: 2, ext: 3, seq: 4, guard: 5, pre: 6 };
+const LEVEL: Partial<Record<Proc["k"], number>> = { par: 1, inter: 1, int: 2, ext: 3, seq: 4, guard: 5, pre: 6 };
 
 export function texProc(p: Proc, ctx = 0): string {
   const s = texProc_(p);
@@ -20,12 +20,14 @@ function texProc_(p: Proc): string {
       return "\\mathit{SKIP}";
     case "omega":
       return "\\Omega";
-    case "role":
-      return texProc(p.p);
+    case "chaos":
+      return `\\mathit{ControllableCHAOS}(${texSet(p.a)}, ${texSet(p.r)})`;
+    case "prio":
+      return `\\mathit{prioritise}(${texProc(p.p)}, \\langle ${p.classes.map(texSet).join(", ")} \\rangle)`;
     case "call":
       return p.args.length ? `${id(p.name)}(${p.args.map((e) => texExpr(e)).join(", ")})` : id(p.name);
     case "pre":
-      return `${texMark(p.mark)}${texMsg(p.chan, p.fields)} \\to ${texProc(p.next, 5)}`;
+      return `${texMsg(p.chan, p.fields)} \\to ${texProc(p.next, 5)}`;
     case "guard":
       return `${texExpr(p.b)} \\mathbin{\\&} ${texProc(p.p, 5)}`;
     case "seq":
@@ -36,12 +38,10 @@ function texProc_(p: Proc): string {
       return `${texProc(p.l, 2)} \\sqcap ${texProc(p.r, 3)}`;
     case "par":
       return `${texProc(p.l, 1)} \\parallel_{${texSet(p.sync)}} ${texProc(p.r, 2)}`;
+    case "inter":
+      return `${texProc(p.l, 1)} \\mathbin{|||} ${texProc(p.r, 2)}`;
   }
 }
-
-// κ: ~ for a world channel, ^ for an agent channel, nothing for internal.
-export const texMark = (m: Mark | undefined) =>
-  m === "world" ? "\\text{\\textasciitilde}" : m === "agent" ? "\\text{\\textasciicircum}" : "";
 
 export const texSet = (cs: string[]) => (cs.length ? `\\{${cs.map(id).join(", ")}\\}` : "\\emptyset");
 
@@ -84,8 +84,6 @@ export const texType = (t: Type) => (t.k === "bool" ? "\\mathbb{B}" : `\\{${t.lo
 export function texLabel(l: Label): string {
   if (l.k === "tau") return "\\tau";
   if (l.k === "tick") return "\\checkmark";
-  if (l.k === "drop") return `{\\downarrow}${texLabel(l.ev)}`;
-  if (l.k === "refuse") return `{\\times}${texLabel(l.ev)}`;
   return [id(l.chan), ...l.values.map(texValue)].join(".");
 }
 
