@@ -96,7 +96,8 @@ a unit's file afterwards changes nothing until the machine is restarted.
 Hidden tools go upstream unchecked; tools neither translated nor hidden are denied by the hook.
 
 Agents' translated calls are the only events from outside a machine. Complier doesn't poll or
-otherwise observe the world, so a spec that marks an input (`?e`) is refused at `machine up`.
+otherwise observe the world. A unit's events are the actions of the spec's `Act`; a unit that emits
+an action `Act` doesn't list gets a warning at `machine up`, and calls translated to it are refused.
 
 ## Setup
 

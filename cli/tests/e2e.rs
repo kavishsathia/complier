@@ -1,8 +1,9 @@
-// End to end, on the real binary, daemon, hooks and CEL backend, in a throwaway HOME: no
+// End to end, on the real binary, daemon, hooks, FDR and CEL backend, in a throwaway HOME: no
 // credentials, and nothing outside the temp directory is touched. Each agent tool call is sent
 // through `complier hook pre-tool-use` exactly as Claude Code sends it (the hook's JSON on stdin,
 // its decision on stdout). complier never contacts a service itself, so no server runs here. Needs
-// the CEL backend (cel/build.sh). Every complier process runs with a PATH that holds nothing, so
+// the CEL backend (cel/build.sh) and complier-fdr built against a licensed FDR
+// (fdr/build-complier-fdr.sh). Every complier process runs with a PATH that holds nothing, so
 // nothing in loading, proving or classifying a unit can be running another program.
 
 use serde_json::{json, Value};
@@ -126,7 +127,10 @@ fn yaml_units_are_proven_and_every_mcp_call_is_checked_by_the_hook() {
     // Two units over the same server: the translated writes, and a second that hides a read.
     let (ok, out) = env.machine_up("m", "writer.csp", &["fake.yaml", "reader.yaml"]);
     assert!(ok, "{out}");
-    let admissions: Vec<Value> = env.log("m").into_iter().filter(|e| e["kind"] == "admission").collect();
+    let log = env.log("m");
+    let policy = log.iter().find(|e| e["kind"] == "policy").unwrap();
+    assert!(policy["report"].as_str().unwrap().contains("admitted: FDR proved the policy"), "{policy}");
+    let admissions: Vec<Value> = log.into_iter().filter(|e| e["kind"] == "admission").collect();
     assert_eq!(admissions.len(), 2, "{admissions:#?}");
     let report = admissions[0]["report"].as_str().unwrap();
     assert!(report.contains("admitted: every pair") && report.contains("Z3 4.14.1"), "{report}");
@@ -139,17 +143,17 @@ fn yaml_units_are_proven_and_every_mcp_call_is_checked_by_the_hook() {
     let (ok, text) = env.attempt("m", "mcp__fake__write-item", json!({ "id": "x1" }));
     assert!(ok, "{text}");
 
-    // appended again isn't allowed now: refused by the spec.
+    // appended again isn't taken now: refused, and the policy stays where it was.
     let (ok, text) = env.attempt("m", "mcp__fake__write-item", json!({ "id": "x2" }));
-    assert!(!ok && text.contains("refused") && text.contains("appended"), "{text}");
+    assert!(!ok && text.contains("refused") && text.contains("doesn't take appended"), "{text}");
 
     // A plugin's copy of the same server is the same service.
     let (ok, text) = env.attempt("m", "mcp__plugin_acme_fake__write-item", json!({ "id": "x2", "mode": "replace" }));
     assert!(ok, "{text}");
 
-    // In the domain, matched by no rule: the fallback event, which this spec doesn't allow.
+    // In the domain, matched by no rule: the fallback action, which this policy takes and denies.
     let (ok, text) = env.attempt("m", "mcp__fake__wipe", json!({}));
-    assert!(!ok && text.contains("(other)") && text.contains("isn't something role writer does"), "{text}");
+    assert!(!ok && text.contains("(other)") && text.contains("denied"), "{text}");
     let (ok, text) = env.attempt("m", "mcp__fake__write-item", json!({ "id": "x3", "mode": "upsert" }));
     assert!(!ok && text.contains("(other)"), "{text}");
 
@@ -175,17 +179,18 @@ fn yaml_units_are_proven_and_every_mcp_call_is_checked_by_the_hook() {
     let (ok, _) = env.attempt("m", "Bash", json!({ "command": "complier machine down m" }));
     assert!(!ok);
 
-    // The accepted actions are logged with their values; nothing else moved the machine.
+    // Every verdict is logged with the action's value; nothing else moved the machine.
     let log = env.log("m");
     let acts: Vec<(String, String)> = log
         .iter()
         .filter(|e| e["kind"] == "act")
         .map(|e| (e["event"].as_str().unwrap().to_string(), e["outcome"].as_str().unwrap().to_string()))
         .collect();
-    assert!(acts.contains(&("appended.x1".into(), "accepted".into())), "{acts:?}");
-    assert!(acts.contains(&("replaced.x2".into(), "accepted".into())), "{acts:?}");
-    assert!(acts.contains(&("other.wipe".into(), "refused".into())), "{acts:?}");
-    assert!(log.iter().all(|e| ["status", "admission", "act"].contains(&e["kind"].as_str().unwrap())), "{log:#?}");
+    assert!(acts.contains(&("appended.x1".into(), "allowed".into())), "{acts:?}");
+    assert!(acts.contains(&("appended.x2".into(), "refused".into())), "{acts:?}");
+    assert!(acts.contains(&("replaced.x2".into(), "allowed".into())), "{acts:?}");
+    assert!(acts.contains(&("other.wipe".into(), "denied".into())), "{acts:?}");
+    assert!(log.iter().all(|e| ["status", "policy", "admission", "act"].contains(&e["kind"].as_str().unwrap())), "{log:#?}");
 }
 
 #[test]
@@ -194,15 +199,16 @@ fn the_fallback_is_allowed_only_when_the_spec_allows_it() {
     let (ok, out) = env.machine_up("w", "wiper.csp", &["fake.yaml"]);
     assert!(ok, "{out}");
     let (ok, text) = env.attempt("w", "mcp__fake__write-item", json!({ "id": "x1" }));
-    assert!(!ok && text.contains("appended isn't something role writer does"), "{text}");
+    assert!(!ok && text.contains("doesn't take appended"), "{text}");
     let (ok, text) = env.attempt("w", "mcp__fake__wipe", json!({}));
     assert!(ok, "{text}");
-    let (ok, _) = env.attempt("w", "mcp__fake__wipe", json!({}));
-    assert!(!ok); // once
+    // Once: then the policy is STOP, so the machine has ended and nothing more runs.
+    let (ok, text) = env.attempt("w", "mcp__fake__wipe", json!({}));
+    assert!(!ok && text.contains("deadlocked"), "{text}");
 }
 
 #[test]
-fn bad_or_unproven_units_and_input_specs_let_nothing_through() {
+fn unproven_policies_bad_units_and_missing_machines_let_nothing_through() {
     let env = Env::new("refuse");
     let overlap = fixture("overlap.yaml");
     let (ok, out) = env.complier(&["check", overlap.to_str().unwrap()]);
@@ -227,11 +233,18 @@ fn bad_or_unproven_units_and_input_specs_let_nothing_through() {
     let (ok, out) = env.machine_up("bad", "writer.csp", &[unknown.to_str().unwrap()]);
     assert!(!ok && out.contains("unknown.yaml:3:23: translate.tools: delete-everything isn't a tool of fake"), "{out}");
 
-    // A spec waiting on the world would wait forever: nothing submits inputs.
-    let world = dir.join("world.csp");
-    std::fs::write(&world, "FEED = ?item_added -> FEED\nWRITER = !appended -> WRITER\nMAIN = FEED || WRITER\n").unwrap();
-    let (ok, out) = env.machine_up("bad", world.to_str().unwrap(), &["fake.yaml"]);
-    assert!(!ok && out.contains("?item_added") && out.contains("doesn't observe the world"), "{out}");
+    // FDR refuses a policy that leaves an attempt unanswered, with its counterexample...
+    let (ok, out) = env.machine_up("bad", "unanswered.csp", &["fake.yaml"]);
+    assert!(!ok && out.contains("isn't admitted") && out.contains("✗ every attempt the policy takes is answered"), "{out}");
+    assert!(out.contains("attempt.writer.replaced"), "{out}");
+    // ...one that breaks the spec's own assertion...
+    let (ok, out) = env.machine_up("bad", "unsafe.csp", &["fake.yaml"]);
+    assert!(!ok && out.contains("✗ the spec's own assertion") && out.contains("allow.writer.replaced"), "{out}");
+    // ...and one that doesn't load.
+    let broken = dir.join("broken.csp");
+    std::fs::write(&broken, "datatype Role = writer\nPolicy = Permit(writer, nothing, Policy\n").unwrap();
+    let (ok, out) = env.machine_up("bad", broken.to_str().unwrap(), &["fake.yaml"]);
+    assert!(!ok && out.contains("isn't admitted") && out.contains("error: load"), "{out}");
     let (_, ls) = env.complier(&["machine", "ls"]);
     assert!(!ls.contains("bad"), "{ls}");
 
@@ -251,6 +264,13 @@ fn bad_or_unproven_units_and_input_specs_let_nothing_through() {
     env.stop_daemon();
     let (ok, text) = env.attempt("edited", "mcp__fake__peek", json!({}));
     assert!(!ok && text.contains("daemon isn't running"), "{text}");
+}
+
+#[test]
+fn without_fdr_no_machine_starts() {
+    let env = Env::with("nofdr", &[("COMPLIER_FDR", "/nonexistent/backend.json")]);
+    let (ok, out) = env.machine_up("m", "writer.csp", &["fake.yaml"]);
+    assert!(!ok && out.contains("no FDR backend") && out.contains("cocotec.io"), "{out}");
 }
 
 #[test]

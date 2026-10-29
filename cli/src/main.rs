@@ -1,7 +1,7 @@
 mod cel;
 mod codegen;
 mod config;
-mod csp;
+mod fdr;
 mod daemon;
 mod hooks;
 mod mcp;
@@ -260,8 +260,12 @@ fn machine(command: MachineCommand) -> Result<()> {
             println!("machine {name} down");
         }
         MachineCommand::Act { name, role, event } => {
-            let state = daemon::request(&daemon::Request::Act { machine: name, role, event, value: serde_json::Value::Null }, false)?;
-            println!("{}", state.as_str().unwrap_or("?"));
+            let out = daemon::request(&daemon::Request::Act { machine: name, role, event: event.clone(), value: serde_json::Value::Null }, false)?;
+            let state = out["state"].as_str().unwrap_or("?");
+            match out["verdict"].as_str() {
+                Some("allowed") => println!("{event} allowed; the policy is now at {state}"),
+                _ => bail!("{event} {}: {}", out["verdict"].as_str().unwrap_or("?"), out["reason"].as_str().unwrap_or("")),
+            }
         }
         MachineCommand::Ls => {
             for m in daemon::request(&daemon::Request::MachineLs, false)?.as_array().into_iter().flatten() {
@@ -340,9 +344,10 @@ fn log(name: &str, follow: bool) -> Result<()> {
         };
         match kind.as_str() {
             "admission" => println!("{time}  admitted {}", text("unit")),
+            "policy" => println!("{time}  policy   {} ({} states, compiled by FDR)", text("spec"), entry["states"]),
+            "warning" => println!("{time}  warning  {}", text("warning")),
             "status" => println!("{time}  status   {:<48} {}", text("status"), text("reason")),
-            "internal" => println!("{time}  internal {event:<48} → {}", text("state")),
-            _ if text("outcome") == "accepted" => println!("{time}  {kind:<7}  {event:<48} → {}", text("state")),
+            _ if text("outcome") == "allowed" => println!("{time}  {kind:<7}  {event:<48} allowed → {}", text("state")),
             _ => println!("{time}  {kind:<7}  {event:<48} {} {}", text("outcome"), text("reason")),
         }
     }

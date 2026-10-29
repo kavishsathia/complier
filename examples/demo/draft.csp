@@ -1,5 +1,9 @@
--- Demo machine: the writer drafts, then recreates, in turn. A second draft before a recreate (or
--- a recreate first) is refused, and so is any other Notion write, which examples/demo/draft.yaml
--- translates to `other` (not in this spec). Complier doesn't observe Notion, so nothing here waits
--- on the world.
-WRITER = !draft -> !recreate -> WRITER
+-- Demo machine: the writer drafts, then recreates, in turn. Out of turn (a second draft before a
+-- recreate, or a recreate first) is refused, and any other Notion write, which
+-- examples/demo/draft.yaml translates to `other`, is denied. complier doesn't observe Notion, so
+-- nothing here waits on the world. FDR proves and compiles this at `complier machine up`.
+datatype Role = writer
+datatype Act = draft | recreate | other
+Policy = Draft
+Draft = Permit(writer, draft, Recreate) [] Deny(writer, other, Draft)
+Recreate = Permit(writer, recreate, Draft) [] Deny(writer, other, Recreate)

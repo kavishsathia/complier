@@ -1,23 +1,26 @@
-// The complier daemon: owns running machines, each a spec instance (a || composition of
-// components) whose state advances on two kinds of event:
-// - outputs (`!e`), actions an agent submits through its role's component: its harness's
-//   pre-tool-use hook sends each MCP tool call here (`call`), the daemon translates it into an
-//   event with the machine's units, and the call may run only if the event is enabled;
-// - internal events (everything else), performed by the daemon as soon as they're enabled.
-// Nothing else moves a machine: complier doesn't observe the world, so a spec that marks an input
-// (`?e`) is refused, since nothing would ever submit it.
-// An agent's Stop hook only reports: it waits while the agent's process has nothing for it to
-// submit, then tells it what its process went through.
+// The complier daemon: owns running machines. A machine is a spec's policy W as FDR compiled it
+// (fdr.rs: FDR proves the policy, then normal(Policy) comes back as an explicit automaton), plus the
+// spec's translation units. complier never interprets CSP: it only follows the automaton's edges.
+//
+// An agent's harness sends each MCP tool call here before running it (`call`). The daemon
+// translates it with the units into an action x and has the agent in role r attempt it, as
+// ControllableCHAOS does against Monitor(W) under prioritise:
+// - if W's current state offers attempt.r.x, W takes it and answers with its own allow.r.x or
+//   deny.r.x edge (FDR proved there is exactly one); the machine moves along both;
+// - otherwise the attempt is refused, and W stays where it was (refuse interleaves with W).
+// Only an allowed call may run. Nothing else moves a machine: complier doesn't observe the world.
+// An agent's Stop hook waits while its role has nothing it would be allowed to do, then tells it
+// what other roles did meanwhile.
 // Clients talk to it over a Unix socket, one JSON request and one JSON response per line.
 
 use crate::cel::Backend;
-use crate::csp::{self, Contract, Term};
+use crate::fdr::{self, Automaton};
 use crate::translate::{self, Translator};
 use crate::unit::{self, Unit};
 use anyhow::{anyhow, bail, Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{File, OpenOptions};
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
@@ -55,7 +58,8 @@ pub enum Request {
         #[serde(default)]
         arguments: Value,
     },
-    // An agent in `role` performs `event` (its value only goes in the log).
+    // An agent in `role` attempts the action `event` directly, as its hook would after translating
+    // a call (its value only goes in the log).
     Act {
         machine: String,
         role: String,
@@ -63,8 +67,8 @@ pub enum Request {
         #[serde(default)]
         value: Value,
     },
-    // An agent in `role` is stopping: wait while it has nothing to submit, then report what its
-    // process went through since it last stopped.
+    // An agent in `role` is stopping: wait while there's nothing it would be allowed to do, then
+    // report what other roles did since it last stopped.
     Stop { machine: String, role: String },
 }
 
@@ -72,12 +76,10 @@ pub enum Request {
 #[serde(rename_all = "snake_case")]
 enum Status {
     Running,
-    // The spec terminated (SKIP).
+    // The policy terminated (SKIP).
     Finished,
-    // The spec can do nothing more and cannot terminate (STOP).
+    // The policy takes no more attempts and can't terminate (STOP): every call is refused.
     Deadlocked,
-    // Internal events alone could go on forever (CSP divergence).
-    Diverged,
     Stopped,
 }
 
@@ -87,19 +89,20 @@ struct Machine {
     // The admitted units, as they were when the machine started: later edits to their files don't
     // change what this machine allows.
     routes: Vec<UnitRoutes>,
-    contract: Contract,
-    // One state per component, in the order of contract.components.
-    states: Vec<Vec<Term>>,
+    // The policy as FDR compiled it, and where it is now.
+    automaton: Automaton,
+    state: usize,
+    roles: Vec<String>,
+    acts: Vec<String>,
     status: Status,
     log: File,
-    // Per component, the events it took part in with the role that submitted each (none for
-    // internal events).
-    history: Vec<Vec<(String, Option<String>)>>,
-    // How much of its component's history each role has been told about.
+    // Every allowed action, shown with its value, and the role that took it.
+    history: Vec<(String, String)>,
+    // How much of the history each role has been told about.
     told: BTreeMap<String, usize>,
     // Why the machine left Running, and which roles have been told.
     ended: String,
-    told_ended: std::collections::BTreeSet<String>,
+    told_ended: BTreeSet<String>,
 }
 
 // One admitted unit: the service it covers, its proven translation (if it translates anything),
@@ -140,34 +143,16 @@ fn service_tool<'a>(name: &'a str, server: &str) -> Option<&'a str> {
     (head.starts_with("plugin_") && head.ends_with(&format!("_{server}"))).then_some(tool)
 }
 
-// How many internal events in a row count as divergence.
-const MAX_INTERNAL: usize = 10_000;
+// What the policy did with an attempt.
+#[derive(Debug, PartialEq)]
+enum Verdict {
+    Allowed,
+    Denied,
+    // The policy didn't take the attempt; its state is unchanged.
+    Refused(String),
+}
 
 impl Machine {
-    fn participants(&self, event: &str) -> Vec<usize> {
-        (0..self.states.len()).filter(|&i| self.contract.components[i].alphabet.contains(event)).collect()
-    }
-
-    // An event happens only when every component that shares it can take part.
-    fn enabled(&self, event: &str) -> bool {
-        let parts = self.participants(event);
-        !parts.is_empty() && parts.iter().all(|&i| self.contract.initials(&self.states[i]).contains(event))
-    }
-
-    // `shown` is the event with its value, for reports; `by` is the role that submitted it.
-    fn perform(&mut self, event: &str, shown: &str, by: Option<&str>) {
-        for i in self.participants(event) {
-            self.states[i] = self.contract.after(&self.states[i], event);
-            self.history[i].push((shown.to_string(), by.map(String::from)));
-        }
-    }
-
-    // What the role can submit next.
-    fn next(&self, i: usize) -> Vec<String> {
-        let outputs = &self.contract.outputs;
-        self.contract.initials(&self.states[i]).into_iter().filter(|e| outputs.contains(e)).collect()
-    }
-
     fn route(&self, name: &str) -> Route {
         let mut covered = None;
         for r in &self.routes {
@@ -186,90 +171,110 @@ impl Machine {
         }
     }
 
-    fn component(&self, role: &str) -> Result<usize> {
-        self.contract
-            .components
+    fn role(&self, role: &str) -> Result<()> {
+        match self.roles.iter().any(|r| r == role) {
+            true => Ok(()),
+            false => bail!("the spec has no role {role} (its Role is {})", self.roles.join(", ")),
+        }
+    }
+
+    fn edges(&self) -> &BTreeMap<String, usize> {
+        &self.automaton.edges[self.state]
+    }
+
+    // The actions the role would be allowed to take now: attempts W offers and would allow.
+    fn next(&self, role: &str) -> Vec<String> {
+        let prefix = format!("attempt.{role}.");
+        self.edges()
             .iter()
-            .position(|c| c.name.eq_ignore_ascii_case(role))
-            .ok_or_else(|| anyhow!("the spec has no process for role {role}"))
+            .filter_map(|(event, &after)| {
+                let x = event.strip_prefix(&prefix)?;
+                self.automaton.edges[after].contains_key(&format!("allow.{role}.{x}")).then(|| x.to_string())
+            })
+            .collect()
     }
 
     fn show(&self) -> String {
-        let parts = self.contract.components.iter().zip(&self.states);
-        parts.map(|(c, s)| format!("{}: {}", c.name, csp::show_state(s))).collect::<Vec<_>>().join("  ||  ")
+        match self.automaton.labels.get(self.state).filter(|l| !l.is_empty()) {
+            Some(label) => label.clone(),
+            None => format!("state {}", self.state),
+        }
     }
 
-    // A refused action is just refused (fail closed).
-    fn act(&mut self, role: &str, event: &str, value: &Value) -> Result<()> {
+    // The agent in `role` attempts `x`. Err only if the machine can't take attempts at all.
+    fn act(&mut self, role: &str, x: &str, value: &Value) -> Result<Verdict> {
         let shown = match value {
-            Value::Null => event.to_string(),
-            Value::String(v) => format!("{event}.{v}"),
-            v => format!("{event}.{v}"),
+            Value::Null => x.to_string(),
+            Value::String(v) => format!("{x}.{v}"),
+            v => format!("{x}.{v}"),
         };
         if self.status != Status::Running {
-            bail!("the machine is {}", serde_json::to_value(&self.status)?.as_str().unwrap_or("?"));
+            bail!("the machine is {} ({})", serde_json::to_value(&self.status)?.as_str().unwrap_or("?"), self.ended);
         }
-        let component = &self.contract.components[self.component(role)?];
-        let outcome = if !component.alphabet.contains(event) {
-            Err(format!("{event} isn't something role {role} does"))
-        } else if !self.contract.outputs.contains(event) {
-            Err(format!("{event} is internal to the spec (not marked !), so only the spec performs it"))
-        } else if !self.enabled(event) {
-            Err(format!("the spec doesn't allow {event} now"))
+        self.role(role)?;
+        let attempt = format!("attempt.{role}.{x}");
+        let verdict = if !self.acts.iter().any(|a| a == x) {
+            Verdict::Refused(format!("{x} isn't an action of the spec (its Act doesn't list it)"))
         } else {
-            Ok(())
+            match self.edges().get(&attempt).copied() {
+                None => Verdict::Refused(format!("the policy doesn't take {x} from {role} now")),
+                Some(taken) => {
+                    let answers = &self.automaton.edges[taken];
+                    match (answers.get(&format!("allow.{role}.{x}")), answers.get(&format!("deny.{role}.{x}"))) {
+                        (Some(&next), None) => {
+                            self.state = next;
+                            Verdict::Allowed
+                        }
+                        (None, Some(&next)) => {
+                            self.state = next;
+                            Verdict::Denied
+                        }
+                        _ => bail!("FDR's automaton gives {attempt} no single verdict (state {taken}); this policy shouldn't have been admitted"),
+                    }
+                }
+            }
         };
-        if let Err(reason) = outcome {
-            self.record(json!({ "kind": "act", "role": role, "event": shown, "outcome": "refused", "reason": reason }));
-            bail!("{reason}");
+        let (outcome, reason) = match &verdict {
+            Verdict::Allowed => ("allowed", String::new()),
+            Verdict::Denied => ("denied", format!("the policy denied {x}")),
+            Verdict::Refused(reason) => ("refused", reason.clone()),
+        };
+        self.record(json!({ "kind": "act", "role": role, "event": shown, "outcome": outcome, "reason": reason, "state": self.show() }));
+        if verdict == Verdict::Allowed {
+            self.history.push((shown, role.to_string()));
         }
-        self.perform(event, &shown, Some(role));
-        self.record(json!({ "kind": "act", "role": role, "event": shown, "outcome": "accepted", "state": self.show() }));
-        self.advance();
-        Ok(())
+        self.check_end();
+        Ok(verdict)
     }
 
-    // What the role's process went through since the role was last told, leaving out its own
-    // actions: internal events and other roles' actions on events it shares.
+    // What other roles were allowed to do since the role was last told, and what it may do now.
     fn catch_up(&mut self, role: &str) -> Result<Value> {
-        let i = self.component(role)?;
+        self.role(role)?;
         let told = self.told.get(role).copied().unwrap_or_default();
-        let happened: Vec<&String> = self.history[i][told..].iter().filter(|(_, by)| by.as_deref() != Some(role)).map(|(e, _)| e).collect();
-        let report = json!({ "happened": happened, "next": self.next(i) });
-        self.told.insert(role.to_string(), self.history[i].len());
+        let happened: Vec<String> = self.history[told..].iter().filter(|(_, by)| by != role).map(|(e, by)| format!("{by}: {e}")).collect();
+        let report = json!({ "happened": happened, "next": self.next(role) });
+        self.told.insert(role.to_string(), self.history.len());
         Ok(report)
     }
 
-    // Whether the role has nothing to submit and something else may still happen.
+    // Whether the role has nothing it would be allowed to do, while another role still might.
     fn waiting(&self, role: &str) -> Result<bool> {
-        Ok(self.status == Status::Running && self.next(self.component(role)?).is_empty())
+        self.role(role)?;
+        Ok(self.status == Status::Running && self.next(role).is_empty())
     }
 
-    // After any step: performs internal events while one is enabled, then ends the machine if
-    // nothing more can happen. When several are enabled, which one goes first is an internal
-    // choice, and the daemon takes the first by name.
-    fn advance(&mut self) {
-        for _ in 0..MAX_INTERNAL {
-            if self.status != Status::Running {
-                return;
-            }
-            let outputs = &self.contract.outputs;
-            let ready = self.contract.alphabet.iter().find(|e| !outputs.contains(*e) && self.enabled(e)).cloned();
-            let Some(event) = ready else { return self.check_end() };
-            self.perform(&event, &event, None);
-            self.record(json!({ "kind": "internal", "event": event, "state": self.show() }));
-        }
-        self.set(Status::Diverged, &format!("{MAX_INTERNAL} internal events in a row with nothing from outside"));
-    }
-
-    // Ends the machine once nothing can happen: finished if every component can terminate.
+    // Ends the machine once the policy can take no more attempts: finished if it terminated.
     fn check_end(&mut self) {
-        if self.contract.alphabet.iter().any(|e| self.enabled(e)) {
+        if self.status != Status::Running {
             return;
         }
-        match self.states.iter().all(|s| self.contract.can_finish(s)) {
-            true => self.set(Status::Finished, "the spec terminated"),
-            false => self.set(Status::Deadlocked, "the spec can do nothing more"),
+        let edges = self.edges();
+        if edges.keys().any(|e| e.starts_with("attempt.")) {
+            return;
+        }
+        match edges.contains_key("✓") {
+            true => self.set(Status::Finished, "the policy terminated"),
+            false => self.set(Status::Deadlocked, "the policy takes no more attempts"),
         }
     }
 
@@ -358,14 +363,18 @@ fn respond(request: Request, daemon: &Daemon) -> Result<Value> {
         Request::MachineInfo { machine, role } => {
             let all = machines.lock().unwrap();
             let m = all.get(&machine).ok_or_else(|| anyhow!("no machine named {machine}"))?;
-            let i = m.component(&role)?;
-            Ok(json!({ "status": m.status, "units": m.units, "next": m.next(i) }))
+            m.role(&role)?;
+            Ok(json!({ "status": m.status, "units": m.units, "roles": m.roles, "next": m.next(&role) }))
         }
         Request::Act { machine, role, event, value } => {
             let mut all = machines.lock().unwrap();
             let m = all.get_mut(&machine).ok_or_else(|| anyhow!("no machine named {machine}"))?;
-            m.act(&role, &event, &value)?;
-            Ok(json!(m.show()))
+            let verdict = match m.act(&role, &event, &value)? {
+                Verdict::Allowed => json!({ "verdict": "allowed" }),
+                Verdict::Denied => json!({ "verdict": "denied", "reason": format!("the policy denied {event}") }),
+                Verdict::Refused(reason) => json!({ "verdict": "refused", "reason": reason }),
+            };
+            Ok(json!({ "state": m.show(), "verdict": verdict["verdict"], "reason": verdict["reason"] }))
         }
         Request::Stop { machine, role } => loop {
             {
@@ -385,15 +394,15 @@ fn respond(request: Request, daemon: &Daemon) -> Result<Value> {
 }
 
 // Decides one harness tool call for an agent in `role`: {"allow": true, ...} or {"allow": false,
-// "reason"}. A translated call's event is performed on the machine before the answer, so a call that
-// is allowed has already moved the spec. Err means nothing could be decided (no such machine or
+// "reason"}. A translated call's action is attempted on the machine before the answer, so a call that
+// is allowed has already moved the policy. Err means nothing could be decided (no such machine or
 // role, or the CEL backend failed); the hook refuses the call then too.
 fn call(daemon: &Daemon, machine: &str, role: &str, name: &str, args: &Value) -> Result<Value> {
     let deny = |reason: String| Ok(json!({ "allow": false, "reason": reason }));
     let route = {
         let all = daemon.machines.lock().unwrap();
         let m = all.get(machine).ok_or_else(|| anyhow!("no machine named {machine}"))?;
-        m.component(role)?;
+        m.role(role)?;
         m.route(name)
     };
     let (translator, tool) = match route {
@@ -421,55 +430,62 @@ fn call(daemon: &Daemon, machine: &str, role: &str, name: &str, args: &Value) ->
     };
     let mut all = daemon.machines.lock().unwrap();
     let m = all.get_mut(machine).ok_or_else(|| anyhow!("no machine named {machine}"))?;
-    match m.act(role, &event.channel, &event.value) {
-        Ok(()) => Ok(json!({ "allow": true, "event": translate::show(&event) })),
-        Err(e) => deny(format!("refused this {tool} call ({}): {e:#}", event.channel)),
+    match m.act(role, &event.channel, &event.value)? {
+        Verdict::Allowed => Ok(json!({ "allow": true, "event": translate::show(&event) })),
+        Verdict::Denied => deny(format!("the policy denied this {tool} call ({}).", event.channel)),
+        Verdict::Refused(reason) => deny(format!("refused this {tool} call ({}): {reason}.", event.channel)),
     }
 }
 
 fn machine_up(daemon: &Daemon, name: String, spec: &Path, units: Vec<PathBuf>) -> Result<Value> {
-    let source = std::fs::read_to_string(spec).with_context(|| format!("reading {}", spec.display()))?;
-    let contract = csp::parse(&source).map_err(|e| anyhow!("{}: {e}", spec.display()))?;
-    no_inputs(&contract).map_err(|e| anyhow!("{}: {e}", spec.display()))?;
+    // FDR proves the policy and compiles it; the units are proven by the CEL backend.
+    let compiled = match fdr::compile(spec)? {
+        Ok(compiled) => compiled,
+        Err(report) => bail!("{} isn't admitted:\n{report}", spec.display()),
+    };
     let admitted = admit(&units)?;
-    let mut all = daemon.machines.lock().unwrap();
-    if all.contains_key(&name) {
+    if daemon.machines.lock().unwrap().contains_key(&name) {
         bail!("a machine named {name} is already running");
     }
 
     let log = OpenOptions::new().create(true).append(true).open(log_path(&name)?)?;
-    let states = contract.initial_states();
-    let history = vec![Vec::new(); states.len()];
     let mut machine = Machine {
-        history,
         spec: spec.to_path_buf(),
         units: units.clone(),
         routes: Vec::new(),
-        contract,
-        states,
+        state: compiled.automaton.root,
+        automaton: compiled.automaton,
+        roles: compiled.roles,
+        acts: compiled.acts,
         status: Status::Running,
         log,
+        history: Vec::new(),
         told: BTreeMap::new(),
         ended: String::new(),
         told_ended: Default::default(),
     };
     machine.record(json!({ "kind": "status", "status": Status::Running, "reason": "machine up", "state": machine.show() }));
+    machine.record(json!({ "kind": "policy", "spec": spec, "states": machine.automaton.edges.len(), "report": compiled.report.to_string() }));
     for a in admitted {
         machine.record(json!({ "kind": "admission", "unit": a.path, "report": a.report }));
+        if let Some(t) = &a.translator {
+            let tr = &t.translation;
+            let emits = tr.rules.iter().map(|r| r.emit.as_str()).chain([tr.fallback.emit.as_str()]);
+            for e in emits.filter(|e| !machine.acts.iter().any(|a| a == e)).collect::<BTreeSet<_>>() {
+                let warning = format!("{} emits {e}, which isn't in the spec's Act, so calls translated to it are always refused", a.path.display());
+                machine.record(json!({ "kind": "warning", "warning": warning }));
+            }
+        }
         machine.routes.push(UnitRoutes { server: a.unit.server, translator: a.translator.map(Arc::new), hidden: a.unit.hidden });
     }
-    machine.advance();
+    machine.check_end();
+    let mut all = daemon.machines.lock().unwrap();
+    if all.contains_key(&name) {
+        bail!("a machine named {name} is already running");
+    }
     all.insert(name.clone(), machine);
     println!("machine {name} up");
     Ok(json!(name))
-}
-
-// Nothing outside an agent submits events, so an input (`?e`) could never happen.
-fn no_inputs(contract: &Contract) -> Result<()> {
-    match contract.inputs.iter().next() {
-        Some(e) => bail!("?{e} marks an input from the world, but complier doesn't observe the world, so nothing would ever submit it; agents' actions are outputs (!{e})"),
-        None => Ok(()),
-    }
 }
 
 // Loads and admits each unit before the machine starts: its YAML read and checked against its
@@ -551,28 +567,48 @@ fn start_background(path: &Path) -> Result<UnixStream> {
 mod tests {
     use super::*;
 
-    // The writer drafts, the spec files the draft on its own, and only then may the writer recreate.
-    const SPEC: &str = "
-        WRITER  = !draft -> filed -> !recreate -> WRITER
-        ARCHIVE = filed -> ARCHIVE
-        MAIN    = WRITER || ARCHIVE";
-
+    // normal(Policy) for: the writer drafts; publishing needs a review since the last draft;
+    // anything else is denied. (What FDR compiles fdr's writer example to, written out by hand so
+    // these tests don't need FDR; tests/e2e.rs runs the real thing.)
+    //   0 = P(false), 5 = P(true); 1-4 and 6-9 wait for a verdict.
     fn machine() -> Machine {
-        spec_machine(SPEC)
+        let t = [
+            (0, "attempt.writer.draft", 1),
+            (0, "attempt.reviewer.review", 2),
+            (0, "attempt.writer.publish", 3),
+            (0, "attempt.writer.other", 4),
+            (1, "allow.writer.draft", 0),
+            (2, "allow.reviewer.review", 5),
+            (3, "deny.writer.publish", 0),
+            (4, "deny.writer.other", 0),
+            (5, "attempt.writer.draft", 6),
+            (5, "attempt.reviewer.review", 7),
+            (5, "attempt.writer.publish", 8),
+            (5, "attempt.writer.other", 9),
+            (6, "allow.writer.draft", 0),
+            (7, "allow.reviewer.review", 5),
+            (8, "allow.writer.publish", 10),
+            (9, "deny.writer.other", 5),
+        ];
+        let mut labels = vec![String::new(); 11];
+        labels[0] = "P(false)".into();
+        labels[5] = "P(true)".into();
+        with(Automaton::from_transitions(labels, 0, &t), &["writer", "reviewer"], &["draft", "review", "publish", "other"])
     }
 
-    fn spec_machine(spec: &str) -> Machine {
-        let contract = csp::parse(spec).unwrap();
+    fn with(automaton: Automaton, roles: &[&str], acts: &[&str]) -> Machine {
         let log = std::env::temp_dir().join(format!("complier-test-{}.log", std::process::id()));
         Machine {
             spec: PathBuf::new(),
             units: Vec::new(),
             routes: Vec::new(),
-            states: contract.initial_states(),
-            history: vec![Vec::new(); contract.components.len()],
-            contract,
+            state: automaton.root,
+            automaton,
+            roles: roles.iter().map(|r| r.to_string()).collect(),
+            acts: acts.iter().map(|a| a.to_string()).collect(),
             status: Status::Running,
             log: File::create(log).unwrap(),
+            history: Vec::new(),
             told: BTreeMap::new(),
             ended: String::new(),
             told_ended: Default::default(),
@@ -580,49 +616,56 @@ mod tests {
     }
 
     #[test]
-    fn internal_events_happen_on_their_own_and_are_reported() {
+    fn attempts_are_allowed_denied_or_refused_by_the_automaton() {
         let mut m = machine();
-        assert!(!m.waiting("writer").unwrap()); // it can draft, so its stop isn't held
-        m.act("writer", "draft", &json!("p1")).unwrap(); // filed happens with it, internally
-        assert!(m.status == Status::Running);
-        let report = m.catch_up("writer").unwrap();
-        assert_eq!(report["happened"], json!(["filed"])); // its own draft is left out
-        assert_eq!(report["next"], json!(["recreate"]));
-        assert!(report.get("world").is_none());
-        assert_eq!(m.catch_up("writer").unwrap()["happened"], json!([])); // told once
+        // Denied: the policy takes the attempt and answers no; it moves along its deny edge.
+        assert_eq!(m.act("writer", "publish", &Value::Null).unwrap(), Verdict::Denied);
+        assert_eq!(m.show(), "P(false)");
+        assert_eq!(m.act("reviewer", "review", &Value::Null).unwrap(), Verdict::Allowed);
+        assert_eq!(m.show(), "P(true)");
+        // Refused: the policy doesn't offer the attempt, and its state is kept.
+        assert!(matches!(m.act("reviewer", "draft", &Value::Null).unwrap(), Verdict::Refused(r) if r.contains("doesn't take draft from reviewer")));
+        assert_eq!(m.show(), "P(true)");
+        assert!(matches!(m.act("writer", "delete", &Value::Null).unwrap(), Verdict::Refused(r) if r.contains("isn't an action")));
+        assert_eq!(m.act("writer", "publish", &json!("p1")).unwrap(), Verdict::Allowed);
+        // State 10 takes no attempts: the machine has ended, and further attempts are errors.
+        assert!(m.status == Status::Deadlocked);
+        assert!(m.act("writer", "draft", &Value::Null).is_err());
+        assert!(m.act("editor", "draft", &Value::Null).is_err());
     }
 
     #[test]
-    fn a_role_waits_for_another_roles_action() {
-        let mut m = spec_machine("
-            WRITER   = !draft -> reviewed -> WRITER
-            REVIEWER = !review -> reviewed -> REVIEWER
-            MAIN     = WRITER || REVIEWER");
-        m.act("writer", "draft", &Value::Null).unwrap();
-        assert!(m.waiting("writer").unwrap()); // reviewed needs the reviewer
-        m.act("reviewer", "review", &Value::Null).unwrap();
+    fn a_role_waits_until_it_would_be_allowed_and_hears_what_others_did() {
+        let mut m = machine();
+        assert_eq!(m.next("writer"), ["draft"]); // publish and other are offered but denied
+        assert_eq!(m.next("reviewer"), ["review"]);
+        m.act("reviewer", "review", &json!("p1")).unwrap();
+        assert_eq!(m.next("writer"), ["draft", "publish"]);
+        let report = m.catch_up("writer").unwrap();
+        assert_eq!(report["happened"], json!(["reviewer: review.p1"]));
+        assert_eq!(m.catch_up("writer").unwrap()["happened"], json!([])); // told once
         assert!(!m.waiting("writer").unwrap());
-        assert_eq!(m.catch_up("writer").unwrap()["happened"], json!(["reviewed"]));
+        assert!(m.catch_up("nobody").is_err());
+    }
+
+    #[test]
+    fn a_policy_that_terminates_finishes() {
+        let a = Automaton::from_transitions(vec![String::new(); 4], 0, &[(0, "attempt.w.go", 1), (1, "allow.w.go", 2), (2, "✓", 3)]);
+        let mut m = with(a, &["w"], &["go"]);
+        assert_eq!(m.act("w", "go", &Value::Null).unwrap(), Verdict::Allowed);
+        assert!(m.status == Status::Finished);
     }
 
     #[test]
     fn a_stopping_agent_is_told_once_that_its_machine_ended() {
         let mut m = machine();
-        m.set(Status::Deadlocked, "the spec can do nothing more");
+        m.set(Status::Deadlocked, "the policy takes no more attempts");
         let daemon = Daemon { machines: Mutex::new([("demo".to_string(), m)].into()), cel: Mutex::new(None) };
         let stop = || respond(Request::Stop { machine: "demo".into(), role: "writer".into() }, &daemon).unwrap();
         let first = stop();
         assert_eq!(first["ended"], json!("deadlocked"));
-        assert!(first["reason"].as_str().unwrap().contains("nothing more"));
+        assert!(first["reason"].as_str().unwrap().contains("no more attempts"));
         assert!(stop().get("ended").is_none()); // told once; after that it may stop
-    }
-
-    #[test]
-    fn specs_with_inputs_are_refused() {
-        let contract = csp::parse("NOTION = ?page_deleted -> NOTION\nWRITER = !draft -> WRITER\nMAIN = NOTION || WRITER").unwrap();
-        let e = no_inputs(&contract).unwrap_err().to_string();
-        assert!(e.contains("?page_deleted") && e.contains("doesn't observe the world"), "{e}");
-        assert!(no_inputs(&csp::parse(SPEC).unwrap()).is_ok());
     }
 
     #[test]
@@ -639,25 +682,5 @@ mod tests {
         assert!(matches!(m.route("mcp__notion__notion-fetch"), Route::Hidden));
         assert!(matches!(m.route("mcp__notion__notion-delete"), Route::Unoffered(s, t) if s == "notion" && t == "notion-delete"));
         assert!(matches!(m.route("mcp__github__create_issue"), Route::Unknown));
-    }
-
-    #[test]
-    fn internal_events_alone_forever_diverge() {
-        let mut m = spec_machine("P = tick -> P");
-        m.advance();
-        assert!(m.status == Status::Diverged);
-    }
-
-    #[test]
-    fn actions_are_checked() {
-        let mut m = machine();
-        assert!(m.act("writer", "recreate", &Value::Null).is_err()); // not yet
-        assert!(m.act("writer", "filed", &Value::Null).is_err()); // internal, not submitted
-        assert!(m.act("reviewer", "draft", &Value::Null).is_err()); // no such role
-        assert!(m.act("archive", "draft", &Value::Null).is_err()); // not something archive does
-        assert!(m.act("writer", "draft", &Value::Null).is_ok());
-        assert!(m.act("writer", "draft", &Value::Null).is_err()); // once, until it recreates
-        assert!(m.act("writer", "recreate", &Value::Null).is_ok());
-        assert!(m.status == Status::Running);
     }
 }

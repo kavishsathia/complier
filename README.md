@@ -31,8 +31,14 @@ Live demo and walkthrough: [complier.dev](https://www.complier.dev)
 - **Translation units are proven before they load.** Google's CEL verifier (with Z3) checks that no
   call matches two rules and every call matches a rule or the fallback. A unit that isn't proven
   is refused. See [`cel/README.md`](cel/README.md).
-- **Contracts are CSP processes**, run by the daemon as *machines*. An agent's call is an output
-  event (`!e`); it goes through only if the machine can take it now, and then the machine moves on.
+- **Contracts are CSP policies, proven and compiled by FDR.** A spec defines `Role`, `Act` and a
+  `Policy` over `attempt`, `allow` and `deny : Role.Act`, built from `Permit`, `Deny` and
+  `PermitIf`. At `machine up`, FDR checks that the policy answers every attempt it takes, can't
+  leave an agent waiting, is deterministic, and passes the spec's own assertions, then compiles it
+  into an automaton. The daemon only walks that automaton; complier doesn't interpret CSP itself.
+- **Allow, deny or refuse.** A call becomes `attempt.<role>.<action>`. If the policy offers it, the
+  policy's own `allow` or `deny` edge is the verdict; if not, the call is refused and the policy
+  stays where it was. Only allowed calls run.
 - **Nothing polls the world.** Agents' translated calls are the only outside events.
 - **Fails closed.** An MCP call the units don't cover, that can't be translated, or that can't be
   checked (no daemon, no machine) is denied. Built-in tools (Bash, Edit, ...) aren't translated
@@ -48,7 +54,7 @@ Live demo and walkthrough: [complier.dev](https://www.complier.dev)
 | [`plugin/`](plugin) | Claude Code plugin that installs complier's hooks | `claude --plugin-dir plugin` |
 | [`packages/`](packages) | Reviewed metadata for each MCP server (`complier gen` writes here) | `packages/notion/service.yaml` |
 | [`examples/`](examples) | A translation unit for Notion and a small runnable demo machine | `examples/units/notion.yaml`, `examples/demo/` |
-| [`fdr/`](fdr) | Standalone demo: the refusal guard compiled and run with FDR's C++ API (bring your own FDR) | `fdr/demo.sh` |
+| [`fdr/`](fdr) | `complier-fdr`, which has FDR prove a policy and compile its automaton (bring your own FDR), and an earlier standalone guard demo | `fdr/build-complier-fdr.sh` |
 
 ## Quickstart
 
@@ -88,7 +94,16 @@ cel/build.sh         # ends with: cel/build.sh: wrote .../cel/build/backend.json
 
 ### CLI
 
-Needs Rust (edition 2024) and the CEL backend above. macOS or Linux.
+Needs Rust (edition 2024), the CEL backend above and FDR. macOS or Linux.
+
+**FDR is not included.** complier uses your own copy: download FDR 4 from
+[cocotec.io/fdr](https://cocotec.io/fdr/) and run it once to get its licence. The licence is free
+for academic work and personal research; other use needs a commercial licence from its makers (see
+[their licensing terms](https://cocotec.io/fdr/licensing.html)). Then build the bridge to it:
+
+```sh
+fdr/build-complier-fdr.sh             # macOS: FDR from /Applications/FDR4.app; Linux: see fdr/README.md
+```
 
 ```sh
 cargo install --path cli --locked     # installs `complier` into ~/.cargo/bin
@@ -103,8 +118,9 @@ Run the demo machine (the writer must draft, then recreate, in turn):
 ```sh
 complier up                           # the daemon, in its own terminal
 complier machine up demo --spec examples/demo/draft.csp --unit examples/demo/draft.yaml
-complier machine act demo --role writer draft    # allowed
-complier machine act demo --role writer draft    # Error: the spec doesn't allow draft now
+complier machine act demo --role writer draft    # draft allowed; the policy is now at state 3
+complier machine act demo --role writer draft    # Error: draft refused: the policy doesn't take draft from writer now
+complier machine act demo --role writer other    # Error: other denied: the policy denied other
 complier machine log demo
 complier machine down demo
 ```
@@ -127,10 +143,10 @@ Tests: `cargo test --manifest-path cli/Cargo.toml` (they run the real CEL backen
   daemon before it runs, and fails closed.
 - YAML translation units with CEL rules, proven disjoint and exhaustive at load time; calls outside
   the unit's domain, ambiguous calls and rule errors are refused.
-- CSP contracts with prefix, choice, named processes and parallel composition, monitored per call;
-  the agent gets the reason when a call is refused.
+- Policies in CSPm with the full language FDR accepts, proven and compiled by FDR at `machine up`;
+  every call is allowed, denied or refused, and the agent gets the reason.
 - The plugin's other hooks: session context, and holding an idle agent's Stop until it can act.
-- Contracts can't yet wait on events from the world (`?e` inputs are refused at `machine up`).
+- Only agents' actions (controllable events) for now: nothing observes the world.
 
 ## Licence
 

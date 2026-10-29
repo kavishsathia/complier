@@ -1,2 +1,4 @@
--- The fallback is an event like any other: here the spec lets the writer do it once.
-WRITER = !other -> STOP
+-- The fallback is an action like any other: here the policy lets the writer do it once.
+datatype Role = writer
+datatype Act = appended | replaced | other
+Policy = Permit(writer, other, STOP)

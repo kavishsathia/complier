@@ -1,10 +1,58 @@
-# FDR guard demo
+# FDR in complier
+
+FDR is not included. You download it and get a licence from its makers (see [Setup](#setup)): free
+for academic work and personal research, a commercial licence otherwise
+([terms](https://cocotec.io/fdr/licensing.html)). Nothing from FDR is in this repository.
+
+## complier-fdr
+
+`src/complier_fdr.cc` is what complier's daemon runs at `complier machine up`. FDR proves the
+spec's policy and compiles it into the automaton the daemon walks; complier never interprets CSP.
+
+```sh
+fdr/build-complier-fdr.sh                 # writes build/complier-fdr and build/backend.json
+fdr/build/complier-fdr compile examples/demo/draft.csp
+```
+
+A spec defines `Role` and `Act` (datatypes) and `Policy`. complier-fdr appends a prelude with the
+encoding from the paper:
+
+```csp
+channel attempt, allow, deny : Role.Act
+channel refuse : Role
+Permit(r, x, P) = attempt.r.x -> allow.r.x -> P
+Deny(r, x, P) = attempt.r.x -> deny.r.x -> P
+PermitIf(r, x, c, P, Q) = attempt.r.x -> (if c then allow.r.x -> P else deny.r.x -> Q)
+ControllableCHAOS(r) = (STOP |~| (|~| x:Act @ attempt.r.x -> ComplierAwait(r, x))) [] (refuse.r -> ControllableCHAOS(r))
+Monitor(W) = W ||| RUN({|refuse|})
+Agents = ||| r:Role @ ControllableCHAOS(r)
+System = prioritise(Agents [| {|attempt, allow, deny, refuse|} |] Monitor(Policy), <{|attempt|}, {|refuse|}>)
+```
+
+Those names (and anything starting with `Complier`) are reserved. A policy is admitted only if FDR
+shows that:
+
+| check | assertion |
+| --- | --- |
+| every attempt the policy takes is answered with allow or deny | `ComplierHandshake [FD= Policy` |
+| no agent is left waiting for a verdict | `System :[deadlock free [F]]` |
+| each verdict is determined | `Policy :[deterministic [FD]]` |
+| the spec's own properties hold | every `assert` in the spec, e.g. `Safe [T= System \ diff(Events, {\|allow\|})` |
+
+A failed check comes back with FDR's counterexample trace. Then `normal(Policy)` is compiled and
+every state and transition is printed as JSON. The daemon answers a call by following
+`attempt.r.x` and then the policy's `allow.r.x` or `deny.r.x` edge, or refuses it if the current
+state doesn't offer the attempt, which keeps the state as `Monitor` and `prioritise` say.
+
+On macOS, FDR is x86_64 only, so complier-fdr is built for x86_64 and runs under Rosetta on Apple
+silicon. On Linux, the setup below applies.
+
+# The earlier guard demo
 
 A standalone C++ program that uses FDR's C++ API to load a CSP policy, check it, compile it into
-a state machine, and then decide an agent's tool calls one by one. It is a demo of the guard
-design, separate from complier's daemon (which has its own CSP engine in `cli/`).
-
-FDR is not included. You download it and get a licence from its makers (see [Setup](#setup)).
+a state machine, and then decide an agent's tool calls one by one. It predates complier-fdr and
+the attempt/allow/deny encoding: here agents attempt bare events of `A` and refusals are events of
+`R`.
 
 ## The guard
 
