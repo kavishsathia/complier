@@ -41,8 +41,8 @@ which the CEL backend compiles, proves and evaluates. `rules` are the website's 
 its name as registered with `complier add`, the tools reviewed as side-effect free (`readOnly`),
 and `tools.yaml`, written by `complier gen`, with every tool the server lists and its input
 schema hash. Every tool a unit translates or hides must be in `tools.yaml`; a hidden tool must
-also be read-only, and can't also be translated. The proxy leaves out any tool whose live schema
-no longer matches its hash, and holds the server's credentials; the agent never sees them.
+also be read-only, and can't also be translated. The service's `name` is also how the agent's
+harness names the server: Claude Code calls its tools `mcp__<name>__<tool>`.
 
 ## The contract
 
@@ -67,8 +67,7 @@ no longer matches its hash, and holds the server's credentials; the agent never 
 
 ## Admission: what is proven
 
-On `complier machine up` (before the machine exists), when `complier proxy` binds (before it
-connects to any server) and with `complier check`, the unit is loaded and checked against its
+On `complier machine up` (before the machine exists) and with `complier check`, the unit is loaded and checked against its
 service, every source is compiled, then with the verifier (all under the same schema and domain):
 
 | check | query | admitted only if |
@@ -86,12 +85,15 @@ the domain (say `1000 / amount` at `amount = 0`) is a counterexample.
 
 ## Runtime
 
-For each call of a translated tool the proxy evaluates the domain, every rule and the fallback
+For each call of a translated tool, the agent's pre-tool-use hook hands the call to the daemon,
+which evaluates the domain, every rule and the fallback
 with cel-java's runtime: one match emits that rule's event, none the fallback's, several is an
 ambiguity error (no first match wins). Input errors, rule errors and calls outside the domain are
-refused. The event then goes to the machine as the role's action, exactly as before.
+refused. The event then goes to the machine as the role's action, and the hook lets the call run
+only if the machine took it. The daemon uses the units as they were proven at `machine up`; editing
+a unit's file afterwards changes nothing until the machine is restarted.
 
-Hidden tools go upstream unchecked; tools neither translated nor hidden are not offered.
+Hidden tools go upstream unchecked; tools neither translated nor hidden are denied by the hook.
 
 Agents' translated calls are the only events from outside a machine. Complier doesn't poll or
 otherwise observe the world, so a spec that marks an input (`?e`) is refused at `machine up`.

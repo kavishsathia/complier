@@ -9,8 +9,8 @@
 
 A prompt asks an agent to publish only after a review. complier makes it so. You write which tool
 calls count as which steps (a **translation unit**, in CEL) and the order those steps may happen in
-(a **contract**, in CSP). complier sits between the agent and its MCP tools, checks every call
-before it reaches the service, and refuses the ones that are out of turn, telling the agent why.
+(a **contract**, in CSP). Your agent's harness asks complier before it runs each MCP tool call,
+and complier refuses the ones that are out of turn, telling the agent why.
 
 Live demo and walkthrough: [complier.dev](https://www.complier.dev)
 
@@ -18,15 +18,14 @@ Live demo and walkthrough: [complier.dev](https://www.complier.dev)
 
 ```
   agent (Claude Code + the complier plugin)
-    │  tool call, e.g. notion-update-page {page_id: "p1", command: "replace_content"}
+    │  tool call, e.g. mcp__notion__notion-update-page {page_id: "p1", command: "replace_content"}
     ▼
-  complier proxy ──── translation unit (CEL rules) ────►  event: overwritten.p1
-    │                                                        │
-    │                                                        ▼
-    │                                     daemon: is the event allowed by the contract (CSP) now?
-    │                                        no  ──►  refused before anything is sent, with the reason
+  pre-tool-use hook ──── asks the daemon ────►  translation unit (CEL rules) ──►  event: overwritten.p1
+    │                                                                               │
+    │                                              is the event allowed by the contract (CSP) now?
+    │                                                 no  ──►  denied before it runs, with the reason
     ▼  yes
-  MCP server (e.g. Notion), whose credentials stay inside complier
+  the harness runs the call on its own MCP server (e.g. Notion), with its own sign-in
 ```
 
 - **Translation units are proven before they load.** Google's CEL verifier (with Z3) checks that no
@@ -35,15 +34,18 @@ Live demo and walkthrough: [complier.dev](https://www.complier.dev)
 - **Contracts are CSP processes**, run by the daemon as *machines*. An agent's call is an output
   event (`!e`); it goes through only if the machine can take it now, and then the machine moves on.
 - **Nothing polls the world.** Agents' translated calls are the only outside events.
+- **Fails closed.** An MCP call the units don't cover, that can't be translated, or that can't be
+  checked (no daemon, no machine) is denied. Built-in tools (Bash, Edit, ...) aren't translated
+  yet; the hook only stops them editing the configuration that enforces all this.
 
 ## Repository map
 
 | path | what it is | entry point |
 | --- | --- | --- |
 | [`website/`](website) | The Next.js site: landing page, the in-browser CEL + CSP playground, the CSP stepper, the research deck | `npm run dev` (from the root) |
-| [`cli/`](cli) | The Rust `complier` CLI: MCP proxy, daemon, Claude Code hooks, unit checker | `cargo build --manifest-path cli/Cargo.toml` |
+| [`cli/`](cli) | The Rust `complier` CLI: daemon, Claude Code hooks, unit checker, MCP client for `gen` | `cargo build --manifest-path cli/Cargo.toml` |
 | [`cel/`](cel) | CEL backend the CLI runs: cel-java 0.14.0 + verifier behind a small stdio bridge | `cel/build.sh` |
-| [`plugin/`](plugin) | Claude Code plugin that routes an agent's tools through `complier proxy` | `claude --plugin-dir plugin` |
+| [`plugin/`](plugin) | Claude Code plugin that installs complier's hooks | `claude --plugin-dir plugin` |
 | [`packages/`](packages) | Reviewed metadata for each MCP server (`complier gen` writes here) | `packages/notion/service.yaml` |
 | [`examples/`](examples) | A translation unit for Notion and a small runnable demo machine | `examples/units/notion.yaml`, `examples/demo/` |
 | [`fdr/`](fdr) | Standalone demo: the refusal guard compiled and run with FDR's C++ API (bring your own FDR) | `fdr/demo.sh` |
@@ -107,23 +109,27 @@ complier machine log demo
 complier machine down demo
 ```
 
-To put a real agent on it, register the server and start Claude Code with the plugin:
+To put a real agent on it, give Claude Code the Notion MCP server under the name the unit's
+service uses (`notion`), and start it with the plugin:
 
 ```sh
-complier add notion --url https://mcp.notion.com/mcp
+claude mcp add --transport http notion https://mcp.notion.com/mcp
 COMPLIER_MACHINE=demo COMPLIER_ROLE=writer claude --plugin-dir plugin
 ```
+
+`complier add` and `complier gen` are only needed to (re)generate a service's `tools.yaml`.
 
 Tests: `cargo test --manifest-path cli/Cargo.toml` (they run the real CEL backend, so build it first).
 
 ## What works today
 
-- MCP proxy for HTTP (OAuth) and stdio servers, with credentials in the OS keychain.
+- Enforcement in Claude Code's pre-tool-use hook: every MCP call is translated and checked by the
+  daemon before it runs, and fails closed.
 - YAML translation units with CEL rules, proven disjoint and exhaustive at load time; calls outside
   the unit's domain, ambiguous calls and rule errors are refused.
 - CSP contracts with prefix, choice, named processes and parallel composition, monitored per call;
   the agent gets the reason when a call is refused.
-- Claude Code integration through the plugin's hooks (session context, tool gating, waiting on Stop).
+- The plugin's other hooks: session context, and holding an idle agent's Stop until it can act.
 - Contracts can't yet wait on events from the world (`?e` inputs are refused at `machine up`).
 
 ## Licence

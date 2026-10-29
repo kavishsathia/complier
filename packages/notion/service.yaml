@@ -1,7 +1,8 @@
 # Reviewed metadata for the Notion MCP server, which units name with `service:`.
-# name: the server as registered with `complier add notion --url https://mcp.notion.com/mcp`.
+# name: the server's name, both in Claude Code (whose tools are then mcp__notion__<tool>) and as
+#   registered with `complier add notion --url https://mcp.notion.com/mcp` for `complier gen`.
 # tools: every tool and its input schema hash, from `complier gen notion`; units may only name
-#   these tools, and the proxy leaves out any whose live schema no longer matches.
+#   these tools.
 # readOnly: the tools reviewed as side-effect free. Only these can be hidden (passed upstream
 #   unchecked).
 name: notion
