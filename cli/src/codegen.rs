@@ -1,6 +1,6 @@
 // Turns a server's tools/list into what a service package holds: tools.yaml, which complier reads,
-// with every tool and a hash of its input schema so units are checked against the server's real
-// tools and the proxy can leave out any tool whose schema has drifted; and tools.ts, the same
+// with every tool and a hash of its input schema, so units are checked against the server's real
+// tools; and tools.ts, the same
 // tools' input types, for reading.
 
 use serde_json::Value;

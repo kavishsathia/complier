@@ -31,8 +31,6 @@ pub struct Unit {
     pub server: String,
     pub translation: Option<Translation>,
     pub hidden: Vec<String>,
-    // Every tool the service's generated metadata lists, and its input schema hash.
-    pub hashes: BTreeMap<String, String>,
 }
 
 impl Unit {
@@ -100,7 +98,7 @@ pub fn load(path: &Path) -> Result<Unit> {
     if translation.is_none() && hidden.is_empty() {
         bail!("{file}: the unit translates and hides nothing, so it offers no tools");
     }
-    Ok(Unit { server: service.name, translation, hidden, hashes: service.hashes })
+    Ok(Unit { server: service.name, translation, hidden })
 }
 
 fn translation(doc: Doc, n: &Node, known: &dyn Fn(&Node, &str, &str) -> Result<()>) -> Result<Translation> {

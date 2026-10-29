@@ -1,7 +1,8 @@
 // The complier daemon: owns running machines, each a spec instance (a || composition of
 // components) whose state advances on two kinds of event:
-// - outputs (`!e`), actions an agent submits through its role's component (the proxy translates
-//   its tool calls into them with the machine's units): refused unless enabled;
+// - outputs (`!e`), actions an agent submits through its role's component: its harness's
+//   pre-tool-use hook sends each MCP tool call here (`call`), the daemon translates it into an
+//   event with the machine's units, and the call may run only if the event is enabled;
 // - internal events (everything else), performed by the daemon as soon as they're enabled.
 // Nothing else moves a machine: complier doesn't observe the world, so a spec that marks an input
 // (`?e`) is refused, since nothing would ever submit it.
@@ -9,9 +10,10 @@
 // submit, then tells it what its process went through.
 // Clients talk to it over a Unix socket, one JSON request and one JSON response per line.
 
+use crate::cel::Backend;
 use crate::csp::{self, Contract, Term};
-use crate::translate;
-use crate::unit;
+use crate::translate::{self, Translator};
+use crate::unit::{self, Unit};
 use anyhow::{anyhow, bail, Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -42,8 +44,17 @@ pub enum Request {
     MachineUp { name: String, spec: PathBuf, units: Vec<PathBuf> },
     MachineDown { name: String },
     MachineLs,
-    // A machine's units and roles, for a proxy binding an agent to it.
+    // A machine's units and what a role may do next, for an agent's session-start hook.
     MachineInfo { machine: String, role: String },
+    // An agent in `role` is about to call the harness tool `tool` (`mcp__<server>__<tool>`): may
+    // it? Translated by the machine's units into an event, which is performed if the spec allows it.
+    Call {
+        machine: String,
+        role: String,
+        tool: String,
+        #[serde(default)]
+        arguments: Value,
+    },
     // An agent in `role` performs `event` (its value only goes in the log).
     Act {
         machine: String,
@@ -73,6 +84,9 @@ enum Status {
 struct Machine {
     spec: PathBuf,
     units: Vec<PathBuf>,
+    // The admitted units, as they were when the machine started: later edits to their files don't
+    // change what this machine allows.
+    routes: Vec<UnitRoutes>,
     contract: Contract,
     // One state per component, in the order of contract.components.
     states: Vec<Vec<Term>>,
@@ -86,6 +100,44 @@ struct Machine {
     // Why the machine left Running, and which roles have been told.
     ended: String,
     told_ended: std::collections::BTreeSet<String>,
+}
+
+// One admitted unit: the service it covers, its proven translation (if it translates anything),
+// and the read-only tools it passes through unchecked.
+struct UnitRoutes {
+    server: String,
+    translator: Option<Arc<Translator>>,
+    hidden: Vec<String>,
+}
+
+// Where a harness tool call goes.
+enum Route {
+    // Translated by this unit's translator, as the service's tool `tool`.
+    Translated(Arc<Translator>, String),
+    // Read-only, passed through unchecked.
+    Hidden,
+    // A tool of a service the units cover, but none of them names it.
+    Unoffered(String, String),
+    // Not a tool of any service the units cover.
+    Unknown,
+}
+
+// A server's name as Claude Code writes it into tool names: anything but letters, digits, `_` and
+// `-` becomes `_`.
+fn harness_name(server: &str) -> String {
+    server.chars().map(|c| if c.is_ascii_alphanumeric() || c == '_' || c == '-' { c } else { '_' }).collect()
+}
+
+// The service's tool a harness tool name calls, if it's one of `server`'s: `mcp__<server>__<tool>`,
+// or `mcp__plugin_<plugin>_<server>__<tool>` for a server a plugin provides.
+fn service_tool<'a>(name: &'a str, server: &str) -> Option<&'a str> {
+    let server = harness_name(server);
+    let rest = name.strip_prefix("mcp__")?;
+    if let Some(tool) = rest.strip_prefix(&format!("{server}__")) {
+        return Some(tool);
+    }
+    let (head, tool) = rest.split_once("__")?;
+    (head.starts_with("plugin_") && head.ends_with(&format!("_{server}"))).then_some(tool)
 }
 
 // How many internal events in a row count as divergence.
@@ -114,6 +166,24 @@ impl Machine {
     fn next(&self, i: usize) -> Vec<String> {
         let outputs = &self.contract.outputs;
         self.contract.initials(&self.states[i]).into_iter().filter(|e| outputs.contains(e)).collect()
+    }
+
+    fn route(&self, name: &str) -> Route {
+        let mut covered = None;
+        for r in &self.routes {
+            let Some(tool) = service_tool(name, &r.server) else { continue };
+            if let Some(t) = r.translator.as_ref().filter(|t| t.translation.tools.iter().any(|x| x == tool)) {
+                return Route::Translated(t.clone(), tool.to_string());
+            }
+            if r.hidden.iter().any(|h| h == tool) {
+                return Route::Hidden;
+            }
+            covered = Some((r.server.clone(), tool.to_string()));
+        }
+        match covered {
+            Some((server, tool)) => Route::Unoffered(server, tool),
+            None => Route::Unknown,
+        }
     }
 
     fn component(&self, role: &str) -> Result<usize> {
@@ -215,7 +285,13 @@ impl Machine {
     }
 }
 
-type Machines = Arc<Mutex<BTreeMap<String, Machine>>>;
+// The daemon's state: its machines, and the CEL backend that translates their agents' calls,
+// started on the first call that needs it and kept for the next.
+#[derive(Default)]
+pub struct Daemon {
+    machines: Mutex<BTreeMap<String, Machine>>,
+    cel: Mutex<Option<Backend>>,
+}
 
 // Runs the daemon in the foreground until killed.
 pub fn serve() -> Result<()> {
@@ -230,11 +306,11 @@ pub fn serve() -> Result<()> {
     let listener = UnixListener::bind(&path)?;
     println!("complier daemon listening on {}", path.display());
 
-    let machines: Machines = Arc::default();
+    let daemon: Arc<Daemon> = Arc::default();
     for stream in listener.incoming() {
-        let machines = machines.clone();
+        let daemon = daemon.clone();
         std::thread::spawn(move || {
-            if let Err(e) = handle(stream?, &machines) {
+            if let Err(e) = handle(stream?, &daemon) {
                 eprintln!("client error: {e:#}");
             }
             anyhow::Ok(())
@@ -243,11 +319,11 @@ pub fn serve() -> Result<()> {
     Ok(())
 }
 
-fn handle(stream: UnixStream, machines: &Machines) -> Result<()> {
+fn handle(stream: UnixStream, daemon: &Daemon) -> Result<()> {
     let mut line = String::new();
     BufReader::new(&stream).read_line(&mut line)?;
     let response = match serde_json::from_str::<Request>(&line) {
-        Ok(request) => match respond(request, machines) {
+        Ok(request) => match respond(request, daemon) {
             Ok(value) => json!({ "ok": value }),
             Err(e) => json!({ "error": format!("{e:#}") }),
         },
@@ -257,10 +333,12 @@ fn handle(stream: UnixStream, machines: &Machines) -> Result<()> {
     Ok(())
 }
 
-fn respond(request: Request, machines: &Machines) -> Result<Value> {
+fn respond(request: Request, daemon: &Daemon) -> Result<Value> {
+    let machines = &daemon.machines;
     match request {
         Request::Ping => Ok(json!("pong")),
-        Request::MachineUp { name, spec, units } => machine_up(machines, name, &spec, units),
+        Request::MachineUp { name, spec, units } => machine_up(daemon, name, &spec, units),
+        Request::Call { machine, role, tool, arguments } => call(daemon, &machine, &role, &tool, &arguments),
         Request::MachineDown { name } => {
             let mut all = machines.lock().unwrap();
             let mut machine = all.remove(&name).ok_or_else(|| anyhow!("no machine named {name}"))?;
@@ -306,12 +384,55 @@ fn respond(request: Request, machines: &Machines) -> Result<Value> {
     }
 }
 
-fn machine_up(machines: &Machines, name: String, spec: &Path, units: Vec<PathBuf>) -> Result<Value> {
+// Decides one harness tool call for an agent in `role`: {"allow": true, ...} or {"allow": false,
+// "reason"}. A translated call's event is performed on the machine before the answer, so a call that
+// is allowed has already moved the spec. Err means nothing could be decided (no such machine or
+// role, or the CEL backend failed); the hook refuses the call then too.
+fn call(daemon: &Daemon, machine: &str, role: &str, name: &str, args: &Value) -> Result<Value> {
+    let deny = |reason: String| Ok(json!({ "allow": false, "reason": reason }));
+    let route = {
+        let all = daemon.machines.lock().unwrap();
+        let m = all.get(machine).ok_or_else(|| anyhow!("no machine named {machine}"))?;
+        m.component(role)?;
+        m.route(name)
+    };
+    let (translator, tool) = match route {
+        Route::Hidden => return Ok(json!({ "allow": true, "hidden": true })),
+        Route::Unknown => {
+            return deny(format!("{name} isn't a tool of any service machine {machine}'s units cover; inside a complier machine only the tools its units name are allowed."))
+        }
+        Route::Unoffered(server, tool) => return deny(format!("{tool} isn't named by any of machine {machine}'s units for {server}, so it isn't available to role {role}.")),
+        Route::Translated(translator, tool) => (translator, tool),
+    };
+    let translated = {
+        let mut cel = daemon.cel.lock().unwrap();
+        if cel.is_none() {
+            *cel = Some(Backend::spawn()?);
+        }
+        let result = translator.translate(cel.as_mut().unwrap(), &tool, args);
+        if result.is_err() {
+            *cel = None; // the backend failed; start a fresh one for the next call
+        }
+        result?
+    };
+    let event = match translated {
+        Ok(event) => event,
+        Err(e) => return deny(format!("couldn't translate this {tool} call: {e}")),
+    };
+    let mut all = daemon.machines.lock().unwrap();
+    let m = all.get_mut(machine).ok_or_else(|| anyhow!("no machine named {machine}"))?;
+    match m.act(role, &event.channel, &event.value) {
+        Ok(()) => Ok(json!({ "allow": true, "event": translate::show(&event) })),
+        Err(e) => deny(format!("refused this {tool} call ({}): {e:#}", event.channel)),
+    }
+}
+
+fn machine_up(daemon: &Daemon, name: String, spec: &Path, units: Vec<PathBuf>) -> Result<Value> {
     let source = std::fs::read_to_string(spec).with_context(|| format!("reading {}", spec.display()))?;
     let contract = csp::parse(&source).map_err(|e| anyhow!("{}: {e}", spec.display()))?;
     no_inputs(&contract).map_err(|e| anyhow!("{}: {e}", spec.display()))?;
     let admitted = admit(&units)?;
-    let mut all = machines.lock().unwrap();
+    let mut all = daemon.machines.lock().unwrap();
     if all.contains_key(&name) {
         bail!("a machine named {name} is already running");
     }
@@ -323,6 +444,7 @@ fn machine_up(machines: &Machines, name: String, spec: &Path, units: Vec<PathBuf
         history,
         spec: spec.to_path_buf(),
         units: units.clone(),
+        routes: Vec::new(),
         contract,
         states,
         status: Status::Running,
@@ -332,8 +454,9 @@ fn machine_up(machines: &Machines, name: String, spec: &Path, units: Vec<PathBuf
         told_ended: Default::default(),
     };
     machine.record(json!({ "kind": "status", "status": Status::Running, "reason": "machine up", "state": machine.show() }));
-    for (unit, report) in admitted {
-        machine.record(json!({ "kind": "admission", "unit": unit, "report": report }));
+    for a in admitted {
+        machine.record(json!({ "kind": "admission", "unit": a.path, "report": a.report }));
+        machine.routes.push(UnitRoutes { server: a.unit.server, translator: a.translator.map(Arc::new), hidden: a.unit.hidden });
     }
     machine.advance();
     all.insert(name.clone(), machine);
@@ -353,8 +476,16 @@ fn no_inputs(contract: &Contract) -> Result<()> {
 // service (unit::load), and its translation proven by the CEL backend (translate::admit). The first
 // unit that isn't admitted keeps the machine from starting, and the reason, with any witness the
 // solver found, goes back to whoever asked.
-// A tool two units both name is refused here too, as the proxy would.
-fn admit(units: &[PathBuf]) -> Result<Vec<(PathBuf, Option<String>)>> {
+// A tool two units both name is refused here too. The CEL backend that proves them is stopped once
+// they're admitted; the daemon starts its own when an agent's first call needs translating.
+struct Admitted {
+    path: PathBuf,
+    unit: Unit,
+    translator: Option<Translator>,
+    report: Option<String>,
+}
+
+fn admit(units: &[PathBuf]) -> Result<Vec<Admitted>> {
     let mut cel = None;
     let mut offered: BTreeMap<(String, String), &Path> = BTreeMap::new();
     units
@@ -367,7 +498,11 @@ fn admit(units: &[PathBuf]) -> Result<Vec<(PathBuf, Option<String>)>> {
                 }
             }
             let admitted = translate::admit(&unit, &mut cel).with_context(|| format!("{} isn't admitted", path.display()))?;
-            Ok((path.clone(), admitted.map(|(_, report)| report.to_string())))
+            let (translator, report) = match admitted {
+                Some((translator, report)) => (Some(translator), Some(report.to_string())),
+                None => (None, None),
+            };
+            Ok(Admitted { path: path.clone(), unit, translator, report })
         })
         .collect()
 }
@@ -432,6 +567,7 @@ mod tests {
         Machine {
             spec: PathBuf::new(),
             units: Vec::new(),
+            routes: Vec::new(),
             states: contract.initial_states(),
             history: vec![Vec::new(); contract.components.len()],
             contract,
@@ -473,8 +609,8 @@ mod tests {
     fn a_stopping_agent_is_told_once_that_its_machine_ended() {
         let mut m = machine();
         m.set(Status::Deadlocked, "the spec can do nothing more");
-        let machines: Machines = Arc::new(Mutex::new([("demo".to_string(), m)].into()));
-        let stop = || respond(Request::Stop { machine: "demo".into(), role: "writer".into() }, &machines).unwrap();
+        let daemon = Daemon { machines: Mutex::new([("demo".to_string(), m)].into()), cel: Mutex::new(None) };
+        let stop = || respond(Request::Stop { machine: "demo".into(), role: "writer".into() }, &daemon).unwrap();
         let first = stop();
         assert_eq!(first["ended"], json!("deadlocked"));
         assert!(first["reason"].as_str().unwrap().contains("nothing more"));
@@ -487,6 +623,22 @@ mod tests {
         let e = no_inputs(&contract).unwrap_err().to_string();
         assert!(e.contains("?page_deleted") && e.contains("doesn't observe the world"), "{e}");
         assert!(no_inputs(&csp::parse(SPEC).unwrap()).is_ok());
+    }
+
+    #[test]
+    fn harness_tool_names_are_matched_to_services() {
+        assert_eq!(service_tool("mcp__notion__notion-update-page", "notion"), Some("notion-update-page"));
+        assert_eq!(service_tool("mcp__plugin_acme_notion__notion-fetch", "notion"), Some("notion-fetch"));
+        assert_eq!(service_tool("mcp__claude_ai_Notion__notion-fetch", "claude.ai Notion"), Some("notion-fetch"));
+        assert_eq!(service_tool("mcp__notionx__notion-fetch", "notion"), None);
+        assert_eq!(service_tool("mcp__plugin_acme_notionx__notion-fetch", "notion"), None);
+        assert_eq!(service_tool("Bash", "notion"), None);
+
+        let mut m = machine();
+        m.routes.push(UnitRoutes { server: "notion".into(), translator: None, hidden: vec!["notion-fetch".into()] });
+        assert!(matches!(m.route("mcp__notion__notion-fetch"), Route::Hidden));
+        assert!(matches!(m.route("mcp__notion__notion-delete"), Route::Unoffered(s, t) if s == "notion" && t == "notion-delete"));
+        assert!(matches!(m.route("mcp__github__create_issue"), Route::Unknown));
     }
 
     #[test]

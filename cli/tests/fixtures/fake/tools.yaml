@@ -6,6 +6,6 @@ tools:
   "peek": "efddc7bd8bbcef73"
   "write-item": "d832eb9956f1d7ca"
   "wipe": "efddc7bd8bbcef73"
-  # Edited for the test: not stale's live hash, so the proxy leaves stale out.
+  # Edited for the test: not stale's live hash (nothing checks hashes at call time now).
   "stale": "0000000000000000"
   "unlisted": "efddc7bd8bbcef73"

@@ -6,7 +6,6 @@ mod daemon;
 mod hooks;
 mod mcp;
 mod oauth;
-mod proxy;
 mod secrets;
 mod translate;
 mod unit;
@@ -68,7 +67,7 @@ enum Command {
         arguments: String,
     },
     /// Load a translation unit (YAML) and prove its translation with the CEL backend, as `machine up`
-    /// and the proxy do before running it, and print the report. Fails if the unit isn't admitted.
+    /// does before running it, and print the report. Fails if the unit isn't admitted.
     Check { unit: PathBuf },
     /// Classify one tool call with an admitted unit's translation and print its event, without
     /// calling anything upstream.
@@ -88,8 +87,6 @@ enum Command {
         #[command(subcommand)]
         command: MachineCommand,
     },
-    /// The MCP server an agent's harness talks to; binds to COMPLIER_MACHINE as COMPLIER_ROLE.
-    Proxy,
     /// Claude Code hooks; reads the machine and role from COMPLIER_MACHINE and COMPLIER_ROLE.
     Hook {
         #[command(subcommand)]
@@ -112,7 +109,7 @@ enum MachineCommand {
     },
     /// Stop a machine.
     Down { name: String },
-    /// Perform an action as an agent in a role (stands in for the proxy until it exists).
+    /// Perform an action as an agent in a role, as its hook would after translating a call.
     Act {
         name: String,
         #[arg(long)]
@@ -134,7 +131,7 @@ enum MachineCommand {
 enum HookCommand {
     /// Tells the agent its machine, role and what its spec lets it do.
     SessionStart,
-    /// Allows only complier's MCP tools and blocks edits to the config that enforces it.
+    /// Checks each MCP tool call with the daemon, and blocks edits to the config that enforces it.
     PreToolUse,
     /// Delivers what the agent's role can receive, waiting while it waits to receive.
     Stop,
@@ -151,7 +148,6 @@ fn main() -> Result<()> {
         Command::Translate { unit, tool, arguments } => translate(&unit, &tool, &arguments),
         Command::Up => daemon::serve(),
         Command::Machine { command } => machine(command),
-        Command::Proxy => proxy::serve(),
         Command::Hook { command: HookCommand::SessionStart } => hooks::session_start(),
         Command::Hook { command: HookCommand::PreToolUse } => hooks::pre_tool_use(),
         Command::Hook { command: HookCommand::Stop } => hook_stop(),

@@ -1,13 +1,14 @@
-// End to end, on the real binary, daemon, proxy and CEL backend, against fixtures/fake-server.mjs
-// in a throwaway HOME: no credentials, nothing outside the temp directory is touched. Needs node
-// (only to run the fake server, which is registered by its absolute path) and the CEL backend
-// (cel/build.sh). Every complier process runs with a PATH that holds nothing, so nothing in
-// loading, proving or classifying a unit can be running node.
+// End to end, on the real binary, daemon, hooks and CEL backend, in a throwaway HOME: no
+// credentials, and nothing outside the temp directory is touched. Each agent tool call is sent
+// through `complier hook pre-tool-use` exactly as Claude Code sends it (the hook's JSON on stdin,
+// its decision on stdout). complier never contacts a service itself, so no server runs here. Needs
+// the CEL backend (cel/build.sh). Every complier process runs with a PATH that holds nothing, so
+// nothing in loading, proving or classifying a unit can be running another program.
 
 use serde_json::{json, Value};
-use std::io::{BufRead, BufReader, Write};
+use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
+use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
 const BIN: &str = env!("CARGO_BIN_EXE_complier");
@@ -18,30 +19,26 @@ fn fixture(name: &str) -> PathBuf {
 
 struct Env {
     home: PathBuf,
-    // The fake server's directory: what it was started for and what it was called with.
-    server: PathBuf,
     path: PathBuf,
-    daemon: Child,
+    daemon: Option<Child>,
 }
 
 impl Env {
     fn new(name: &str) -> Self {
+        Self::with(name, &[])
+    }
+
+    // With extra environment for the daemon, which proves units and translates calls.
+    fn with(name: &str, extra: &[(&str, &str)]) -> Self {
         let home = std::env::temp_dir().join(format!("complier-e2e-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&home);
-        let server = home.join("server");
         let path = home.join("empty-path");
-        std::fs::create_dir_all(&server).unwrap();
         std::fs::create_dir_all(&path).unwrap();
-        let env = |c: &mut Command| {
-            c.env("HOME", &home).env("PATH", &path);
-        };
-        let node = String::from_utf8(Command::new("sh").args(["-c", "command -v node"]).output().unwrap().stdout).unwrap();
-        let mut add = Command::new(BIN);
-        env(&mut add);
-        let status = add.args(["add", "fake", "--", node.trim()]).arg(fixture("fake-server.mjs")).arg(&server).status().unwrap();
-        assert!(status.success());
         let mut up = Command::new(BIN);
-        env(&mut up);
+        up.env("HOME", &home).env("PATH", &path);
+        for (k, v) in extra {
+            up.env(k, v);
+        }
         let daemon = up.arg("up").stdout(Stdio::null()).spawn().unwrap();
         let socket = home.join(".complier/daemon.sock");
         let start = Instant::now();
@@ -49,7 +46,7 @@ impl Env {
             assert!(start.elapsed() < Duration::from_secs(10), "daemon didn't start");
             std::thread::sleep(Duration::from_millis(50));
         }
-        Self { home, server, path, daemon }
+        Self { home, path, daemon: Some(daemon) }
     }
 
     fn complier(&self, args: &[&str]) -> (bool, String) {
@@ -67,22 +64,11 @@ impl Env {
         self.complier(&args.iter().map(String::as_str).collect::<Vec<_>>())
     }
 
-    fn calls(&self) -> Vec<Value> {
-        let text = std::fs::read_to_string(self.server.join("calls.jsonl")).unwrap_or_default();
-        text.lines().map(|l| serde_json::from_str(l).unwrap()).collect()
-    }
-
-    // How many times the fake server has been started.
-    fn starts(&self) -> usize {
-        std::fs::read_to_string(self.server.join("starts.log")).unwrap_or_default().lines().count()
-    }
-
-    // The daemon's child processes (the CEL backend while it proves, nothing else).
+    // The daemon's child processes (the CEL backend once a call needs it, nothing else).
     fn daemon_children(&self) -> Vec<String> {
-        let tasks = std::fs::read_dir(format!("/proc/{}/task", self.daemon.id())).unwrap();
-        tasks
-            .flat_map(|t| std::fs::read_to_string(t.unwrap().path().join("children")).unwrap_or_default().split_whitespace().map(String::from).collect::<Vec<_>>())
-            .collect()
+        let pid = self.daemon.as_ref().unwrap().id().to_string();
+        let out = Command::new("pgrep").args(["-P", &pid]).output().unwrap();
+        String::from_utf8_lossy(&out.stdout).split_whitespace().map(String::from).collect()
     }
 
     fn log(&self, machine: &str) -> Vec<Value> {
@@ -90,69 +76,52 @@ impl Env {
         text.lines().map(|l| serde_json::from_str(l).unwrap()).collect()
     }
 
-    fn proxy(&self, machine: &str, extra: &[(&str, &str)]) -> Proxy {
-        let mut c = Command::new(BIN);
-        c.env("HOME", &self.home).env("PATH", &self.path).env("COMPLIER_MACHINE", machine).env("COMPLIER_ROLE", "writer");
-        for (k, v) in extra {
-            c.env(k, v);
+    // An agent in `machine` as `writer` attempts `tool` (a harness tool name): the pre-tool-use
+    // hook's verdict, as (allowed, reason). An allowed call gets no output, so the harness's own
+    // permissions still apply.
+    fn attempt(&self, machine: &str, tool: &str, args: Value) -> (bool, String) {
+        let mut child = Command::new(BIN)
+            .env("HOME", &self.home)
+            .env("PATH", &self.path)
+            .env("COMPLIER_MACHINE", machine)
+            .env("COMPLIER_ROLE", "writer")
+            .args(["hook", "pre-tool-use"])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let input = json!({ "hook_event_name": "PreToolUse", "tool_name": tool, "tool_input": args });
+        child.stdin.take().unwrap().write_all(input.to_string().as_bytes()).unwrap();
+        let out = child.wait_with_output().unwrap();
+        assert!(out.status.success(), "the hook failed: {}", String::from_utf8_lossy(&out.stderr));
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        if stdout.trim().is_empty() {
+            return (true, String::new());
         }
-        let mut child = c.arg("proxy").stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn().unwrap();
-        let stdin = child.stdin.take().unwrap();
-        let stdout = BufReader::new(child.stdout.take().unwrap());
-        let mut proxy = Proxy { child, stdin, stdout, id: 0 };
-        proxy.request("initialize", json!({ "protocolVersion": "2025-06-18" }));
-        proxy
+        let decision: Value = serde_json::from_str(&stdout).unwrap();
+        let d = &decision["hookSpecificOutput"];
+        assert_eq!(d["permissionDecision"], "deny", "{decision}");
+        (false, d["permissionDecisionReason"].as_str().unwrap().to_string())
+    }
+
+    fn stop_daemon(&mut self) {
+        if let Some(mut d) = self.daemon.take() {
+            let _ = d.kill();
+            let _ = d.wait();
+        }
     }
 }
 
 impl Drop for Env {
     fn drop(&mut self) {
-        let _ = self.daemon.kill();
-        let _ = self.daemon.wait();
+        self.stop_daemon();
         let _ = std::fs::remove_dir_all(&self.home);
     }
 }
 
-struct Proxy {
-    child: Child,
-    stdin: ChildStdin,
-    stdout: BufReader<ChildStdout>,
-    id: u64,
-}
-
-impl Proxy {
-    fn request(&mut self, method: &str, params: Value) -> Value {
-        self.id += 1;
-        writeln!(self.stdin, "{}", json!({ "jsonrpc": "2.0", "id": self.id, "method": method, "params": params })).unwrap();
-        let mut line = String::new();
-        self.stdout.read_line(&mut line).unwrap();
-        let reply: Value = serde_json::from_str(&line).unwrap();
-        reply["result"].clone()
-    }
-
-    fn tools(&mut self) -> Vec<String> {
-        let tools = self.request("tools/list", json!({}));
-        let mut names: Vec<String> = tools["tools"].as_array().unwrap().iter().map(|t| t["name"].as_str().unwrap().to_string()).collect();
-        names.sort();
-        names
-    }
-
-    // (whether the call went through, the text it came back with)
-    fn call(&mut self, tool: &str, args: Value) -> (bool, String) {
-        let result = self.request("tools/call", json!({ "name": tool, "arguments": args }));
-        (result["isError"] != true, result["content"][0]["text"].as_str().unwrap_or_default().to_string())
-    }
-}
-
-impl Drop for Proxy {
-    fn drop(&mut self) {
-        let _ = self.child.kill();
-        let _ = self.child.wait();
-    }
-}
-
 #[test]
-fn yaml_units_are_proven_and_calls_checked_with_nothing_polling() {
+fn yaml_units_are_proven_and_every_mcp_call_is_checked_by_the_hook() {
     let env = Env::new("main");
     // Two units over the same server: the translated writes, and a second that hides a read.
     let (ok, out) = env.machine_up("m", "writer.csp", &["fake.yaml", "reader.yaml"]);
@@ -163,50 +132,50 @@ fn yaml_units_are_proven_and_calls_checked_with_nothing_polling() {
     assert!(report.contains("admitted: every pair") && report.contains("Z3 4.14.1"), "{report}");
     assert!(admissions[1]["report"].is_null()); // reader.yaml translates nothing
 
-    // Nothing polls: the daemon never starts the server, and keeps no process running.
+    // Nothing polls: once the units are proven the daemon keeps no process running.
     std::thread::sleep(Duration::from_millis(1500));
-    assert_eq!(env.starts(), 0);
     assert!(env.daemon_children().is_empty(), "{:?}", env.daemon_children());
 
-    let mut proxy = env.proxy("m", &[]);
-    assert_eq!(env.starts(), 1); // the proxy's one upstream session, shared by both units
-    // Translated and hidden tools; not the unlisted one, or the one whose schema drifted.
-    assert_eq!(proxy.tools(), ["list-items", "peek", "wipe", "write-item"]);
-
-    let (ok, text) = proxy.call("write-item", json!({ "id": "x1" }));
+    let (ok, text) = env.attempt("m", "mcp__fake__write-item", json!({ "id": "x1" }));
     assert!(ok, "{text}");
-    assert_eq!(env.calls().last().unwrap()["arguments"]["id"], "x1");
 
-    // appended again isn't allowed now: refused by the spec, and never sent upstream.
-    let (ok, text) = proxy.call("write-item", json!({ "id": "x2" }));
+    // appended again isn't allowed now: refused by the spec.
+    let (ok, text) = env.attempt("m", "mcp__fake__write-item", json!({ "id": "x2" }));
     assert!(!ok && text.contains("refused") && text.contains("appended"), "{text}");
-    assert_eq!(env.calls().len(), 1);
 
-    let (ok, text) = proxy.call("write-item", json!({ "id": "x2", "mode": "replace" }));
+    // A plugin's copy of the same server is the same service.
+    let (ok, text) = env.attempt("m", "mcp__plugin_acme_fake__write-item", json!({ "id": "x2", "mode": "replace" }));
     assert!(ok, "{text}");
 
     // In the domain, matched by no rule: the fallback event, which this spec doesn't allow.
-    let (ok, text) = proxy.call("wipe", json!({}));
+    let (ok, text) = env.attempt("m", "mcp__fake__wipe", json!({}));
     assert!(!ok && text.contains("(other)") && text.contains("isn't something role writer does"), "{text}");
-    let (ok, text) = proxy.call("write-item", json!({ "id": "x3", "mode": "upsert" }));
+    let (ok, text) = env.attempt("m", "mcp__fake__write-item", json!({ "id": "x3", "mode": "upsert" }));
     assert!(!ok && text.contains("(other)"), "{text}");
 
     // No event at all: outside the domain, or arguments of the wrong type.
-    let (ok, text) = proxy.call("write-item", json!({}));
+    let (ok, text) = env.attempt("m", "mcp__fake__write-item", json!({}));
     assert!(!ok && text.contains("couldn't translate") && text.contains("outside"), "{text}");
-    let (ok, text) = proxy.call("write-item", json!({ "id": 5 }));
+    let (ok, text) = env.attempt("m", "mcp__fake__write-item", json!({ "id": 5 }));
     assert!(!ok && text.contains("id: expected a string, got a number"), "{text}");
-    assert_eq!(env.calls().len(), 2);
 
-    let (ok, text) = proxy.call("peek", json!({}));
-    assert!(ok && text == "did peek", "{text}");
-    let (ok, text) = proxy.call("list-items", json!({}));
-    assert!(ok && text == "did list-items", "{text}");
-    let (ok, text) = proxy.call("unlisted", json!({}));
-    assert!(!ok && text.contains("isn't available"), "{text}");
-    assert_eq!(env.calls().len(), 4);
+    // Hidden tools go through unchecked, from either unit.
+    assert!(env.attempt("m", "mcp__fake__peek", json!({})).0);
+    assert!(env.attempt("m", "mcp__fake__list-items", json!({})).0);
+    // A tool of the service that no unit names, and a server no unit covers, are blocked.
+    let (ok, text) = env.attempt("m", "mcp__fake__unlisted", json!({}));
+    assert!(!ok && text.contains("isn't available to role writer"), "{text}");
+    let (ok, text) = env.attempt("m", "mcp__github__create_issue", json!({}));
+    assert!(!ok && text.contains("isn't a tool of any service"), "{text}");
 
-    // The accepted actions are logged with their values, as before; nothing else moved the machine.
+    // Built-in tools aren't the daemon's business, but the config that enforces all this is off-limits.
+    assert!(env.attempt("m", "Read", json!({ "file_path": "/tmp/notes.md" })).0);
+    let (ok, text) = env.attempt("m", "Edit", json!({ "file_path": "/repo/.mcp.json" }));
+    assert!(!ok && text.contains("configures what constrains you"), "{text}");
+    let (ok, _) = env.attempt("m", "Bash", json!({ "command": "complier machine down m" }));
+    assert!(!ok);
+
+    // The accepted actions are logged with their values; nothing else moved the machine.
     let log = env.log("m");
     let acts: Vec<(String, String)> = log
         .iter()
@@ -217,7 +186,6 @@ fn yaml_units_are_proven_and_calls_checked_with_nothing_polling() {
     assert!(acts.contains(&("replaced.x2".into(), "accepted".into())), "{acts:?}");
     assert!(acts.contains(&("other.wipe".into(), "refused".into())), "{acts:?}");
     assert!(log.iter().all(|e| ["status", "admission", "act"].contains(&e["kind"].as_str().unwrap())), "{log:#?}");
-    assert_eq!(env.starts(), 1);
 }
 
 #[test]
@@ -225,13 +193,11 @@ fn the_fallback_is_allowed_only_when_the_spec_allows_it() {
     let env = Env::new("fallback");
     let (ok, out) = env.machine_up("w", "wiper.csp", &["fake.yaml"]);
     assert!(ok, "{out}");
-    let mut proxy = env.proxy("w", &[]);
-    let (ok, text) = proxy.call("write-item", json!({ "id": "x1" }));
+    let (ok, text) = env.attempt("w", "mcp__fake__write-item", json!({ "id": "x1" }));
     assert!(!ok && text.contains("appended isn't something role writer does"), "{text}");
-    let (ok, text) = proxy.call("wipe", json!({}));
+    let (ok, text) = env.attempt("w", "mcp__fake__wipe", json!({}));
     assert!(ok, "{text}");
-    assert_eq!(env.calls().last().unwrap()["name"], "wipe");
-    let (ok, _) = proxy.call("wipe", json!({}));
+    let (ok, _) = env.attempt("w", "mcp__fake__wipe", json!({}));
     assert!(!ok); // once
 }
 
@@ -269,27 +235,31 @@ fn bad_or_unproven_units_and_input_specs_let_nothing_through() {
     let (_, ls) = env.complier(&["machine", "ls"]);
     assert!(!ls.contains("bad"), "{ls}");
 
-    // A unit that breaks after machine up: the proxy offers nothing and never starts the server.
+    // A unit edited after machine up changes nothing: the machine keeps the version it proved.
     let unit = dir.join("fake.yaml");
     std::fs::write(&unit, std::fs::read_to_string(fixture("fake.yaml")).unwrap().replace("fake/service.yaml", service.to_str().unwrap())).unwrap();
     let (ok, out) = env.machine_up("edited", "writer.csp", &[unit.to_str().unwrap()]);
     assert!(ok, "{out}");
     std::fs::write(&unit, "service: [\n").unwrap();
-    let mut proxy = env.proxy("edited", &[]);
-    assert!(proxy.tools().is_empty());
-    let (ok, _) = proxy.call("write-item", json!({ "id": "x1" }));
-    assert!(!ok);
-    drop(proxy);
+    let (ok, text) = env.attempt("edited", "mcp__fake__write-item", json!({ "id": "x1" }));
+    assert!(ok, "{text}");
 
-    // The machine is up, but this proxy can't run the CEL backend: it offers nothing.
+    // Outside a known machine, or with the daemon gone, every MCP call is refused.
+    let (ok, text) = env.attempt("nowhere", "mcp__fake__peek", json!({}));
+    assert!(!ok && text.contains("no machine named nowhere"), "{text}");
+    let mut env = env;
+    env.stop_daemon();
+    let (ok, text) = env.attempt("edited", "mcp__fake__peek", json!({}));
+    assert!(!ok && text.contains("daemon isn't running"), "{text}");
+}
+
+#[test]
+fn without_a_cel_backend_no_unit_is_admitted() {
+    let env = Env::with("nocel", &[("COMPLIER_CEL", "/nonexistent/backend.json")]);
     let (ok, out) = env.machine_up("m", "writer.csp", &["fake.yaml"]);
-    assert!(ok, "{out}");
-    let mut proxy = env.proxy("m", &[("COMPLIER_CEL", "/nonexistent/backend.json")]);
-    assert!(proxy.tools().is_empty());
-    let (ok, text) = proxy.call("write-item", json!({ "id": "x1" }));
-    assert!(!ok, "{text}");
-    assert!(env.calls().is_empty());
-    assert_eq!(env.starts(), 0);
+    assert!(!ok && out.contains("no CEL backend"), "{out}");
+    let (ok, text) = env.attempt("m", "mcp__fake__write-item", json!({ "id": "x1" }));
+    assert!(!ok && text.contains("no machine named m"), "{text}");
 }
 
 // The Notion unit, proven and exercised offline: `translate` calls nothing upstream, and with an

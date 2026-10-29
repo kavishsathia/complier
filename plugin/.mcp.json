@@ -1,8 +1,0 @@
-{
-  "mcpServers": {
-    "complier": {
-      "command": "complier",
-      "args": ["proxy"]
-    }
-  }
-}

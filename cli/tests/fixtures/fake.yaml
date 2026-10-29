@@ -1,5 +1,5 @@
-# The end-to-end test's unit, over fake-server.mjs: CEL rules for the agent's writes, a hidden
-# read, and a translated tool whose schema has drifted since fake/tools.yaml was generated.
+# The end-to-end test's unit, over the fake service: CEL rules for the agent's writes and a
+# hidden read.
 service: fake/service.yaml
 translate:
   tools: [write-item, wipe, stale]
