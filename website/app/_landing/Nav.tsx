@@ -59,14 +59,14 @@ export default function Nav({ repo }: { repo: string }) {
           </Link>
         </li>
         <li className="nav-mid">
-          <a href="#how" onClick={close}>
+          <Link href="/#how" onClick={close}>
             How it works
-          </a>
+          </Link>
         </li>
         <li>
-          <a href="#get-started" onClick={close}>
+          <Link href="/get-started" prefetch={false} onClick={close}>
             Get started
-          </a>
+          </Link>
         </li>
         <li className="nav-wide">
           <Link href="/progress" prefetch={false} onClick={close}>

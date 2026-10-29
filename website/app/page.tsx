@@ -54,10 +54,10 @@ export default function Home() {
               it, and a call that&apos;s out of turn is refused.
             </p>
             <div className="ctas">
-              <a className="btn btn-primary" href="#get-started">
+              <Link className="btn btn-primary" href="/get-started" prefetch={false}>
                 Get started
                 <span aria-hidden="true">→</span>
-              </a>
+              </Link>
               <Link className="btn btn-outline" href="/playground" prefetch={false}>
                 Open the playground
               </Link>
@@ -101,16 +101,16 @@ export default function Home() {
           <Image src={mascot} alt="" className="cta-mascot" sizes="96px" />
           <div className="cta-text">
             <h2 id="start-title">Put your agents on a contract.</h2>
-            <p>A research project. Build it from the repository.</p>
+            <p>A research project for macOS and Linux. Setup takes about fifteen minutes.</p>
           </div>
           <div className="ctas">
-            <a className="btn btn-primary" href={REPO}>
-              Open the repository
+            <Link className="btn btn-primary" href="/get-started" prefetch={false}>
+              Get started
               <span aria-hidden="true">→</span>
-            </a>
-            <Link className="btn btn-outline" href="/stepper" prefetch={false}>
-              Step through a contract
             </Link>
+            <a className="btn btn-outline" href={REPO}>
+              Open the repository
+            </a>
           </div>
         </section>
       </main>
@@ -119,6 +119,9 @@ export default function Home() {
         <span className="footer-brand">complier</span>
         <nav aria-label="Footer">
           <a href={REPO}>GitHub</a>
+          <Link href="/get-started" prefetch={false}>
+            Get started
+          </Link>
           <Link href="/playground" prefetch={false}>
             Playground
           </Link>
