@@ -98,7 +98,7 @@ pub struct Report {
 
 impl fmt::Display for Report {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        writeln!(f, "FDR {}", self.fdr)?;
+        writeln!(f, "{}", self.fdr.split(" copyright").next().unwrap_or(&self.fdr))?;
         if let Some(p) = &self.problem {
             writeln!(f, "  error: {p}")?;
         }

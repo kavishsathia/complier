@@ -69,6 +69,9 @@ enum Command {
     /// Load a translation unit (YAML) and prove its translation with the CEL backend, as `machine up`
     /// does before running it, and print the report. Fails if the unit isn't admitted.
     Check { unit: PathBuf },
+    /// Have FDR prove a spec's policy and compile it, as `machine up` does, and print the report.
+    /// Fails if the policy isn't admitted. Needs your own FDR (fdr/README.md).
+    Verify { spec: PathBuf },
     /// Classify one tool call with an admitted unit's translation and print its event, without
     /// calling anything upstream.
     ///
@@ -145,6 +148,7 @@ fn main() -> Result<()> {
         Command::Gen { names, out } => generate(&names, &out),
         Command::Call { name, tool, arguments } => call(&name, &tool, &arguments),
         Command::Check { unit } => check(&unit).map(|_| ()),
+        Command::Verify { spec } => verify(&spec),
         Command::Translate { unit, tool, arguments } => translate(&unit, &tool, &arguments),
         Command::Up => daemon::serve(),
         Command::Machine { command } => machine(command),
@@ -233,6 +237,17 @@ fn check(unit: &Path) -> Result<(Option<translate::Translator>, Option<cel::Back
             Ok((None, cel))
         }
         Err(e) => bail!("{} isn't admitted: {e:#}", unit.display()),
+    }
+}
+
+fn verify(spec: &Path) -> Result<()> {
+    match fdr::compile(spec)? {
+        Ok(compiled) => {
+            println!("{}", compiled.report);
+            println!("roles: {}; actions: {}; {} states", compiled.roles.join(", "), compiled.acts.join(", "), compiled.automaton.edges.len());
+            Ok(())
+        }
+        Err(report) => bail!("{} isn't admitted:\n{report}", spec.display()),
     }
 }
 
