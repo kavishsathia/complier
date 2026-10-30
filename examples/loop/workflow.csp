@@ -1,0 +1,28 @@
+-- A loop of rounds, for one agent: check the time; up to 15 edits; check the page in the browser
+-- (the only way out of editing); commit; push; watch CI; notify; check the time again. Under
+-- 30 minutes since the first check, another round; otherwise done. For a quick try, lower 30.
+
+datatype Act = check_time | edit | browse | commit | push | monitor | notify
+datatype Value = done | failed | minutes.{0..119}
+
+Returns(check_time) = union({minutes.t | t <- {0..119}}, {failed})
+Returns(_)          = {done, failed}
+
+Policy = Permit(check_time, Start)
+Start(minutes.t) = Edit(t, 0)
+Start(failed)    = Policy
+
+Edit(s, n) =  n < 15  & Permit(edit, \ _ @ Edit(s, n + 1))
+           [] n == 15 & Deny(edit, Edit(s, n))
+           [] Permit(browse, \ _ @ Browse(s))
+
+Browse(s)  =  Permit(browse, \ _ @ Browse(s))
+           [] Permit(commit, \ _ @ Push(s))
+
+Push(s)    = Permit(push, \ _ @ Monitor(s))
+Monitor(s) = Permit(monitor, \ _ @ Notify(s))
+Notify(s)  = Permit(notify, \ _ @ Check(s))
+
+Check(s)   = Permit(check_time, \ v @ Decide(s, v))
+Decide(s, minutes.now) = if (now - s + 120) % 120 >= 30 then SKIP else Edit(s, 0)
+Decide(s, failed)      = Check(s)

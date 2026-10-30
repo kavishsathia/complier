@@ -175,11 +175,18 @@ complier --version            # complier 0.1.0`}</Code>
               <strong>translation unit</strong> says which tool calls count as which steps, in CEL, and the{" "}
               <strong>contract</strong> says the order the steps may happen in, in CSP:
             </p>
-            <Code label="examples/demo/draft.csp">{`datatype Role = writer
-datatype Act = draft | recreate | other
-Policy = Draft
-Draft = Permit(writer, draft, Recreate) [] Deny(writer, other, Draft)
-Recreate = Permit(writer, recreate, Draft) [] Deny(writer, other, Recreate)`}</Code>
+            <Code label="examples/demo/draft.csp">{`datatype Act = draft | recreate | other
+datatype Value = done | failed
+Returns(_) = {done, failed}
+
+Policy   = Draft
+Draft    = Permit(draft, \\ _ @ Recreate) [] Deny(other, Draft)
+Recreate = Permit(recreate, \\ _ @ Draft) [] Deny(other, Recreate)`}</Code>
+            <p>
+              <code>Permit(x, P)</code> lets a call through and passes its result to <code>P</code>;{" "}
+              <code>Returns(x)</code> says what a call of <code>x</code> can return. Here no result matters, so{" "}
+              <code>{"\\ _ @"}</code> ignores it.
+            </p>
             <p>
               Prove both. <code>check</code> has the CEL verifier show that no call matches two rules and none falls
               through; <code>verify</code> has FDR show that every attempt gets an answer and nothing deadlocks. Nothing
@@ -206,11 +213,11 @@ complier verify examples/demo/draft.csp`}</Code>
                 will be blocked as uncovered.
               </p>
             </Note>
-            <p>Start Claude Code with complier&apos;s plugin, in the machine and role it should act as:</p>
+            <p>Start Claude Code with complier&apos;s plugin, bound to the machine:</p>
             <Code>{`COMPLIER_MACHINE=demo COMPLIER_ROLE=writer \\
   claude --plugin-dir ~/complier/plugin`}</Code>
             <p>
-              The plugin&apos;s hook asks complier before every MCP tool call. Ask the agent to edit a page twice: the
+              The plugin&apos;s hook asks complier before every tool call. Ask the agent to edit a page twice: the
               first edit runs as <code>draft</code>, and the second is refused, with the reason, because the contract now
               expects a <code>recreate</code>. Tools the unit doesn&apos;t name are blocked.
             </p>
@@ -222,15 +229,52 @@ complier verify examples/demo/draft.csp`}</Code>
 complier machine down demo`}</Code>
           </Step>
 
-          <Step n={8} title="Write your own">
+          <Step n={8} title="Try a longer workflow">
+            <p>
+              <code>examples/loop</code> runs an agent in rounds for half an hour, on Claude Code&apos;s own tools and
+              its Chrome integration. Each round: check the time, make up to 15 edits, look at the page in the browser
+              (the only way out of editing), commit, push, watch CI, send you a notification, and check the time again.
+              The time check&apos;s result is bound by the contract: under 30 minutes since the first one, another
+              round; otherwise it&apos;s done, and until then complier won&apos;t let the agent stop.
+            </p>
+            <p>The agent works on a copy of a small page in your own GitHub repository, with CI:</p>
+            <Code>{`git clone https://github.com/kavishsathia/complier-loop-test ~/loop-test
+cd ~/loop-test
+git remote remove origin
+gh repo create loop-test --private --source . --push
+python3 -m http.server 8799      # serves the page; leave it running`}</Code>
+            <p>In another terminal, prove the workflow, start its machine, and watch it:</p>
+            <Code>{`cd ~/complier
+complier verify examples/loop/workflow.csp
+complier machine up loop \\
+  --spec examples/loop/workflow.csp \\
+  --unit examples/loop/claude-code.yaml \\
+  --unit examples/loop/chrome.yaml
+complier machine log loop --follow`}</Code>
+            <p>
+              In a third, start Claude Code with Chrome, check the browser is connected with <code>/chrome</code>, and
+              paste in <code>examples/loop/prompt.md</code>:
+            </p>
+            <Code>{`cd ~/loop-test
+COMPLIER_MACHINE=loop COMPLIER_ROLE=dev \\
+  claude --chrome --plugin-dir ~/complier/plugin`}</Code>
+            <Note>
+              <p>
+                For a quick try, lower <code>30</code> in <code>examples/loop/workflow.csp</code> to a few minutes,
+                then <code>complier machine down loop</code> and start it again.
+              </p>
+            </Note>
+          </Step>
+
+          <Step n={9} title="Write your own">
             <ul>
               <li>
                 <strong>Translation units</strong> map a service&apos;s tool calls to actions with CEL rules. The{" "}
                 <a href={`${REPO}/tree/main/cel`}>unit reference</a> covers the format and what&apos;s proven.
               </li>
               <li>
-                <strong>Contracts</strong> are CSP policies built from <code>Permit</code>, <code>Deny</code> and{" "}
-                <code>PermitIf</code>, with any of your own <code>assert</code>s. The{" "}
+                <strong>Contracts</strong> are CSP policies built from <code>Permit</code> and <code>Deny</code>,
+                binding call results where they matter, with any of your own <code>assert</code>s. The{" "}
                 <a href={`${REPO}/tree/main/fdr`}>contract reference</a> lists what FDR checks.
               </li>
               <li>
