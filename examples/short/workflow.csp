@@ -1,0 +1,13 @@
+-- A pre-commit gate, for one agent: it may edit and run the page's check as often as it likes, but
+-- it may commit only if the check passed after its last edit. The check's result is bound.
+datatype Act = edit | check | commit
+datatype Value = done | failed
+Returns(_) = {done, failed}
+
+Policy = Unchecked
+Unchecked = Permit(edit, \ _ @ Unchecked)
+         [] Permit(check, \ v @ (if v == done then Checked else Unchecked))
+         [] Deny(commit, Unchecked)
+Checked   = Permit(edit, \ _ @ Unchecked)
+         [] Permit(check, \ v @ (if v == done then Checked else Unchecked))
+         [] Permit(commit, \ _ @ SKIP)

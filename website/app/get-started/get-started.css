@@ -11,7 +11,7 @@
 }
 
 .gs-head {
-  padding: 64px 0 36px;
+  padding: 28px 0 36px;
   border-bottom: 1px solid var(--line);
 }
 
@@ -243,4 +243,43 @@
     grid-template-columns: minmax(0, 1fr);
     gap: 10px;
   }
+}
+
+/* ---- tabs between the three pages ---- */
+
+.gs-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-top: 32px;
+}
+
+.gs-tabs a {
+  padding: 6px 14px;
+  border: 1px solid var(--line-2);
+  border-radius: 999px;
+  color: var(--ink-2);
+  font-weight: 600;
+  font-size: 0.92rem;
+  text-decoration: none;
+}
+
+.gs-tabs a:hover {
+  border-color: var(--purple);
+  color: var(--ink);
+}
+
+.gs-tabs a.is-on {
+  border-color: var(--purple-ink);
+  background: var(--purple-wash);
+  color: var(--purple-ink);
+}
+
+.gs > .gs-note {
+  margin-top: 24px;
+}
+
+.landing .gs-code.is-wrapped code {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
