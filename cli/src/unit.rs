@@ -55,13 +55,26 @@ fn relative(to: &Path, path: &str) -> PathBuf {
     to.parent().unwrap_or(Path::new(".")).join(path)
 }
 
+// A unit's `service`: the name of a service complier ships (`claude-code`, `claude-in-chrome`,
+// `notion`), or a path to a service.yaml of the unit's own, relative to the unit.
+fn service_file(unit: &Path, service: &str) -> PathBuf {
+    if !service.contains('/') && !service.ends_with(".yaml") {
+        let packages = match crate::install::root() {
+            Some(root) => root.join("packages"),
+            None => PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../packages")),
+        };
+        return packages.join(service).join("service.yaml");
+    }
+    relative(unit, service)
+}
+
 pub fn load(path: &Path) -> Result<Unit> {
     let root = read(path)?;
     let file = path.display().to_string();
     let doc = Doc { file: &file };
     let top = doc.fields(&root, "unit", &["service"], &["translate", "hidden"])?;
 
-    let service_path = relative(path, doc.str(top.req("service"), "service")?);
+    let service_path = service_file(path, doc.str(top.req("service"), "service")?);
     let service = load_service(&service_path).with_context(|| format!("{file}: loading its service"))?;
     let known = |n: &Node, tool: &str, what: &str| -> Result<()> {
         match service.hashes.contains_key(tool) {
@@ -285,6 +298,20 @@ mod tests {
 
         let u = unit("defaults", "service: SERVICE\ntranslate:\n  tools: [wipe]\n  rules:\n    a: { when: 'true', emit: other }\n").unwrap();
         assert_eq!(u.translation.unwrap().fallback.emit, "other_2");
+    }
+
+    #[test]
+    fn a_service_complier_ships_is_named_not_pathed() {
+        let dir = std::env::temp_dir().join(format!("complier-unit-{}-named", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("unit.yaml");
+        std::fs::write(&path, "service: claude-code\ntranslate:\n  tools: [Bash]\n  rules:\n    a: { when: 'true', emit: a }\nhidden: [Read]\n").unwrap();
+        let u = load(&path).unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(u.server, "claude-code");
+        assert_eq!(u.hidden, ["Read"]);
+        let e = format!("{:#}", unit("unknown-service", "service: nosuch\nhidden: [peek]\n").err().unwrap());
+        assert!(e.contains("loading its service") && e.contains("nosuch/service.yaml"), "{e}");
     }
 
     #[test]

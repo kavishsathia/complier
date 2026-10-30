@@ -12,7 +12,7 @@ mod translate;
 mod unit;
 mod yaml;
 
-use anyhow::{bail, Result};
+use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
 use config::Server;
 use std::io::{IsTerminal, Read};
@@ -105,12 +105,17 @@ enum Command {
 #[derive(Subcommand)]
 enum MachineCommand {
     /// Start a machine from a spec; its agents' tool calls are translated by the given units.
+    ///
+    /// complier machine up loop .complier/loop      # a folder: its one .csp and every .yaml unit
+    /// complier machine up demo --spec draft.csp --unit draft.yaml
     Up {
         name: String,
-        #[arg(long)]
-        spec: PathBuf,
+        /// A folder holding the spec (one .csp file) and its units (.yaml files).
+        dir: Option<PathBuf>,
+        #[arg(long, conflicts_with = "dir", required_unless_present = "dir")]
+        spec: Option<PathBuf>,
         /// Translation unit (YAML) for the tools the machine's agents may call (repeatable).
-        #[arg(long = "unit")]
+        #[arg(long = "unit", conflicts_with = "dir")]
         units: Vec<PathBuf>,
     },
     /// Stop a machine.
@@ -306,7 +311,12 @@ fn translate(unit: &Path, tool: &str, arguments: &str) -> Result<()> {
 
 fn machine(command: MachineCommand) -> Result<()> {
     match command {
-        MachineCommand::Up { name, spec, units } => {
+        MachineCommand::Up { name, dir, spec, units } => {
+            let (spec, units) = match (dir, spec) {
+                (Some(dir), _) => workflow_dir(&dir)?,
+                (None, Some(spec)) => (spec, units),
+                (None, None) => bail!("give a folder, or --spec"),
+            };
             let request = daemon::Request::MachineUp {
                 name,
                 spec: absolute(&spec)?,
@@ -376,6 +386,26 @@ fn hook_stop() -> Result<()> {
     let _ = role;
     println!("{}", serde_json::json!({ "decision": "block", "reason": reason }));
     Ok(())
+}
+
+// A workflow folder: exactly one spec (.csp) and any number of units (.yaml), in name order.
+fn workflow_dir(dir: &Path) -> Result<(PathBuf, Vec<PathBuf>)> {
+    let mut specs = Vec::new();
+    let mut units = Vec::new();
+    for entry in std::fs::read_dir(dir).with_context(|| format!("reading {}", dir.display()))? {
+        let path = entry?.path();
+        match path.extension().and_then(|e| e.to_str()) {
+            Some("csp") => specs.push(path),
+            Some("yaml") | Some("yml") => units.push(path),
+            _ => {}
+        }
+    }
+    units.sort();
+    match specs.as_slice() {
+        [spec] => Ok((spec.clone(), units)),
+        [] => bail!("{} has no spec (.csp file)", dir.display()),
+        _ => bail!("{} has more than one spec (.csp file); give one with --spec", dir.display()),
+    }
 }
 
 // The daemon resolves paths from its own working directory, so send it absolute ones.

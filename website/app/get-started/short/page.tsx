@@ -26,16 +26,18 @@ export default function Short() {
       </Note>
       <ol className="gs-steps">
         <Step n={1} title="Get a page to work on">
-          <p>A small page with a check script (it fails if a link is broken or the title is missing):</p>
+          <p>
+            A small page with a check script (it fails if a link is broken or the title is missing). Its complier
+            workflows come with it, in <code>.complier/</code>:
+          </p>
           <Code>{`git clone https://github.com/kavishsathia/complier-loop-test ~/loop-test
 cd ~/loop-test`}</Code>
         </Step>
 
         <Step n={2} title="Read the contract">
           <p>
-            It&apos;s in <code>~/.complier/examples/short/workflow.csp</code>. Running the check is a call like any
-            other, and its result, <code>done</code> if it passed or <code>failed</code> if not, decides what comes
-            next:
+            It&apos;s in <code>.complier/short/workflow.csp</code>. Running the check is a call like any other, and
+            its result, <code>done</code> if it passed or <code>failed</code> if not, decides what comes next:
           </p>
           <Code label="workflow.csp">{`Unchecked = Permit(edit, \\ _ @ Unchecked)
          [] Permit(check, \\ v @ (if v == done then Checked else Unchecked))
@@ -44,24 +46,27 @@ Checked   = Permit(edit, \\ _ @ Unchecked)
          [] Permit(check, \\ v @ (if v == done then Checked else Unchecked))
          [] Permit(commit, \\ _ @ SKIP)`}</Code>
           <p>
-            Its unit, <code>claude-code.yaml</code>, says which of Claude Code&apos;s tool calls count as{" "}
+            Next to it, <code>claude-code.yaml</code> says which of Claude Code&apos;s tool calls count as{" "}
             <code>edit</code>, <code>check</code> and <code>commit</code>.
           </p>
         </Step>
 
         <Step n={3} title="Start the machine">
-          <p>In a new terminal. FDR proves the contract and the CEL verifier proves the unit before anything runs:</p>
-          <Code>{`cd ~/.complier/examples/short
-complier machine up short --spec workflow.csp --unit claude-code.yaml`}</Code>
-          <p>Then watch it. Every call shows up as allowed, denied or refused, and every result as it comes back:</p>
+          <p>FDR proves the contract and the CEL verifier proves the unit before anything runs:</p>
+          <Code>{`complier machine up short .complier/short`}</Code>
+          <p>
+            Then watch it in a second terminal. Every call shows up as allowed, denied or refused, and every result as
+            it comes back:
+          </p>
           <Code>{`complier machine log short --follow`}</Code>
         </Step>
 
         <Step n={4} title="Start Claude Code on it">
-          <p>In another terminal:</p>
-          <Code>{`cd ~/loop-test
-COMPLIER_MACHINE=short COMPLIER_ROLE=dev claude --plugin-dir ~/.complier/plugin`}</Code>
-          <p>Then give it the task:</p>
+          <p>Back in the first terminal:</p>
+          <Code>{`COMPLIER_MACHINE=short COMPLIER_ROLE=dev claude --plugin-dir ~/.complier/plugin`}</Code>
+          <p>
+            Then give it the task, which is also in <code>.complier/short/prompt.md</code>:
+          </p>
           <Code label="prompt" wrap>{`Add two more birds to index.html, each with a short note, then commit with \`git commit -am "..."\`.
 Before committing, run the page's check with \`python3 check.py\`: the commit is only allowed if that
 check passed after your last edit.`}</Code>

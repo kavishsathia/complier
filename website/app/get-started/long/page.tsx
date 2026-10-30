@@ -27,7 +27,7 @@ export default function Long() {
       <ol className="gs-steps">
         <Step n={1} title="Read the contract">
           <p>
-            It&apos;s in <code>~/.complier/examples/loop/workflow.csp</code>. Each round: check the time, make up to 15
+            It comes with the project, in <code>.complier/loop/workflow.csp</code>. Each round: check the time, make up to 15
             edits, look at the page in the browser (the only way out of editing), commit, push, watch CI, notify you,
             and check the time again. The time check&apos;s result is bound at the start and compared at the end:
           </p>
@@ -50,24 +50,24 @@ gh repo create loop-long --private --source . --push`}</Code>
         </Step>
 
         <Step n={3} title="Start the machine">
-          <p>In a new terminal:</p>
-          <Code>{`cd ~/.complier/examples/loop
-complier machine up loop --spec workflow.csp --unit claude-code.yaml --unit chrome.yaml`}</Code>
-          <Code>{`complier machine log loop --follow`}</Code>
+          <p>In a second terminal, from <code>~/loop-long</code>:</p>
+          <Code>{`complier machine up loop .complier/loop
+complier machine log loop --follow`}</Code>
           <Note>
             <p>
-              For a quick try, lower <code>30</code> in <code>workflow.csp</code> to a few minutes before starting it.
+              For a quick try, lower <code>30</code> in <code>.complier/loop/workflow.csp</code> to a few minutes
+              before starting it.
             </p>
           </Note>
         </Step>
 
         <Step n={4} title="Start Claude Code on it">
           <p>
-            In another terminal. Check the browser is connected with <code>/chrome</code> once it opens:
+            In a third terminal, from <code>~/loop-long</code>. Check the browser is connected with{" "}
+            <code>/chrome</code> once it opens:
           </p>
-          <Code>{`cd ~/loop-long
-COMPLIER_MACHINE=loop COMPLIER_ROLE=dev claude --chrome --plugin-dir ~/.complier/plugin`}</Code>
-          <p>Then give it the task:</p>
+          <Code>{`COMPLIER_MACHINE=loop COMPLIER_ROLE=dev claude --chrome --plugin-dir ~/.complier/plugin`}</Code>
+          <p>Then give it the task, which is also in <code>.complier/loop/prompt.md</code>:</p>
           <Code label="prompt" wrap>{`Keep improving the field notes page in this repository (index.html and style.css): for example, add a
 few more birds with a short note on each, and make the page look nicer. Only edit those two
 existing files.
