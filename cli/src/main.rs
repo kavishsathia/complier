@@ -2,6 +2,7 @@ mod cel;
 mod codegen;
 mod config;
 mod fdr;
+mod install;
 mod daemon;
 mod hooks;
 mod mcp;
@@ -69,6 +70,8 @@ enum Command {
     /// Load a translation unit (YAML) and prove its translation with the CEL backend, as `machine up`
     /// does before running it, and print the report. Fails if the unit isn't admitted.
     Check { unit: PathBuf },
+    /// Check that complier can run here: Java and the CEL verifier, FDR and its licence, the plugin.
+    Doctor,
     /// Have FDR prove a spec's policy and compile it, as `machine up` does, and print the report.
     /// Fails if the policy isn't admitted. Needs your own FDR (fdr/README.md).
     Verify { spec: PathBuf },
@@ -153,6 +156,7 @@ fn main() -> Result<()> {
         Command::Call { name, tool, arguments } => call(&name, &tool, &arguments),
         Command::Check { unit } => check(&unit).map(|_| ()),
         Command::Verify { spec } => verify(&spec),
+        Command::Doctor => doctor(),
         Command::Translate { unit, tool, arguments } => translate(&unit, &tool, &arguments),
         Command::Up => daemon::serve(),
         Command::Machine { command } => machine(command),
@@ -243,6 +247,41 @@ fn check(unit: &Path) -> Result<(Option<translate::Translator>, Option<cel::Back
         }
         Err(e) => bail!("{} isn't admitted: {e:#}", unit.display()),
     }
+}
+
+fn doctor() -> Result<()> {
+    let mut ok = true;
+    let mut line = |good: bool, what: &str, detail: String| {
+        ok &= good;
+        println!("{} {what}: {detail}", if good { "✓" } else { "✗" });
+    };
+    println!("complier {}", env!("CARGO_PKG_VERSION"));
+    match install::root() {
+        Some(root) => line(true, "installed in", root.display().to_string()),
+        None => line(true, "running from a checkout", concat!(env!("CARGO_MANIFEST_DIR"), "/..").to_string()),
+    }
+    match cel::Backend::spawn() {
+        Ok(backend) => line(true, "CEL verifier", backend.version.clone()),
+        Err(e) => line(false, "CEL verifier", format!("{e:#}")),
+    }
+    let spec = std::env::temp_dir().join(format!("complier-doctor-{}.csp", std::process::id()));
+    std::fs::write(&spec, "datatype Act = a\ndatatype Value = done\nReturns(_) = {done}\nPolicy = Permit(a, \\ _ @ Policy)\n")?;
+    match fdr::compile(&spec) {
+        Ok(Ok(compiled)) => line(true, "FDR", format!("proved and compiled a policy ({})", compiled.report.fdr.split(" copyright").next().unwrap_or(""))),
+        Ok(Err(report)) => line(false, "FDR", report.problem.unwrap_or_else(|| "the test policy wasn't admitted".into())),
+        Err(e) => line(false, "FDR", format!("{e:#}")),
+    }
+    let _ = std::fs::remove_file(&spec);
+    let plugin = match install::root() {
+        Some(root) => root.join("plugin"),
+        None => PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../plugin")),
+    };
+    line(plugin.join("hooks/hooks.json").is_file(), "Claude Code plugin", plugin.display().to_string());
+    if !ok {
+        bail!("complier can't run here yet; see the ✗ above");
+    }
+    println!("ready");
+    Ok(())
 }
 
 fn verify(spec: &Path) -> Result<()> {

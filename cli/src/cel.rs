@@ -34,6 +34,16 @@ pub struct Backend {
 
 impl Backend {
     pub fn spawn() -> Result<Self> {
+        // An installed release: its jar, run by the Java on JAVA_HOME or PATH.
+        if let (None, Some(root)) = (std::env::var_os("COMPLIER_CEL"), crate::install::root()) {
+            let java = match std::env::var_os("JAVA_HOME") {
+                Some(home) => PathBuf::from(home).join("bin/java").display().to_string(),
+                None => "java".to_string(),
+            };
+            let jar = root.join("lib/complier-cel.jar");
+            return Self::start(&java, &jar.display().to_string())
+                .context("complier's CEL verifier runs on Java 11 or later: install a JDK or JRE, or set JAVA_HOME");
+        }
         let path = config_path();
         let text = std::fs::read_to_string(&path)
             .with_context(|| format!("no CEL backend at {} (run cel/build.sh, or point COMPLIER_CEL at its backend.json)", path.display()))?;

@@ -1,0 +1,61 @@
+# Builds complier for each platform when a version is tagged (git tag v0.2.0 && git push --tags) and
+# attaches the archives to the GitHub release that install.sh downloads from. FDR is downloaded only
+# to compile the FDR bridge against; it is never part of a release.
+name: release
+on:
+  push:
+    tags: ["v*"]
+permissions:
+  contents: write
+
+jobs:
+  cel:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: "17" }
+      - run: cel/build.sh
+      - uses: actions/upload-artifact@v4
+        with: { name: cel, path: cel/build/complier-cel.jar }
+
+  macos:
+    needs: cel
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { name: cel, path: dist }
+      - name: FDR, to compile the bridge against (not shipped)
+        run: |
+          curl -fsSL https://dl.cocotec.io/fdr/fdr-3814-mac-x86_64.zip -o "$RUNNER_TEMP/fdr.zip"
+          unzip -q "$RUNNER_TEMP/fdr.zip" -d "$RUNNER_TEMP/fdr"
+          echo "FDR_HOME=$(find "$RUNNER_TEMP/fdr" -maxdepth 3 -name FDR4.app -type d | head -1)" >> "$GITHUB_ENV"
+      - run: fdr/build-complier-fdr.sh
+      - run: |
+          rustup target add x86_64-apple-darwin
+          cargo build --release --manifest-path cli/Cargo.toml
+          cargo build --release --manifest-path cli/Cargo.toml --target x86_64-apple-darwin
+      - run: |
+          release/package.sh darwin-arm64 cli/target/release/complier dist/complier-cel.jar fdr/build/complier-fdr dist
+          release/package.sh darwin-x86_64 cli/target/x86_64-apple-darwin/release/complier dist/complier-cel.jar fdr/build/complier-fdr dist
+      - uses: softprops/action-gh-release@v2
+        with: { files: "dist/complier-*.tar.gz" }
+
+  linux:
+    needs: cel
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { name: cel, path: dist }
+      - name: FDR, to compile the bridge against (not shipped)
+        run: |
+          sudo apt-get update -q && sudo apt-get install -yq libtinfo5
+          curl -fsSL https://dl.cocotec.io/fdr/fdr-3814-linux-x86_64.tar.gz | tar -xz -C "$RUNNER_TEMP"
+          echo "FDR_HOME=$RUNNER_TEMP/fdr" >> "$GITHUB_ENV"
+      - run: fdr/build-complier-fdr.sh
+      - run: cargo build --release --manifest-path cli/Cargo.toml
+      - run: release/package.sh linux-x86_64 cli/target/release/complier dist/complier-cel.jar fdr/build/complier-fdr dist
+      - uses: softprops/action-gh-release@v2
+        with: { files: "dist/complier-*.tar.gz" }

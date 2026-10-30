@@ -57,6 +57,21 @@ rm -rf "$OUT" && mkdir -p "$OUT/classes"
 
 printf '{"java":"%s","classpath":"%s","cel":"0.14.0","z3":"4.14.1"}\n' "$JAVA" "$OUT/classes:$CP" >"$OUT/backend.json"
 
-# Smoke test: the bridge answers, and Z3's native library loads.
-echo '{"op":"version"}' | "$JAVA" -cp "$OUT/classes:$CP" dev.cel.verifier.tools.ComplierCel
-echo "cel/build.sh: wrote $OUT/backend.json"
+# One self-contained jar for releases: every dependency's classes and resources merged with the
+# bridge's (META-INF/services files concatenated, signatures dropped), runnable as java -jar.
+FAT=$WORK/fat
+rm -rf "$FAT" && mkdir -p "$FAT/META-INF/services"
+echo "$CP" | tr ':' '\n' | while IFS= read -r jar; do
+  # unzip exits 11 when an exclusion matches nothing in this jar, which is fine.
+  (cd "$FAT" && { unzip -qo "$jar" -x 'META-INF/MANIFEST.MF' 'META-INF/*.SF' 'META-INF/*.DSA' 'META-INF/*.RSA' 'META-INF/services/*' 2>/dev/null || [ $? -eq 11 ]; })
+  { unzip -Z1 "$jar" 'META-INF/services/*' 2>/dev/null || true; } | { grep -v '/$' || true; } | while IFS= read -r svc; do
+    unzip -p "$jar" "$svc" >>"$FAT/$svc"
+    echo >>"$FAT/$svc"
+  done
+done
+cp -R "$OUT/classes/." "$FAT/"
+"${BIN}jar" --create --file "$OUT/complier-cel.jar" --main-class dev.cel.verifier.tools.ComplierCel -C "$FAT" .
+
+# Smoke test: the bridge answers from the single jar, and Z3's native library loads.
+echo '{"op":"version"}' | "$JAVA" -jar "$OUT/complier-cel.jar"
+echo "cel/build.sh: wrote $OUT/backend.json and $OUT/complier-cel.jar"

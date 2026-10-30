@@ -119,7 +119,11 @@ pub struct Compiled {
 
 // Has FDR prove and compile the spec. Ok(Err(report)) when FDR ran but didn't admit it; Err when
 // FDR couldn't run at all.
-pub fn compile(spec: &Path) -> Result<std::result::Result<Compiled, Report>> {
+// The FDR bridge to run: an installed release's, or the one fdr/build-complier-fdr.sh built here.
+fn driver() -> Result<String> {
+    if let (None, Some(root)) = (std::env::var_os("COMPLIER_FDR"), crate::install::root()) {
+        return Ok(root.join("lib/complier-fdr").display().to_string());
+    }
     let path = config_path();
     let text = std::fs::read_to_string(&path).with_context(|| {
         format!(
@@ -128,14 +132,27 @@ pub fn compile(spec: &Path) -> Result<std::result::Result<Compiled, Report>> {
         )
     })?;
     let config: Config = serde_json::from_str(&text).with_context(|| format!("reading {}", path.display()))?;
-    let out = Command::new(&config.driver)
-        .arg("compile")
-        .arg(spec)
-        .output()
-        .with_context(|| format!("running {}", config.driver))?;
+    Ok(config.driver)
+}
+
+pub fn compile(spec: &Path) -> Result<std::result::Result<Compiled, Report>> {
+    let driver = driver()?;
+    let mut command = Command::new(&driver);
+    command.arg("compile").arg(spec);
+    match crate::install::fdr_libs() {
+        Some(libs) => {
+            let var = crate::install::library_path_var();
+            command.env(var, crate::install::prepend(var, &libs));
+        }
+        None if crate::install::root().is_some() => bail!(
+            "complier can't find FDR. Install FDR 4 from https://cocotec.io/fdr/ (it needs its own licence: free for academic work and personal research), then set FDR_HOME to where it is if it isn't in the default place"
+        ),
+        None => {} // a bridge built in this checkout knows where its FDR is
+    }
+    let out = command.output().with_context(|| format!("running {driver}"))?;
     let stdout = String::from_utf8_lossy(&out.stdout);
     let Some(line) = stdout.lines().rev().find(|l| l.starts_with('{')) else {
-        bail!("{} gave no answer: {}", config.driver, String::from_utf8_lossy(&out.stderr).trim());
+        bail!("{driver} gave no answer: {}", String::from_utf8_lossy(&out.stderr).trim());
     };
     let o: Output = serde_json::from_str(line).map_err(|e| anyhow!("reading complier-fdr's answer: {e}"))?;
     let report = Report {
