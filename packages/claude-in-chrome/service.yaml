@@ -1,0 +1,5 @@
+# Claude in Chrome, Claude Code's browser integration (`claude --chrome`). Its tools reach the
+# harness as an MCP server named claude-in-chrome (mcp__claude-in-chrome__<tool>).
+name: claude-in-chrome
+tools: tools.yaml
+readOnly: [tabs_context_mcp, list_connected_browsers, shortcuts_list]

@@ -77,33 +77,50 @@ impl Env {
         text.lines().map(|l| serde_json::from_str(l).unwrap()).collect()
     }
 
-    // An agent in `machine` as `writer` attempts `tool` (a harness tool name): the pre-tool-use
-    // hook's verdict, as (allowed, reason). An allowed call gets no output, so the harness's own
-    // permissions still apply.
-    fn attempt(&self, machine: &str, tool: &str, args: Value) -> (bool, String) {
+    // Runs one of complier's hooks as Claude Code would, with `input` on stdin; its stdout.
+    fn hook(&self, machine: &str, which: &str, input: Value) -> String {
         let mut child = Command::new(BIN)
             .env("HOME", &self.home)
             .env("PATH", &self.path)
             .env("COMPLIER_MACHINE", machine)
             .env("COMPLIER_ROLE", "writer")
-            .args(["hook", "pre-tool-use"])
+            .args(["hook", which])
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()
             .unwrap();
-        let input = json!({ "hook_event_name": "PreToolUse", "tool_name": tool, "tool_input": args });
         child.stdin.take().unwrap().write_all(input.to_string().as_bytes()).unwrap();
         let out = child.wait_with_output().unwrap();
         assert!(out.status.success(), "the hook failed: {}", String::from_utf8_lossy(&out.stderr));
-        let stdout = String::from_utf8_lossy(&out.stdout);
-        if stdout.trim().is_empty() {
-            return (true, String::new());
+        String::from_utf8_lossy(&out.stdout).to_string()
+    }
+
+    // The agent calls `tool` (a harness tool name), as Claude Code runs it: the pre-tool-use hook
+    // decides, and if the call is allowed it runs and its post-tool-use hook reports `output`.
+    // Returns (allowed, reason). An allowed call gets no output from the pre-tool-use hook, so the
+    // harness's own permissions still apply.
+    fn attempt(&self, machine: &str, tool: &str, args: Value) -> (bool, String) {
+        self.attempt_with(machine, tool, args, Ok(""))
+    }
+
+    fn attempt_with(&self, machine: &str, tool: &str, args: Value, result: std::result::Result<&str, &str>) -> (bool, String) {
+        static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let id = format!("toolu_{}", NEXT.fetch_add(1, std::sync::atomic::Ordering::SeqCst));
+        let pre = json!({ "hook_event_name": "PreToolUse", "tool_name": tool, "tool_input": args, "tool_use_id": id });
+        let stdout = self.hook(machine, "pre-tool-use", pre);
+        if !stdout.trim().is_empty() {
+            let decision: Value = serde_json::from_str(&stdout).unwrap();
+            let d = &decision["hookSpecificOutput"];
+            assert_eq!(d["permissionDecision"], "deny", "{decision}");
+            return (false, d["permissionDecisionReason"].as_str().unwrap().to_string());
         }
-        let decision: Value = serde_json::from_str(&stdout).unwrap();
-        let d = &decision["hookSpecificOutput"];
-        assert_eq!(d["permissionDecision"], "deny", "{decision}");
-        (false, d["permissionDecisionReason"].as_str().unwrap().to_string())
+        let post = match result {
+            Ok(out) => json!({ "hook_event_name": "PostToolUse", "tool_name": tool, "tool_input": args, "tool_use_id": id, "tool_response": { "stdout": out, "stderr": "" } }),
+            Err(e) => json!({ "hook_event_name": "PostToolUseFailure", "tool_name": tool, "tool_input": args, "tool_use_id": id, "error": e }),
+        };
+        self.hook(machine, "post-tool-use", post);
+        (true, String::new())
     }
 
     fn stop_daemon(&mut self) {
@@ -168,7 +185,7 @@ fn yaml_units_are_proven_and_every_mcp_call_is_checked_by_the_hook() {
     assert!(env.attempt("m", "mcp__fake__list-items", json!({})).0);
     // A tool of the service that no unit names, and a server no unit covers, are blocked.
     let (ok, text) = env.attempt("m", "mcp__fake__unlisted", json!({}));
-    assert!(!ok && text.contains("isn't available to role writer"), "{text}");
+    assert!(!ok && text.contains("isn't available"), "{text}");
     let (ok, text) = env.attempt("m", "mcp__github__create_issue", json!({}));
     assert!(!ok && text.contains("isn't a tool of any service"), "{text}");
 
@@ -190,7 +207,9 @@ fn yaml_units_are_proven_and_every_mcp_call_is_checked_by_the_hook() {
     assert!(acts.contains(&("appended.x2".into(), "refused".into())), "{acts:?}");
     assert!(acts.contains(&("replaced.x2".into(), "allowed".into())), "{acts:?}");
     assert!(acts.contains(&("other.wipe".into(), "denied".into())), "{acts:?}");
-    assert!(log.iter().all(|e| ["status", "policy", "admission", "act"].contains(&e["kind"].as_str().unwrap())), "{log:#?}");
+    assert!(log.iter().all(|e| ["status", "policy", "admission", "act", "result"].contains(&e["kind"].as_str().unwrap())), "{log:#?}");
+    // Every allowed call's result was bound: here every call returns done.
+    assert!(log.iter().any(|e| e["kind"] == "result" && e["event"] == "result.appended.done"), "{log:#?}");
 }
 
 #[test]
@@ -236,10 +255,10 @@ fn unproven_policies_bad_units_and_missing_machines_let_nothing_through() {
     // FDR refuses a policy that leaves an attempt unanswered, with its counterexample...
     let (ok, out) = env.machine_up("bad", "unanswered.csp", &["fake.yaml"]);
     assert!(!ok && out.contains("isn't admitted") && out.contains("✗ every attempt the policy takes is answered"), "{out}");
-    assert!(out.contains("attempt.writer.replaced"), "{out}");
+    assert!(out.contains("attempt.replaced"), "{out}");
     // ...one that breaks the spec's own assertion...
     let (ok, out) = env.machine_up("bad", "unsafe.csp", &["fake.yaml"]);
-    assert!(!ok && out.contains("✗ the spec's own assertion") && out.contains("allow.writer.replaced"), "{out}");
+    assert!(!ok && out.contains("✗ the spec's own assertion") && out.contains("allow.replaced"), "{out}");
     // ...and one that doesn't load.
     let broken = dir.join("broken.csp");
     std::fs::write(&broken, "datatype Role = writer\nPolicy = Permit(writer, nothing, Policy\n").unwrap();
@@ -325,4 +344,25 @@ fn the_notion_unit_is_admitted_and_tells_overwrites_from_edits() {
     assert!(ok && report.contains("draft ⊥ recreate: disjoint"), "{report}");
     let (ok, out) = run(&["translate", demo.to_str().unwrap(), "notion-create-pages", r#"{"pages": [{"properties": {"title": "A"}}, {}]}"#]);
     assert!(ok && out.trim_end().ends_with("notion-create-pages -> recreate.A, untitled"), "{out}");
+}
+
+// A call's result reaches the policy: the post-tool-use hook sends it, the unit turns it into a
+// value, and the policy branches on it. Results of calls complier didn't mediate change nothing.
+#[test]
+fn results_are_bound_and_decide_what_comes_next() {
+    let env = Env::new("results");
+    let (ok, out) = env.machine_up("g", "gate.csp", &["gate.yaml"]);
+    assert!(ok, "{out}");
+    // Writing needs a peek that saw `big`.
+    let (ok, text) = env.attempt("g", "mcp__fake__write-item", json!({ "id": "x" }));
+    assert!(!ok && text.contains("doesn't take write"), "{text}");
+    assert!(env.attempt_with("g", "mcp__fake__peek", json!({}), Ok("only small things")).0);
+    let (ok, _) = env.attempt("g", "mcp__fake__write-item", json!({ "id": "x" }));
+    assert!(!ok, "a small peek doesn't permit a write");
+    assert!(env.attempt_with("g", "mcp__fake__peek", json!({}), Err("Exit code 1")).0);
+    assert!(!env.attempt("g", "mcp__fake__write-item", json!({ "id": "x" })).0, "a failed peek doesn't either");
+    assert!(env.attempt_with("g", "mcp__fake__peek", json!({}), Ok("something big")).0);
+    assert!(env.attempt("g", "mcp__fake__write-item", json!({ "id": "x" })).0);
+    let results: Vec<String> = env.log("g").iter().filter(|e| e["kind"] == "result").map(|e| e["event"].as_str().unwrap().to_string()).collect();
+    assert_eq!(results, ["result.check.small", "result.check.failed", "result.check.big", "result.write.done"]);
 }

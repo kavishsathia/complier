@@ -3,17 +3,18 @@
 //
 //   complier-fdr compile SPEC.csp [--max-states N]
 //
-// SPEC.csp defines `Role` and `Act` (datatypes) and `Policy`, a process over the prelude's channels
-// attempt, allow, deny : Role.Act, usually built from Permit, Deny and PermitIf. It may also hold
-// its own assertions (over `System`, the prioritised agents-and-monitor composition). complier-fdr
-// appends the prelude, then:
+// SPEC.csp defines `Act` (the actions), `Value` (what a call can return), `Returns(x)` (the values
+// action x's calls return) and `Policy`, a process over the prelude's channels, usually built from
+// Permit and Deny. It may also hold its own assertions (over `System`). complier-fdr appends the
+// prelude, then:
 //
-//   1. admission: the policy answers every attempt it takes with allow or deny
-//      (ComplierHandshake [FD= Policy), System can't deadlock, Policy is deterministic, and every
-//      assertion in SPEC.csp passes. A failure comes back with FDR's counterexample trace.
+//   1. admission: the policy answers every attempt it takes with allow or deny, and then accepts
+//      every value that call can return (ComplierHandshake [FD= Policy); System can't deadlock;
+//      Policy is deterministic; and every assertion in SPEC.csp passes. A failure comes back with
+//      FDR's counterexample trace.
 //   2. compilation: normal(Policy), walked breadth first. The daemon gets every state and transition.
 //      A refusal (an attempt the current state doesn't offer) leaves the state where it is, which is
-//      what Monitor(Policy) = Policy ||| RUN({|refuse|}) under prioritise means; so the automaton
+//      what ComplierGuard(Policy) = Policy ||| RUN({refuse}) under prioritise means; so the automaton
 //      needs no refuse edges, only the policy's own.
 //
 // Prints one JSON object on stdout. Exit codes: 0 admitted, 2 usage, 3 no FDR licence, 4 the spec
@@ -51,21 +52,22 @@ const char* const PRELUDE = R"csp(
 -- complier prelude, appended to the spec by complier-fdr.
 external prioritise
 transparent normal
-channel attempt, allow, deny : Role.Act
-channel refuse : Role
--- Policy combinators: a policy that takes an attempt answers it.
-Permit(r, x, P) = attempt.r.x -> allow.r.x -> P
-Deny(r, x, P) = attempt.r.x -> deny.r.x -> P
-PermitIf(r, x, c, P, Q) = attempt.r.x -> (if c then allow.r.x -> P else deny.r.x -> Q)
--- The most general agent in role r: it may attempt any action, or nothing, and is always refusable.
-ControllableCHAOS(r) = (STOP |~| (|~| x:Act @ attempt.r.x -> ComplierAwait(r, x))) [] (refuse.r -> ControllableCHAOS(r))
-ComplierAwait(r, x) = allow.r.x -> ControllableCHAOS(r) [] deny.r.x -> ControllableCHAOS(r)
-Monitor(W) = W ||| RUN({|refuse|})
-Agents = ||| r:Role @ ControllableCHAOS(r)
+channel attempt, allow, deny : Act
+channel result : Act.Value
+channel refuse
+-- A call that is allowed runs, and its result is bound for the rest of the policy.
+Permit(x, P) = attempt.x -> allow.x -> result.x?v : Returns(x) -> P(v)
+Deny(x, P)   = attempt.x -> deny.x -> P
+-- The most general agent: it may attempt any action, or nothing, and is always refusable. An
+-- allowed call returns any value its action can return; neither the agent nor the policy picks it.
+ControllableCHAOS = (STOP |~| (|~| x:Act @ attempt.x -> Await(x))) [] (refuse -> ControllableCHAOS)
+Await(x) = allow.x -> (|~| v : Returns(x) @ result.x.v -> ControllableCHAOS) [] deny.x -> ControllableCHAOS
+ComplierGuard(W) = W ||| RUN({refuse})
 -- A refusal happens only when no attempt can.
-System = prioritise(Agents [| {|attempt, allow, deny, refuse|} |] Monitor(Policy), <{|attempt|}, {|refuse|}>)
--- What a well-formed policy may do: take an attempt and then answer exactly it.
-ComplierHandshake = STOP |~| SKIP |~| (|~| r:Role @ |~| x:Act @ attempt.r.x -> (allow.r.x -> ComplierHandshake |~| deny.r.x -> ComplierHandshake))
+System = prioritise(ControllableCHAOS [| {|attempt, allow, deny, result, refuse|} |] ComplierGuard(Policy), <{|attempt|}, {refuse}>)
+-- What a well-formed policy may do: take an attempt, answer exactly it, and if it allowed the call,
+-- accept whatever the call returns.
+ComplierHandshake = STOP |~| SKIP |~| (|~| x:Act @ attempt.x -> (deny.x -> ComplierHandshake |~| allow.x -> ([] v : Returns(x) @ result.x.v -> ComplierHandshake)))
 )csp";
 
 std::string json_escape(const std::string& text)
@@ -167,7 +169,6 @@ private:
         try
         {
             warnings_ = session_->load_strings_as_file(spec_path, {{spec_path, text.str()}});
-            roles_ = members("Role");
             acts_ = members("Act");
         }
         catch (const FDR::Error& error)
@@ -175,9 +176,9 @@ private:
             fail("load", error.what());
             return EXIT_LOAD_ERROR;
         }
-        if (roles_.empty() || acts_.empty())
+        if (acts_.empty())
         {
-            fail("load", "Role and Act must each have at least one value");
+            fail("load", "Act must have at least one value");
             return EXIT_LOAD_ERROR;
         }
         return EXIT_ADMITTED;
@@ -195,7 +196,8 @@ private:
         std::string part;
         while (std::getline(parts, part, ','))
         {
-            size_t a = part.find_first_not_of(' '), b = part.find_last_not_of(' ');
+            // FDR wraps long values over several lines, so trim every kind of whitespace.
+            size_t a = part.find_first_not_of(" \t\r\n"), b = part.find_last_not_of(" \t\r\n");
             if (a != std::string::npos)
                 out.push_back(part.substr(a, b - a + 1));
         }
@@ -264,7 +266,7 @@ private:
     int admit()
     {
         // Every check runs, so the report says everything that's wrong at once.
-        bool ok = check("every attempt the policy takes is answered with allow or deny", "ComplierHandshake [FD= Policy");
+        bool ok = check("every attempt the policy takes is answered with allow or deny, and every result an allowed call can return is accepted", "ComplierHandshake [FD= Policy");
         ok = check("no agent is left waiting for a verdict (System can't deadlock)", "System :[deadlock free [F]]") && ok;
         ok = check("the policy is deterministic, so each verdict is determined", "Policy :[deterministic [FD]]") && ok;
         for (const auto& assertion : session_->assertions())
@@ -307,11 +309,11 @@ private:
                     return EXIT_INVARIANT;
                 }
                 bool protocol = name.compare(0, 8, "attempt.") == 0 || name.compare(0, 6, "allow.") == 0 ||
-                                name.compare(0, 5, "deny.") == 0 || name == "✓";
+                                name.compare(0, 5, "deny.") == 0 || name.compare(0, 7, "result.") == 0 || name == "✓";
                 if (!protocol)
                 {
                     fail("compile", "the policy performs " + name +
-                                        "; a policy may only use attempt, allow and deny (and terminate)");
+                                        "; a policy may only use attempt, allow, deny and result (and terminate)");
                     return EXIT_INVARIANT;
                 }
                 const NodePtr& destination = transition.destination();
@@ -349,7 +351,7 @@ private:
         out << "{\"fdr\":" << json_quoted(FDR::version()) << ",\"admitted\":" << (code == EXIT_ADMITTED ? "true" : "false");
         if (!error_.empty())
             out << ",\"error\":{\"stage\":" << json_quoted(error_stage_) << ",\"message\":" << json_quoted(error_) << "}";
-        out << ",\"warnings\":" << json_list(warnings_) << ",\"roles\":" << json_list(roles_)
+        out << ",\"warnings\":" << json_list(warnings_)
             << ",\"acts\":" << json_list(acts_) << ",\"checks\":[";
         for (size_t i = 0; i < checks_.size(); ++i)
         {
@@ -370,7 +372,7 @@ private:
     }
 
     std::shared_ptr<FDR::Session> session_;
-    std::vector<std::string> warnings_, roles_, acts_, states_, transitions_;
+    std::vector<std::string> warnings_, acts_, states_, transitions_;
     std::vector<Check> checks_;
     std::string error_stage_, error_;
 };
@@ -378,7 +380,7 @@ private:
 int usage()
 {
     std::cerr << "usage: complier-fdr compile SPEC.csp [--max-states N]\n"
-                 "  SPEC defines Role and Act (datatypes) and Policy over attempt, allow, deny : Role.Act.\n";
+                 "  SPEC defines Act, Value, Returns(x) and Policy over attempt, allow, deny : Act and result : Act.Value.\n";
     return EXIT_USAGE;
 }
 

@@ -41,22 +41,70 @@ pub fn session_start() -> Result<()> {
     Ok(())
 }
 
-// Inside a machine: an MCP tool call runs only if the daemon allows it, and nothing may edit what
-// enforces that. A call the daemon allows gets no answer from the hook, so the harness's own
-// permission rules still apply to it; one it refuses, or can't decide, is denied with the reason.
+// Inside a machine: a tool call runs only if the daemon allows it, and nothing may edit what
+// enforces that. Every call goes to the daemon: MCP tools always, built-in tools when the machine has
+// a unit for them (the daemon lets them through otherwise). A call the daemon allows gets no answer
+// from the hook, so the harness's own permission rules still apply to it; one it refuses, or can't
+// decide, is denied with the reason.
 pub fn pre_tool_use() -> Result<()> {
     let input = input();
     let Some((machine, role)) = binding() else { return Ok(()) };
     let tool = input["tool_name"].as_str().unwrap_or_default();
     let args = &input["tool_input"];
-    let reason = if tool.starts_with("mcp__") {
-        let request = Request::Call { machine: machine.clone(), role, tool: tool.to_string(), arguments: args.clone() };
+    let tool_use_id = input["tool_use_id"].as_str().unwrap_or_default().to_string();
+    let reason = protection(tool, args).or_else(|| {
+        let request = Request::Call { machine: machine.clone(), role, tool: tool.to_string(), arguments: args.clone(), tool_use_id };
         match daemon::request(&request, false) {
             Ok(decision) if decision["allow"] == true => None,
             Ok(decision) => Some(decision["reason"].as_str().unwrap_or("the daemon refused this call").to_string()),
             Err(e) => Some(format!("couldn't check this call with machine {machine}, so it can't run: {e:#}")),
         }
-    } else if ["Write", "Edit", "MultiEdit", "NotebookEdit"].contains(&tool) {
+    });
+    if let Some(reason) = reason {
+        let reason = format!("complier: {reason}");
+        println!(
+            "{}",
+            json!({ "hookSpecificOutput": { "hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": reason } })
+        );
+    }
+    Ok(())
+}
+
+// After a call: PostToolUse (it succeeded), PostToolUseFailure (it failed) or PermissionDenied (it
+// never ran). The result goes to the daemon, which binds it if the machine is waiting for this call.
+// The call has already happened, so nothing here can block it.
+pub fn post_tool_use() -> Result<()> {
+    let input = input();
+    let Some((machine, role)) = binding() else { return Ok(()) };
+    let ok = input["hook_event_name"] == "PostToolUse";
+    let response = &input["tool_response"];
+    let output = match response["stdout"].as_str() {
+        Some(stdout) => stdout.to_string(),
+        None if response.is_null() => String::new(),
+        None => response.as_str().map(String::from).unwrap_or_else(|| response.to_string()),
+    };
+    let error = match input["hook_event_name"].as_str() {
+        Some("PermissionDenied") => "permission denied".to_string(),
+        _ => input["error"].as_str().unwrap_or_default().to_string(),
+    };
+    let request = Request::Result {
+        machine,
+        role,
+        tool_use_id: input["tool_use_id"].as_str().unwrap_or_default().to_string(),
+        ok,
+        output,
+        error,
+        value: None,
+    };
+    if let Err(e) = daemon::request(&request, false) {
+        eprintln!("complier: {e:#}");
+    }
+    Ok(())
+}
+
+// Edits to what enforces complier are blocked before anything else is asked.
+fn protection(tool: &str, args: &Value) -> Option<String> {
+    if ["Write", "Edit", "MultiEdit", "NotebookEdit"].contains(&tool) {
         let path = args["file_path"].as_str().or(args["notebook_path"].as_str()).unwrap_or_default();
         protected(path).then(|| format!("{path} configures what constrains you, so it can't be edited from inside a machine."))
     } else if tool == "Bash" {
@@ -68,15 +116,7 @@ pub fn pre_tool_use() -> Result<()> {
             .map(|needle| format!("this command touches {needle}, which configures what constrains you."))
     } else {
         None
-    };
-    if let Some(reason) = reason {
-        let reason = format!("complier: {reason}");
-        println!(
-            "{}",
-            json!({ "hookSpecificOutput": { "hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": reason } })
-        );
     }
-    Ok(())
 }
 
 fn protected(path: &str) -> bool {

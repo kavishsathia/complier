@@ -1,8 +1,10 @@
 -- Not admissible: its own assertion says replacing comes only after appending, and the policy
 -- allows a replace first.
-datatype Role = writer
 datatype Act = appended | replaced
-Policy = Permit(writer, appended, Policy) [] Permit(writer, replaced, Policy)
-AfterAppend = allow.writer.appended -> Appended
-Appended = allow.writer.appended -> Appended [] allow.writer.replaced -> AfterAppend
+datatype Value = done | failed
+Returns(_) = {done, failed}
+
+Policy = Permit(appended, \ _ @ Policy) [] Permit(replaced, \ _ @ Policy)
+AfterAppend = allow.appended -> Appended
+Appended = allow.appended -> Appended [] allow.replaced -> AfterAppend
 assert AfterAppend [T= System \ diff(Events, {|allow|})

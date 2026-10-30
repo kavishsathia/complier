@@ -8,3 +8,5 @@ translate:
   rules:
     append: { when: "mode.orValue('append') == 'append'", emit: appended }
     any: { when: "!mode.hasValue() || mode.value() != 'replace'", emit: written }
+  results:
+    default: "ok ? 'done' : 'failed'"

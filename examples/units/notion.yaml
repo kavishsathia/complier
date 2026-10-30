@@ -43,4 +43,6 @@ translate:
     value: tool
 
 # Reads, passed upstream unchecked (each is read-only in service.yaml).
+  results:
+    default: "ok ? 'done' : 'failed'"
 hidden: [notion-fetch, notion-search, notion-get-users, notion-get-self]

@@ -1,9 +1,11 @@
 -- Demo machine: the writer drafts, then recreates, in turn. Out of turn (a second draft before a
 -- recreate, or a recreate first) is refused, and any other Notion write, which
--- examples/demo/draft.yaml translates to `other`, is denied. complier doesn't observe Notion, so
--- nothing here waits on the world. FDR proves and compiles this at `complier machine up`.
-datatype Role = writer
+-- examples/demo/draft.yaml translates to `other`, is denied. FDR proves and compiles this at
+-- `complier machine up`.
 datatype Act = draft | recreate | other
-Policy = Draft
-Draft = Permit(writer, draft, Recreate) [] Deny(writer, other, Draft)
-Recreate = Permit(writer, recreate, Draft) [] Deny(writer, other, Recreate)
+datatype Value = done | failed
+Returns(_) = {done, failed}
+
+Policy   = Draft
+Draft    = Permit(draft, \ _ @ Recreate) [] Deny(other, Draft)
+Recreate = Permit(recreate, \ _ @ Draft) [] Deny(other, Recreate)

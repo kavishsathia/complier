@@ -2,15 +2,17 @@
 // (fdr.rs: FDR proves the policy, then normal(Policy) comes back as an explicit automaton), plus the
 // spec's translation units. complier never interprets CSP: it only follows the automaton's edges.
 //
-// An agent's harness sends each MCP tool call here before running it (`call`). The daemon
-// translates it with the units into an action x and has the agent in role r attempt it, as
-// ControllableCHAOS does against Monitor(W) under prioritise:
-// - if W's current state offers attempt.r.x, W takes it and answers with its own allow.r.x or
-//   deny.r.x edge (FDR proved there is exactly one); the machine moves along both;
-// - otherwise the attempt is refused, and W stays where it was (refuse interleaves with W).
-// Only an allowed call may run. Nothing else moves a machine: complier doesn't observe the world.
-// An agent's Stop hook waits while its role has nothing it would be allowed to do, then tells it
-// what other roles did meanwhile.
+// An agent's harness sends each tool call here before running it (`call`). The daemon translates it
+// with the units into an action x and attempts it, as ControllableCHAOS does against W under
+// prioritise:
+// - if W's current state offers attempt.x, W takes it and answers with its own allow.x or deny.x
+//   edge (FDR proved there is exactly one); the machine moves along both;
+// - otherwise the attempt is refused, and W stays where it was.
+// An allowed call runs, and the harness sends its result here afterwards (`result`). The unit turns
+// it into a value v, and the machine follows W's result.x.v edge (FDR proved W accepts every value x
+// can return). Until then, W takes no other attempt.
+// Only an allowed call may run. Nothing else moves a machine: complier observes the world only
+// through the results of calls it allowed.
 // Clients talk to it over a Unix socket, one JSON request and one JSON response per line.
 
 use crate::cel::Backend;
@@ -47,19 +49,37 @@ pub enum Request {
     MachineUp { name: String, spec: PathBuf, units: Vec<PathBuf> },
     MachineDown { name: String },
     MachineLs,
-    // A machine's units and what a role may do next, for an agent's session-start hook.
+    // A machine's units and what the agent may do next, for its session-start hook.
     MachineInfo { machine: String, role: String },
-    // An agent in `role` is about to call the harness tool `tool` (`mcp__<server>__<tool>`): may
-    // it? Translated by the machine's units into an event, which is performed if the spec allows it.
+    // The agent is about to call the harness tool `tool`: may it? Translated by the machine's units
+    // into an action, which is attempted on the policy. `tool_use_id` ties its result to it.
     Call {
         machine: String,
         role: String,
         tool: String,
         #[serde(default)]
         arguments: Value,
+        #[serde(default)]
+        tool_use_id: String,
     },
-    // An agent in `role` attempts the action `event` directly, as its hook would after translating
-    // a call (its value only goes in the log).
+    // A call has finished: `ok` if it succeeded, with its output, or its error if it failed.
+    // `value`, if given, is used as the result value as it is (for testing by hand).
+    Result {
+        machine: String,
+        role: String,
+        #[serde(default)]
+        tool_use_id: String,
+        #[serde(default)]
+        ok: bool,
+        #[serde(default)]
+        output: String,
+        #[serde(default)]
+        error: String,
+        #[serde(default)]
+        value: Option<String>,
+    },
+    // The agent attempts the action `event` directly, as its hook would after translating a call
+    // (its value only goes in the log).
     Act {
         machine: String,
         role: String,
@@ -67,8 +87,7 @@ pub enum Request {
         #[serde(default)]
         value: Value,
     },
-    // An agent in `role` is stopping: wait while there's nothing it would be allowed to do, then
-    // report what other roles did since it last stopped.
+    // The agent is stopping: wait while there's nothing it would be allowed to do, then report.
     Stop { machine: String, role: String },
 }
 
@@ -80,7 +99,17 @@ enum Status {
     Finished,
     // The policy takes no more attempts and can't terminate (STOP): every call is refused.
     Deadlocked,
+    // A result came back that the policy doesn't accept: the unit and the spec's Returns disagree.
+    Broken,
     Stopped,
+}
+
+// An allowed call whose result hasn't come back yet.
+struct Pending {
+    action: String,
+    tool_use_id: String,
+    // The unit that translated the call, which also translates its result; none for `machine act`.
+    translator: Option<Arc<Translator>>,
 }
 
 struct Machine {
@@ -92,15 +121,11 @@ struct Machine {
     // The policy as FDR compiled it, and where it is now.
     automaton: Automaton,
     state: usize,
-    roles: Vec<String>,
     acts: Vec<String>,
+    pending: Option<Pending>,
     status: Status,
     log: File,
-    // Every allowed action, shown with its value, and the role that took it.
-    history: Vec<(String, String)>,
-    // How much of the history each role has been told about.
-    told: BTreeMap<String, usize>,
-    // Why the machine left Running, and which roles have been told.
+    // Why the machine left Running, and which agents have been told.
     ended: String,
     told_ended: BTreeSet<String>,
 }
@@ -123,7 +148,13 @@ enum Route {
     Unoffered(String, String),
     // Not a tool of any service the units cover.
     Unknown,
+    // A built-in tool, in a machine none of whose units covers built-in tools: not complier's business.
+    Unmediated,
 }
+
+// Claude Code's built-in tools (Bash, Edit, ...) are the service `claude-code`, called by their own
+// names.
+pub const BUILTIN: &str = "claude-code";
 
 // A server's name as Claude Code writes it into tool names: anything but letters, digits, `_` and
 // `-` becomes `_`.
@@ -132,8 +163,12 @@ fn harness_name(server: &str) -> String {
 }
 
 // The service's tool a harness tool name calls, if it's one of `server`'s: `mcp__<server>__<tool>`,
-// or `mcp__plugin_<plugin>_<server>__<tool>` for a server a plugin provides.
+// `mcp__plugin_<plugin>_<server>__<tool>` for a server a plugin provides, or the tool's own name for
+// a built-in tool.
 fn service_tool<'a>(name: &'a str, server: &str) -> Option<&'a str> {
+    if server == BUILTIN {
+        return (!name.starts_with("mcp__")).then_some(name);
+    }
     let server = harness_name(server);
     let rest = name.strip_prefix("mcp__")?;
     if let Some(tool) = rest.strip_prefix(&format!("{server}__")) {
@@ -167,14 +202,8 @@ impl Machine {
         }
         match covered {
             Some((server, tool)) => Route::Unoffered(server, tool),
+            None if !name.starts_with("mcp__") => Route::Unmediated,
             None => Route::Unknown,
-        }
-    }
-
-    fn role(&self, role: &str) -> Result<()> {
-        match self.roles.iter().any(|r| r == role) {
-            true => Ok(()),
-            false => bail!("the spec has no role {role} (its Role is {})", self.roles.join(", ")),
         }
     }
 
@@ -182,14 +211,13 @@ impl Machine {
         &self.automaton.edges[self.state]
     }
 
-    // The actions the role would be allowed to take now: attempts W offers and would allow.
-    fn next(&self, role: &str) -> Vec<String> {
-        let prefix = format!("attempt.{role}.");
+    // The actions the agent would be allowed to take now: attempts W offers and would allow.
+    fn next(&self) -> Vec<String> {
         self.edges()
             .iter()
             .filter_map(|(event, &after)| {
-                let x = event.strip_prefix(&prefix)?;
-                self.automaton.edges[after].contains_key(&format!("allow.{role}.{x}")).then(|| x.to_string())
+                let x = event.strip_prefix("attempt.")?;
+                self.automaton.edges[after].contains_key(&format!("allow.{x}")).then(|| x.to_string())
             })
             .collect()
     }
@@ -201,35 +229,41 @@ impl Machine {
         }
     }
 
-    // The agent in `role` attempts `x`. Err only if the machine can't take attempts at all.
-    fn act(&mut self, role: &str, x: &str, value: &Value) -> Result<Verdict> {
+    fn running(&self) -> Result<()> {
+        match self.status {
+            Status::Running => Ok(()),
+            _ => bail!("the machine is {} ({})", serde_json::to_value(&self.status)?.as_str().unwrap_or("?"), self.ended),
+        }
+    }
+
+    // The agent attempts `x`. Err only if the machine can't take attempts at all.
+    fn act(&mut self, role: &str, x: &str, value: &Value, tool_use_id: &str, translator: Option<Arc<Translator>>) -> Result<Verdict> {
         let shown = match value {
             Value::Null => x.to_string(),
             Value::String(v) => format!("{x}.{v}"),
             v => format!("{x}.{v}"),
         };
-        if self.status != Status::Running {
-            bail!("the machine is {} ({})", serde_json::to_value(&self.status)?.as_str().unwrap_or("?"), self.ended);
-        }
-        self.role(role)?;
-        let attempt = format!("attempt.{role}.{x}");
-        let verdict = if !self.acts.iter().any(|a| a == x) {
+        self.running()?;
+        let verdict = if let Some(p) = &self.pending {
+            Verdict::Refused(format!("the result of {} hasn't come back yet", p.action))
+        } else if !self.acts.iter().any(|a| a == x) {
             Verdict::Refused(format!("{x} isn't an action of the spec (its Act doesn't list it)"))
         } else {
-            match self.edges().get(&attempt).copied() {
-                None => Verdict::Refused(format!("the policy doesn't take {x} from {role} now")),
+            match self.edges().get(&format!("attempt.{x}")).copied() {
+                None => Verdict::Refused(format!("the policy doesn't take {x} now")),
                 Some(taken) => {
                     let answers = &self.automaton.edges[taken];
-                    match (answers.get(&format!("allow.{role}.{x}")), answers.get(&format!("deny.{role}.{x}"))) {
+                    match (answers.get(&format!("allow.{x}")), answers.get(&format!("deny.{x}"))) {
                         (Some(&next), None) => {
                             self.state = next;
+                            self.pending = Some(Pending { action: x.to_string(), tool_use_id: tool_use_id.to_string(), translator });
                             Verdict::Allowed
                         }
                         (None, Some(&next)) => {
                             self.state = next;
                             Verdict::Denied
                         }
-                        _ => bail!("FDR's automaton gives {attempt} no single verdict (state {taken}); this policy shouldn't have been admitted"),
+                        _ => bail!("FDR's automaton gives attempt.{x} no single verdict (state {taken}); this policy shouldn't have been admitted"),
                     }
                 }
             }
@@ -240,36 +274,46 @@ impl Machine {
             Verdict::Refused(reason) => ("refused", reason.clone()),
         };
         self.record(json!({ "kind": "act", "role": role, "event": shown, "outcome": outcome, "reason": reason, "state": self.show() }));
-        if verdict == Verdict::Allowed {
-            self.history.push((shown, role.to_string()));
-        }
         self.check_end();
         Ok(verdict)
     }
 
-    // What other roles were allowed to do since the role was last told, and what it may do now.
-    fn catch_up(&mut self, role: &str) -> Result<Value> {
-        self.role(role)?;
-        let told = self.told.get(role).copied().unwrap_or_default();
-        let happened: Vec<String> = self.history[told..].iter().filter(|(_, by)| by != role).map(|(e, by)| format!("{by}: {e}")).collect();
-        let report = json!({ "happened": happened, "next": self.next(role) });
-        self.told.insert(role.to_string(), self.history.len());
-        Ok(report)
+    // The pending call's result came back as `value`: W follows result.x.value.
+    fn result(&mut self, value: &str) -> Result<()> {
+        let Some(p) = self.pending.take() else { bail!("no call is waiting for a result") };
+        let event = format!("result.{}.{value}", p.action);
+        match self.edges().get(&event).copied() {
+            Some(next) => {
+                self.state = next;
+                self.record(json!({ "kind": "result", "event": event, "state": self.show() }));
+                self.check_end();
+                Ok(())
+            }
+            None => {
+                let reason = format!("{} returned {value}, which the policy doesn't accept: the unit and the spec's Returns({}) disagree", p.action, p.action);
+                self.set(Status::Broken, &reason);
+                bail!("{reason}")
+            }
+        }
     }
 
-    // Whether the role has nothing it would be allowed to do, while another role still might.
-    fn waiting(&self, role: &str) -> Result<bool> {
-        self.role(role)?;
-        Ok(self.status == Status::Running && self.next(role).is_empty())
+    // What the agent may do now, for its Stop hook.
+    fn catch_up(&self) -> Value {
+        json!({ "happened": [], "next": self.next() })
     }
 
-    // Ends the machine once the policy can take no more attempts: finished if it terminated.
+    // Whether the agent has nothing it would be allowed to do yet.
+    fn waiting(&self) -> bool {
+        self.status == Status::Running && self.pending.is_none() && self.next().is_empty()
+    }
+
+    // Ends the machine once the policy can take no more attempts or results: finished if it terminated.
     fn check_end(&mut self) {
         if self.status != Status::Running {
             return;
         }
         let edges = self.edges();
-        if edges.keys().any(|e| e.starts_with("attempt.")) {
+        if edges.keys().any(|e| e.starts_with("attempt.") || e.starts_with("result.")) {
             return;
         }
         match edges.contains_key("✓") {
@@ -290,12 +334,27 @@ impl Machine {
     }
 }
 
-// The daemon's state: its machines, and the CEL backend that translates their agents' calls,
-// started on the first call that needs it and kept for the next.
+// The daemon's state: its machines, and the CEL backend that translates their agents' calls and
+// results, started the first time it's needed and kept for the next.
 #[derive(Default)]
 pub struct Daemon {
     machines: Mutex<BTreeMap<String, Machine>>,
     cel: Mutex<Option<Backend>>,
+}
+
+impl Daemon {
+    // Runs `f` with the CEL backend, starting it if needed and dropping it if it failed.
+    fn with_cel<T>(&self, f: impl FnOnce(&mut Backend) -> Result<T>) -> Result<T> {
+        let mut cel = self.cel.lock().unwrap();
+        if cel.is_none() {
+            *cel = Some(Backend::spawn()?);
+        }
+        let out = f(cel.as_mut().unwrap());
+        if out.is_err() {
+            *cel = None;
+        }
+        out
+    }
 }
 
 // Runs the daemon in the foreground until killed.
@@ -343,7 +402,8 @@ fn respond(request: Request, daemon: &Daemon) -> Result<Value> {
     match request {
         Request::Ping => Ok(json!("pong")),
         Request::MachineUp { name, spec, units } => machine_up(daemon, name, &spec, units),
-        Request::Call { machine, role, tool, arguments } => call(daemon, &machine, &role, &tool, &arguments),
+        Request::Call { machine, role, tool, arguments, tool_use_id } => call(daemon, &machine, &role, &tool, &arguments, &tool_use_id),
+        Request::Result { machine, role: _, tool_use_id, ok, output, error, value } => result(daemon, &machine, &tool_use_id, ok, &output, &error, value),
         Request::MachineDown { name } => {
             let mut all = machines.lock().unwrap();
             let mut machine = all.remove(&name).ok_or_else(|| anyhow!("no machine named {name}"))?;
@@ -360,16 +420,15 @@ fn respond(request: Request, daemon: &Daemon) -> Result<Value> {
                 })
                 .collect())
         }
-        Request::MachineInfo { machine, role } => {
+        Request::MachineInfo { machine, role: _ } => {
             let all = machines.lock().unwrap();
             let m = all.get(&machine).ok_or_else(|| anyhow!("no machine named {machine}"))?;
-            m.role(&role)?;
-            Ok(json!({ "status": m.status, "units": m.units, "roles": m.roles, "next": m.next(&role) }))
+            Ok(json!({ "status": m.status, "units": m.units, "next": m.next() }))
         }
         Request::Act { machine, role, event, value } => {
             let mut all = machines.lock().unwrap();
             let m = all.get_mut(&machine).ok_or_else(|| anyhow!("no machine named {machine}"))?;
-            let verdict = match m.act(&role, &event, &value)? {
+            let verdict = match m.act(&role, &event, &value, "", None)? {
                 Verdict::Allowed => json!({ "verdict": "allowed" }),
                 Verdict::Denied => json!({ "verdict": "denied", "reason": format!("the policy denied {event}") }),
                 Verdict::Refused(reason) => json!({ "verdict": "refused", "reason": reason }),
@@ -380,12 +439,12 @@ fn respond(request: Request, daemon: &Daemon) -> Result<Value> {
             {
                 let mut all = machines.lock().unwrap();
                 let Some(m) = all.get_mut(&machine) else { return Ok(json!({ "happened": [], "note": format!("no machine named {machine}") })) };
-                // Tell each role once that its machine is no longer running, so it can tell its user.
+                // Tell the agent once that its machine is no longer running, so it can tell its user.
                 if m.status != Status::Running && m.status != Status::Finished && m.told_ended.insert(role.clone()) {
                     return Ok(json!({ "happened": [], "ended": m.status, "reason": m.ended }));
                 }
-                if !m.waiting(&role)? {
-                    return m.catch_up(&role);
+                if !m.waiting() {
+                    return Ok(m.catch_up());
                 }
             }
             std::thread::sleep(std::time::Duration::from_millis(250));
@@ -393,48 +452,69 @@ fn respond(request: Request, daemon: &Daemon) -> Result<Value> {
     }
 }
 
-// Decides one harness tool call for an agent in `role`: {"allow": true, ...} or {"allow": false,
-// "reason"}. A translated call's action is attempted on the machine before the answer, so a call that
-// is allowed has already moved the policy. Err means nothing could be decided (no such machine or
-// role, or the CEL backend failed); the hook refuses the call then too.
-fn call(daemon: &Daemon, machine: &str, role: &str, name: &str, args: &Value) -> Result<Value> {
+// Decides one harness tool call: {"allow": true, ...} or {"allow": false, "reason"}. A translated
+// call's action is attempted on the machine before the answer, so a call that is allowed has already
+// moved the policy, which then waits for its result. Err means nothing could be decided (no such
+// machine, or the CEL backend failed); the hook refuses the call then too.
+fn call(daemon: &Daemon, machine: &str, role: &str, name: &str, args: &Value, tool_use_id: &str) -> Result<Value> {
     let deny = |reason: String| Ok(json!({ "allow": false, "reason": reason }));
     let route = {
         let all = daemon.machines.lock().unwrap();
         let m = all.get(machine).ok_or_else(|| anyhow!("no machine named {machine}"))?;
-        m.role(role)?;
         m.route(name)
     };
     let (translator, tool) = match route {
         Route::Hidden => return Ok(json!({ "allow": true, "hidden": true })),
+        Route::Unmediated => return Ok(json!({ "allow": true, "unmediated": true })),
         Route::Unknown => {
             return deny(format!("{name} isn't a tool of any service machine {machine}'s units cover; inside a complier machine only the tools its units name are allowed."))
         }
-        Route::Unoffered(server, tool) => return deny(format!("{tool} isn't named by any of machine {machine}'s units for {server}, so it isn't available to role {role}.")),
+        Route::Unoffered(server, tool) => return deny(format!("{tool} isn't named by any of machine {machine}'s units for {server}, so it isn't available.")),
         Route::Translated(translator, tool) => (translator, tool),
     };
-    let translated = {
-        let mut cel = daemon.cel.lock().unwrap();
-        if cel.is_none() {
-            *cel = Some(Backend::spawn()?);
-        }
-        let result = translator.translate(cel.as_mut().unwrap(), &tool, args);
-        if result.is_err() {
-            *cel = None; // the backend failed; start a fresh one for the next call
-        }
-        result?
-    };
-    let event = match translated {
+    let event = match daemon.with_cel(|cel| translator.translate(cel, &tool, args))? {
         Ok(event) => event,
         Err(e) => return deny(format!("couldn't translate this {tool} call: {e}")),
     };
     let mut all = daemon.machines.lock().unwrap();
     let m = all.get_mut(machine).ok_or_else(|| anyhow!("no machine named {machine}"))?;
-    match m.act(role, &event.channel, &event.value)? {
+    match m.act(role, &event.channel, &event.value, tool_use_id, Some(translator))? {
         Verdict::Allowed => Ok(json!({ "allow": true, "event": translate::show(&event) })),
         Verdict::Denied => deny(format!("the policy denied this {tool} call ({}).", event.channel)),
         Verdict::Refused(reason) => deny(format!("refused this {tool} call ({}): {reason}.", event.channel)),
     }
+}
+
+// A call finished. If it's the call the machine is waiting for, its result is translated into a
+// value and the policy follows result.x.value; results of calls complier didn't mediate are ignored.
+fn result(daemon: &Daemon, machine: &str, tool_use_id: &str, ok: bool, output: &str, error: &str, value: Option<String>) -> Result<Value> {
+    let (action, translator) = {
+        let all = daemon.machines.lock().unwrap();
+        let m = all.get(machine).ok_or_else(|| anyhow!("no machine named {machine}"))?;
+        match &m.pending {
+            Some(p) if p.tool_use_id == tool_use_id || value.is_some() => (p.action.clone(), p.translator.clone()),
+            _ => return Ok(json!({ "ignored": true })),
+        }
+    };
+    let value = match (value, translator) {
+        (Some(v), _) => v,
+        (None, Some(t)) => match daemon.with_cel(|cel| t.result(cel, &action, ok, output, error))? {
+            Ok(v) => v,
+            Err(e) => {
+                let mut all = daemon.machines.lock().unwrap();
+                let m = all.get_mut(machine).ok_or_else(|| anyhow!("no machine named {machine}"))?;
+                let reason = format!("couldn't translate the result of {action}: {e}");
+                m.pending = None;
+                m.set(Status::Broken, &reason);
+                bail!("{reason}")
+            }
+        },
+        (None, None) => bail!("{action} was attempted by hand; give its result with `complier machine result`"),
+    };
+    let mut all = daemon.machines.lock().unwrap();
+    let m = all.get_mut(machine).ok_or_else(|| anyhow!("no machine named {machine}"))?;
+    m.result(&value)?;
+    Ok(json!({ "action": action, "value": value, "state": m.show() }))
 }
 
 fn machine_up(daemon: &Daemon, name: String, spec: &Path, units: Vec<PathBuf>) -> Result<Value> {
@@ -455,12 +535,10 @@ fn machine_up(daemon: &Daemon, name: String, spec: &Path, units: Vec<PathBuf>) -
         routes: Vec::new(),
         state: compiled.automaton.root,
         automaton: compiled.automaton,
-        roles: compiled.roles,
         acts: compiled.acts,
+        pending: None,
         status: Status::Running,
         log,
-        history: Vec::new(),
-        told: BTreeMap::new(),
         ended: String::new(),
         told_ended: Default::default(),
     };
@@ -567,93 +645,74 @@ fn start_background(path: &Path) -> Result<UnixStream> {
 mod tests {
     use super::*;
 
-    // normal(Policy) for: the writer drafts; publishing needs a review since the last draft;
-    // anything else is denied. (What FDR compiles fdr's writer example to, written out by hand so
-    // these tests don't need FDR; tests/e2e.rs runs the real thing.)
-    //   0 = P(false), 5 = P(true); 1-4 and 6-9 wait for a verdict.
+    // normal(Policy) for: Permit(check_time, \ v @ (if v == failed then Policy else W(v))), where
+    // W(v) permits one edit and then stops. Written out by hand so these tests don't need FDR;
+    // tests/e2e.rs runs the real thing.
+    //   0 --attempt.check_time--> 1 --allow.check_time--> 2 --result.check_time.{ok,failed}--> 3 / 0
+    //   3 --attempt.edit--> 4 --allow.edit--> 5 --result.edit.done--> 6 (no more attempts)
+    //   3 --attempt.push--> 7 --deny.push--> 3
     fn machine() -> Machine {
         let t = [
-            (0, "attempt.writer.draft", 1),
-            (0, "attempt.reviewer.review", 2),
-            (0, "attempt.writer.publish", 3),
-            (0, "attempt.writer.other", 4),
-            (1, "allow.writer.draft", 0),
-            (2, "allow.reviewer.review", 5),
-            (3, "deny.writer.publish", 0),
-            (4, "deny.writer.other", 0),
-            (5, "attempt.writer.draft", 6),
-            (5, "attempt.reviewer.review", 7),
-            (5, "attempt.writer.publish", 8),
-            (5, "attempt.writer.other", 9),
-            (6, "allow.writer.draft", 0),
-            (7, "allow.reviewer.review", 5),
-            (8, "allow.writer.publish", 10),
-            (9, "deny.writer.other", 5),
+            (0, "attempt.check_time", 1),
+            (1, "allow.check_time", 2),
+            (2, "result.check_time.ok", 3),
+            (2, "result.check_time.failed", 0),
+            (3, "attempt.edit", 4),
+            (4, "allow.edit", 5),
+            (5, "result.edit.done", 6),
+            (3, "attempt.push", 7),
+            (7, "deny.push", 3),
         ];
-        let mut labels = vec![String::new(); 11];
-        labels[0] = "P(false)".into();
-        labels[5] = "P(true)".into();
-        with(Automaton::from_transitions(labels, 0, &t), &["writer", "reviewer"], &["draft", "review", "publish", "other"])
-    }
-
-    fn with(automaton: Automaton, roles: &[&str], acts: &[&str]) -> Machine {
+        let automaton = Automaton::from_transitions(vec![String::new(); 8], 0, &t);
         let log = std::env::temp_dir().join(format!("complier-test-{}.log", std::process::id()));
         Machine {
             spec: PathBuf::new(),
             units: Vec::new(),
             routes: Vec::new(),
-            state: automaton.root,
+            state: 0,
             automaton,
-            roles: roles.iter().map(|r| r.to_string()).collect(),
-            acts: acts.iter().map(|a| a.to_string()).collect(),
+            acts: ["check_time", "edit", "push"].map(String::from).to_vec(),
+            pending: None,
             status: Status::Running,
             log: File::create(log).unwrap(),
-            history: Vec::new(),
-            told: BTreeMap::new(),
             ended: String::new(),
             told_ended: Default::default(),
         }
     }
 
     #[test]
-    fn attempts_are_allowed_denied_or_refused_by_the_automaton() {
+    fn an_allowed_call_waits_for_its_result_and_the_result_decides() {
         let mut m = machine();
-        // Denied: the policy takes the attempt and answers no; it moves along its deny edge.
-        assert_eq!(m.act("writer", "publish", &Value::Null).unwrap(), Verdict::Denied);
-        assert_eq!(m.show(), "P(false)");
-        assert_eq!(m.act("reviewer", "review", &Value::Null).unwrap(), Verdict::Allowed);
-        assert_eq!(m.show(), "P(true)");
-        // Refused: the policy doesn't offer the attempt, and its state is kept.
-        assert!(matches!(m.act("reviewer", "draft", &Value::Null).unwrap(), Verdict::Refused(r) if r.contains("doesn't take draft from reviewer")));
-        assert_eq!(m.show(), "P(true)");
-        assert!(matches!(m.act("writer", "delete", &Value::Null).unwrap(), Verdict::Refused(r) if r.contains("isn't an action")));
-        assert_eq!(m.act("writer", "publish", &json!("p1")).unwrap(), Verdict::Allowed);
-        // State 10 takes no attempts: the machine has ended, and further attempts are errors.
+        assert_eq!(m.next(), ["check_time"]);
+        assert_eq!(m.act("dev", "check_time", &Value::Null, "t1", None).unwrap(), Verdict::Allowed);
+        // While the result is outstanding, nothing else is taken.
+        assert!(matches!(m.act("dev", "edit", &Value::Null, "t2", None).unwrap(), Verdict::Refused(r) if r.contains("hasn't come back")));
+        assert!(!m.waiting());
+        // A failed reading sends the policy back to the start.
+        m.result("failed").unwrap();
+        assert_eq!(m.state, 0);
+        m.act("dev", "check_time", &Value::Null, "t3", None).unwrap();
+        m.result("ok").unwrap();
+        assert_eq!(m.next(), ["edit"]);
+        // Denied: answered and the state moves along deny; refused: not taken, state kept.
+        assert_eq!(m.act("dev", "push", &Value::Null, "t4", None).unwrap(), Verdict::Denied);
+        assert!(matches!(m.act("dev", "check_time", &Value::Null, "t5", None).unwrap(), Verdict::Refused(r) if r.contains("doesn't take check_time")));
+        assert!(matches!(m.act("dev", "delete", &Value::Null, "t6", None).unwrap(), Verdict::Refused(r) if r.contains("isn't an action")));
+        assert_eq!(m.act("dev", "edit", &Value::Null, "t7", None).unwrap(), Verdict::Allowed);
+        assert!(m.status == Status::Running); // still waiting for edit's result
+        m.result("done").unwrap();
         assert!(m.status == Status::Deadlocked);
-        assert!(m.act("writer", "draft", &Value::Null).is_err());
-        assert!(m.act("editor", "draft", &Value::Null).is_err());
+        assert!(m.act("dev", "edit", &Value::Null, "t8", None).is_err());
     }
 
     #[test]
-    fn a_role_waits_until_it_would_be_allowed_and_hears_what_others_did() {
+    fn a_result_the_policy_doesnt_accept_breaks_the_machine() {
         let mut m = machine();
-        assert_eq!(m.next("writer"), ["draft"]); // publish and other are offered but denied
-        assert_eq!(m.next("reviewer"), ["review"]);
-        m.act("reviewer", "review", &json!("p1")).unwrap();
-        assert_eq!(m.next("writer"), ["draft", "publish"]);
-        let report = m.catch_up("writer").unwrap();
-        assert_eq!(report["happened"], json!(["reviewer: review.p1"]));
-        assert_eq!(m.catch_up("writer").unwrap()["happened"], json!([])); // told once
-        assert!(!m.waiting("writer").unwrap());
-        assert!(m.catch_up("nobody").is_err());
-    }
-
-    #[test]
-    fn a_policy_that_terminates_finishes() {
-        let a = Automaton::from_transitions(vec![String::new(); 4], 0, &[(0, "attempt.w.go", 1), (1, "allow.w.go", 2), (2, "✓", 3)]);
-        let mut m = with(a, &["w"], &["go"]);
-        assert_eq!(m.act("w", "go", &Value::Null).unwrap(), Verdict::Allowed);
-        assert!(m.status == Status::Finished);
+        m.act("dev", "check_time", &Value::Null, "t1", None).unwrap();
+        let e = m.result("minutes.7").unwrap_err().to_string();
+        assert!(e.contains("doesn't accept") && e.contains("Returns(check_time)"), "{e}");
+        assert!(m.status == Status::Broken);
+        assert!(m.result("ok").is_err()); // nothing is pending any more
     }
 
     #[test]
@@ -661,7 +720,7 @@ mod tests {
         let mut m = machine();
         m.set(Status::Deadlocked, "the policy takes no more attempts");
         let daemon = Daemon { machines: Mutex::new([("demo".to_string(), m)].into()), cel: Mutex::new(None) };
-        let stop = || respond(Request::Stop { machine: "demo".into(), role: "writer".into() }, &daemon).unwrap();
+        let stop = || respond(Request::Stop { machine: "demo".into(), role: "dev".into() }, &daemon).unwrap();
         let first = stop();
         assert_eq!(first["ended"], json!("deadlocked"));
         assert!(first["reason"].as_str().unwrap().contains("no more attempts"));
@@ -673,14 +732,20 @@ mod tests {
         assert_eq!(service_tool("mcp__notion__notion-update-page", "notion"), Some("notion-update-page"));
         assert_eq!(service_tool("mcp__plugin_acme_notion__notion-fetch", "notion"), Some("notion-fetch"));
         assert_eq!(service_tool("mcp__claude_ai_Notion__notion-fetch", "claude.ai Notion"), Some("notion-fetch"));
+        assert_eq!(service_tool("mcp__claude-in-chrome__navigate", "claude-in-chrome"), Some("navigate"));
         assert_eq!(service_tool("mcp__notionx__notion-fetch", "notion"), None);
-        assert_eq!(service_tool("mcp__plugin_acme_notionx__notion-fetch", "notion"), None);
         assert_eq!(service_tool("Bash", "notion"), None);
+        assert_eq!(service_tool("Bash", BUILTIN), Some("Bash"));
+        assert_eq!(service_tool("mcp__notion__x", BUILTIN), None);
 
         let mut m = machine();
         m.routes.push(UnitRoutes { server: "notion".into(), translator: None, hidden: vec!["notion-fetch".into()] });
         assert!(matches!(m.route("mcp__notion__notion-fetch"), Route::Hidden));
         assert!(matches!(m.route("mcp__notion__notion-delete"), Route::Unoffered(s, t) if s == "notion" && t == "notion-delete"));
         assert!(matches!(m.route("mcp__github__create_issue"), Route::Unknown));
+        assert!(matches!(m.route("Bash"), Route::Unmediated)); // no unit covers built-in tools here
+        m.routes.push(UnitRoutes { server: BUILTIN.into(), translator: None, hidden: vec!["Read".into()] });
+        assert!(matches!(m.route("Read"), Route::Hidden));
+        assert!(matches!(m.route("Bash"), Route::Unoffered(s, _) if s == BUILTIN));
     }
 }

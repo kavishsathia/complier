@@ -1,0 +1,7 @@
+# Claude Code's own (built-in) tools, which units name with `service:` like any MCP server's.
+# A machine with a unit for this service checks them through the same hook as MCP tools, and blocks
+# any built-in tool its units don't name.
+# readOnly: tools reviewed as having no effect outside the conversation, so units may hide them.
+name: claude-code
+tools: tools.yaml
+readOnly: [Read, LSP, ToolSearch, ListAgents, TaskStop, CronList]

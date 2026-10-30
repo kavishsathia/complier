@@ -1,7 +1,9 @@
 -- The writer appends, then replaces, in turn. `other` (the unit's fallback) is always denied;
 -- anything else out of turn is refused.
-datatype Role = writer
 datatype Act = appended | replaced | other
-Policy = Append
-Append = Permit(writer, appended, Replace) [] Deny(writer, other, Append)
-Replace = Permit(writer, replaced, Append) [] Deny(writer, other, Replace)
+datatype Value = done | failed
+Returns(_) = {done, failed}
+
+Policy  = Append
+Append  = Permit(appended, \ _ @ Replace) [] Deny(other, Append)
+Replace = Permit(replaced, \ _ @ Append) [] Deny(other, Replace)

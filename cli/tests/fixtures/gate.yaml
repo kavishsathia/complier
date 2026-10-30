@@ -1,0 +1,12 @@
+# For gate.csp: peeking is `check`, whose result is `big` if the output says so; writing is `write`.
+service: fake/service.yaml
+translate:
+  tools: [peek, write-item]
+  schema:
+    id: optional<string>
+  rules:
+    check: { when: "tool == 'peek'", emit: check }
+    write: { when: "tool == 'write-item'", emit: write }
+  results:
+    check: "!ok ? 'failed' : (output.contains('big') ? 'big' : 'small')"
+    default: "ok ? 'done' : 'failed'"

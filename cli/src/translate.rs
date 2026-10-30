@@ -29,7 +29,15 @@ pub struct Translation {
     pub fallback: Fallback,
     pub timeout_ms: u64,
     pub unroll: u32,
+    // How a call's result becomes the value the policy binds: per action, a CEL expression over
+    // RESULT_VARS giving the value as the spec writes it (`done`, `minutes.37`), or the default.
+    pub results: BTreeMap<String, String>,
+    pub result_default: Option<String>,
 }
+
+// What a result expression sees: whether the call succeeded, its output (a Bash call's stdout, or
+// any other tool's response as JSON), and its error if it failed.
+pub const RESULT_VARS: &str = "ok:bool\noutput:string\nerror:string";
 
 #[derive(Clone, Debug)]
 pub struct Field {
@@ -567,6 +575,31 @@ pub fn prove(cel: &mut Backend, t: &Translation) -> Result<Report> {
     if let Some(v) = &t.fallback.value {
         sources.push(("the fallback's value".to_string(), v.clone(), false));
     }
+    let emitted: BTreeSet<&str> = t.rules.iter().map(|r| r.emit.as_str()).chain([t.fallback.emit.as_str()]).collect();
+    for action in t.results.keys() {
+        if !emitted.contains(action.as_str()) {
+            errors.push(format!("results.{action}: no rule of this unit emits {action}"));
+        }
+    }
+    if t.result_default.is_none() {
+        for action in &emitted {
+            if !t.results.contains_key(*action) {
+                errors.push(format!("{action} has no result expression and there's no `default`, so its calls' results couldn't be bound"));
+            }
+        }
+    }
+    let mut result_sources: Vec<(String, &String)> = t.results.iter().map(|(a, e)| (format!("results.{a}"), e)).collect();
+    if let Some(d) = &t.result_default {
+        result_sources.push(("results.default".to_string(), d));
+    }
+    for (what, src) in result_sources {
+        let out = cel.request(json!({ "op": "compile", "expr": src, "vars": RESULT_VARS }))?;
+        if out["ok"] != true {
+            errors.push(format!("{what}: {}", failure(&out)));
+        } else if !is_string_type(out["type"].as_str().unwrap_or_default()) {
+            errors.push(format!("{what} has type {}, not string (it's the value the policy binds)", out["type"].as_str().unwrap_or("?")));
+        }
+    }
     for (what, src, boolean) in &sources {
         let out = compile(cel, src)?;
         if out["ok"] != true {
@@ -632,6 +665,10 @@ pub fn prove(cel: &mut Backend, t: &Translation) -> Result<Report> {
 // cel-java's compile reports the AST's result type; for bool that's `SimpleType{kind=BOOL, name=bool}`.
 fn is_bool_type(t: &str) -> bool {
     t == "bool" || t.contains("kind=BOOL,") || t.contains("kind=BOOL}")
+}
+
+fn is_string_type(t: &str) -> bool {
+    t == "string" || t.contains("kind=STRING,") || t.contains("kind=STRING}")
 }
 
 // ---- classification ------------------------------------------------------------------------
@@ -772,6 +809,25 @@ impl Translator {
         }
     }
 
+    // The value a call of `action` returned, as the policy binds it, from the call's result. Err from
+    // the outer Result means the backend failed; the inner Err, that the expression did.
+    pub fn result(&self, cel: &mut Backend, action: &str, ok: bool, output: &str, error: &str) -> Result<std::result::Result<String, String>> {
+        let Some(expr) = self.translation.results.get(action).or(self.translation.result_default.as_ref()) else {
+            return Ok(Err(format!("no result expression for {action}")));
+        };
+        let bindings = json!([["ok", ok.to_string()], ["output", quote(output)], ["error", quote(error)]]);
+        let out = cel.request(json!({ "op": "evaluate", "vars": RESULT_VARS, "bindings": bindings, "exprs": [], "values": [expr] }))?;
+        if out["ok"] != true {
+            bail!("the CEL backend couldn't evaluate the result: {}", failure(&out));
+        }
+        let v = &out["values"][0];
+        Ok(match (v["ok"].as_bool(), v["value"].as_str()) {
+            (Some(true), Some(s)) => Ok(s.to_string()),
+            (Some(true), _) => Err(format!("the result expression gave {}, not a string", v["value"])),
+            _ => Err(format!("{}: {}", v["kind"].as_str().unwrap_or("error"), v["error"].as_str().unwrap_or("?"))),
+        })
+    }
+
     // Translates an agent's call of `tool` into its event, or the reason it can't be. Err from the
     // outer Result means the backend failed, so nothing can be translated.
     pub fn translate(&self, cel: &mut Backend, tool: &str, args: &Value) -> Result<std::result::Result<Event, String>> {
@@ -834,6 +890,8 @@ mod tests {
             fallback: Fallback { emit: fallback.into(), value: None },
             timeout_ms: 10_000,
             unroll: 5,
+            results: BTreeMap::new(),
+            result_default: Some("ok ? 'done' : 'failed'".into()),
         }
     }
 

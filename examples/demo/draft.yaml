@@ -23,4 +23,6 @@ translate:
           has(p.properties) && has(p.properties.title) && p.properties.title != null
             ? string(p.properties.title) : 'untitled').join(', ')
 
+  results:
+    default: "ok ? 'done' : 'failed'"
 hidden: [notion-fetch, notion-search]

@@ -1,0 +1,9 @@
+-- A call's result decides: after a peek, writing is permitted only if the peek saw `big`.
+datatype Act = check | write
+datatype Value = done | failed | big | small
+Returns(check) = {big, small, failed}
+Returns(_)     = {done, failed}
+
+Policy = Permit(check, Checked)
+Checked(big) = Permit(write, \ _ @ Policy)
+Checked(_)   = Policy

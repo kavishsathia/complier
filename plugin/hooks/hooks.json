@@ -6,6 +6,15 @@
     "PreToolUse": [
       { "hooks": [{ "type": "command", "command": "complier hook pre-tool-use" }] }
     ],
+    "PostToolUse": [
+      { "hooks": [{ "type": "command", "command": "complier hook post-tool-use" }] }
+    ],
+    "PostToolUseFailure": [
+      { "hooks": [{ "type": "command", "command": "complier hook post-tool-use" }] }
+    ],
+    "PermissionDenied": [
+      { "hooks": [{ "type": "command", "command": "complier hook post-tool-use" }] }
+    ],
     "Stop": [
       { "hooks": [{ "type": "command", "command": "complier hook stop", "timeout": 3600 }] }
     ]

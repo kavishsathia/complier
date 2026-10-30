@@ -58,8 +58,6 @@ struct Output {
     admitted: bool,
     error: Option<ProblemJson>,
     #[serde(default)]
-    roles: Vec<String>,
-    #[serde(default)]
     acts: Vec<String>,
     #[serde(default)]
     checks: Vec<Check>,
@@ -67,7 +65,7 @@ struct Output {
 }
 
 // The compiled policy: normal(Policy) as FDR built it. Each state's outgoing events, by name
-// (`attempt.writer.draft`, `allow.writer.draft`, `deny.writer.draft`, `✓`); FDR normalised it, so
+// (`attempt.edit`, `allow.edit`, `deny.edit`, `result.edit.done`, `✓`); FDR normalised it, so
 // each event leads to exactly one state.
 #[derive(Clone, Debug)]
 pub struct Automaton {
@@ -114,7 +112,6 @@ impl fmt::Display for Report {
 }
 
 pub struct Compiled {
-    pub roles: Vec<String>,
     pub acts: Vec<String>,
     pub automaton: Automaton,
     pub report: Report,
@@ -159,7 +156,6 @@ pub fn compile(spec: &Path) -> Result<std::result::Result<Compiled, Report>> {
         edges[t.from].insert(t.event, t.to);
     }
     Ok(Ok(Compiled {
-        roles: o.roles,
         acts: o.acts,
         automaton: Automaton { root: automaton.root, labels: automaton.states, edges },
         report,

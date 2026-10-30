@@ -119,6 +119,8 @@ enum MachineCommand {
         role: String,
         event: String,
     },
+    /// Give the result of an action attempted with `act`, as the value the policy binds (e.g. done).
+    Result { name: String, value: String },
     /// List running machines.
     Ls,
     /// Print a machine's event log.
@@ -136,6 +138,8 @@ enum HookCommand {
     SessionStart,
     /// Checks each MCP tool call with the daemon, and blocks edits to the config that enforces it.
     PreToolUse,
+    /// Sends a finished call's result to the daemon, which binds it if the policy is waiting for it.
+    PostToolUse,
     /// Delivers what the agent's role can receive, waiting while it waits to receive.
     Stop,
 }
@@ -154,6 +158,7 @@ fn main() -> Result<()> {
         Command::Machine { command } => machine(command),
         Command::Hook { command: HookCommand::SessionStart } => hooks::session_start(),
         Command::Hook { command: HookCommand::PreToolUse } => hooks::pre_tool_use(),
+        Command::Hook { command: HookCommand::PostToolUse } => hooks::post_tool_use(),
         Command::Hook { command: HookCommand::Stop } => hook_stop(),
         Command::Remove { name } => remove(&name),
     }
@@ -244,7 +249,7 @@ fn verify(spec: &Path) -> Result<()> {
     match fdr::compile(spec)? {
         Ok(compiled) => {
             println!("{}", compiled.report);
-            println!("roles: {}; actions: {}; {} states", compiled.roles.join(", "), compiled.acts.join(", "), compiled.automaton.edges.len());
+            println!("actions: {}; {} states", compiled.acts.join(", "), compiled.automaton.edges.len());
             Ok(())
         }
         Err(report) => bail!("{} isn't admitted:\n{report}", spec.display()),
@@ -282,6 +287,11 @@ fn machine(command: MachineCommand) -> Result<()> {
                 _ => bail!("{event} {}: {}", out["verdict"].as_str().unwrap_or("?"), out["reason"].as_str().unwrap_or("")),
             }
         }
+        MachineCommand::Result { name, value } => {
+            let request = daemon::Request::Result { machine: name, role: String::new(), tool_use_id: String::new(), ok: true, output: String::new(), error: String::new(), value: Some(value) };
+            let out = daemon::request(&request, false)?;
+            println!("{} returned {}; the policy is now at {}", out["action"].as_str().unwrap_or("?"), out["value"].as_str().unwrap_or("?"), out["state"].as_str().unwrap_or("?"));
+        }
         MachineCommand::Ls => {
             for m in daemon::request(&daemon::Request::MachineLs, false)?.as_array().into_iter().flatten() {
                 let field = |k: &str| m[k].as_str().unwrap_or("?").to_string();
@@ -293,9 +303,9 @@ fn machine(command: MachineCommand) -> Result<()> {
     Ok(())
 }
 
-// Blocks while the agent's role waits to receive something, then makes Claude continue with what
-// arrived. Outside a machine (no COMPLIER_MACHINE/COMPLIER_ROLE) or with nothing to wait for,
-// it lets Claude stop.
+// Waits while the agent has nothing it may do yet; then, while the policy is still running and lets
+// the agent do something, makes Claude continue instead of stopping. Outside a machine (no
+// COMPLIER_MACHINE/COMPLIER_ROLE), or once the policy has finished, it lets Claude stop.
 fn hook_stop() -> Result<()> {
     let _ = std::io::copy(&mut std::io::stdin(), &mut std::io::sink()); // the hook's JSON input
     let (Ok(machine), Ok(role)) = (std::env::var("COMPLIER_MACHINE"), std::env::var("COMPLIER_ROLE")) else {
@@ -314,15 +324,17 @@ fn hook_stop() -> Result<()> {
         println!("{}", serde_json::json!({ "decision": "block", "reason": reason }));
         return Ok(());
     }
-    let happened = list("happened");
-    if happened.is_empty() {
+    // The policy says when the work is done: while it is still running and lets the agent do
+    // something, the agent may not stop, and is told to continue.
+    let next = list("next");
+    if next.is_empty() {
         return Ok(());
     }
-    let mut reason = format!("complier: you are {role} in machine {machine}. Since you last stopped, your process went through: {}.", happened.join(", "));
-    reason += &match list("next").as_slice() {
-        [] => " Your process has nothing more for you to do.".to_string(),
-        next => format!(" Your spec now lets you: {}.", next.join(", ")),
-    };
+    let reason = format!(
+        "complier: machine {machine}'s policy hasn't finished, so you're not done yet. It now lets you: {}. Continue with the workflow.",
+        next.join(", ")
+    );
+    let _ = role;
     println!("{}", serde_json::json!({ "decision": "block", "reason": reason }));
     Ok(())
 }
@@ -359,6 +371,7 @@ fn log(name: &str, follow: bool) -> Result<()> {
         };
         match kind.as_str() {
             "admission" => println!("{time}  admitted {}", text("unit")),
+            "result" => println!("{time}  result   {:<48} → {}", text("event"), text("state")),
             "policy" => println!("{time}  policy   {} ({} states, compiled by FDR)", text("spec"), entry["states"]),
             "warning" => println!("{time}  warning  {}", text("warning")),
             "status" => println!("{time}  status   {:<48} {}", text("status"), text("reason")),

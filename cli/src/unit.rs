@@ -102,7 +102,7 @@ pub fn load(path: &Path) -> Result<Unit> {
 }
 
 fn translation(doc: Doc, n: &Node, known: &dyn Fn(&Node, &str, &str) -> Result<()>) -> Result<Translation> {
-    let f = doc.fields(n, "translate", &["tools", "rules"], &["schema", "assumption", "fallback", "timeoutMs", "unroll"])?;
+    let f = doc.fields(n, "translate", &["tools", "rules"], &["schema", "assumption", "fallback", "timeoutMs", "unroll", "results"])?;
 
     let mut tools: Vec<String> = Vec::new();
     let list = doc.strings(f.req("tools"), "translate.tools")?;
@@ -177,7 +177,19 @@ fn translation(doc: Doc, n: &Node, known: &dyn Fn(&Node, &str, &str) -> Result<(
         Some(n) => u32::try_from(doc.uint(n, "translate.unroll")?).map_err(|_| doc.error(n, "translate.unroll", "too large"))?,
     };
 
-    let t = Translation { tools, schema, assumption, rules, fallback, timeout_ms, unroll };
+    let mut results = BTreeMap::new();
+    let mut result_default = None;
+    if let Some(n) = f.get("results") {
+        for (name, expr) in doc.map(n, "translate.results")? {
+            let src = cel(doc, expr, &format!("translate.results.{name}"))?;
+            if name == "default" {
+                result_default = Some(src);
+            } else {
+                results.insert(name.clone(), src);
+            }
+        }
+    }
+    let t = Translation { tools, schema, assumption, rules, fallback, timeout_ms, unroll, results, result_default };
     // Anything the per-field checks above don't cover (none expected); the proof checks these again.
     let (errors, _) = translate::issues(&t);
     if !errors.is_empty() {

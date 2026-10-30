@@ -1,4 +1,6 @@
 -- Not admissible: the policy takes an attempt to replace and never answers it.
-datatype Role = writer
 datatype Act = appended | replaced
-Policy = Permit(writer, appended, Policy) [] attempt.writer.replaced -> Policy
+datatype Value = done | failed
+Returns(_) = {done, failed}
+
+Policy = Permit(appended, \ _ @ Policy) [] attempt.replaced -> Policy

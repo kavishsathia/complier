@@ -1,4 +1,6 @@
 -- The fallback is an action like any other: here the policy lets the writer do it once.
-datatype Role = writer
 datatype Act = appended | replaced | other
-Policy = Permit(writer, other, STOP)
+datatype Value = done | failed
+Returns(_) = {done, failed}
+
+Policy = Permit(other, \ _ @ STOP)
