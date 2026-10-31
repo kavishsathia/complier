@@ -1,0 +1,25 @@
+-- The landing-page game's policy: the agent may send the visitor at most $100 of fake money in
+-- total, over the whole session. Money moves in $10 notes: a transfer of $a is send.a (transfer.yaml);
+-- more than $100 at once is oversize. A transfer counts once its result says it went through (done); a failed one doesn't.
+-- FDR proves this at machine up, including the assertion below, and compiles it for the daemon.
+Limit = 100
+Amounts = { 10 * k | k <- {1..10} }
+datatype Act = send.Amounts | oversize
+datatype Value = done | failed
+Returns(_) = {done, failed}
+
+Policy = Sent(0)
+-- t: whole fake dollars sent so far.
+Sent(t) =
+  ([] a : Amounts @
+     if t + a <= Limit
+     then Permit(send.a, \ v @ if v == done then Sent(t + a) else Sent(t))
+     else Deny(send.a, Sent(t)))
+  [] Deny(oversize, Sent(t))
+
+-- The property: the transfers that went through never add up to more than Limit, whatever any
+-- agent attempts (System is the policy against ControllableCHAOS).
+Total(t) =
+  [] a : Amounts @ t + a <= Limit & allow.send.a ->
+     (result.send.a.done -> Total(t + a) [] result.send.a.failed -> Total(t))
+assert Total(0) [T= System \ diff(Events, {| allow.send, result.send |})

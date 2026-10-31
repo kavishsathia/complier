@@ -1,0 +1,6 @@
+# The fake bank's tools. Written by hand for the game (there is no server for `complier gen` to
+# list); the hashes are placeholders, as nothing checks them at call time.
+server: "fakebank"
+tools:
+  "send_fake_money": "0000000000000000"
+  "get_fake_balance": "0000000000000000"

@@ -1,0 +1,6 @@
+# Reviewed metadata for the landing-page game's fake bank. It is not an MCP server anyone can
+# install: the game's server calls send_fake_money itself, as an agent's harness would, under the
+# harness tool name mcp__fakebank__send_fake_money. No real money moves.
+name: fakebank
+tools: tools.yaml
+readOnly: [get_fake_balance]
