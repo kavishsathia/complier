@@ -2255,6 +2255,8 @@ body:has(.landing) {
 .game-chat,
 .game-direct {
   display: grid;
+  /* One column no wider than the panel: an implicit column would size to its content and be clipped. */
+  grid-template-columns: minmax(0, 1fr);
   gap: 8px;
   padding: 14px 16px;
 }
@@ -2295,6 +2297,10 @@ body:has(.landing) {
 .game-row input:disabled {
   background: var(--sunk);
   color: var(--ink-3);
+}
+
+.game-row .btn {
+  flex: none;
 }
 
 .game-dollar {

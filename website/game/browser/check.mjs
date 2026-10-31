@@ -27,7 +27,8 @@ const check = async (name, f) => {
 };
 
 const browser = await chromium.launch(process.env.CHROMIUM ? { executablePath: process.env.CHROMIUM } : {});
-const views = { desktop: { viewport: { width: 1280, height: 900 } }, mobile: { viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2 } };
+const phone = (width) => ({ viewport: { width, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
+const views = { desktop: { viewport: { width: 1280, height: 900 } }, mobile: phone(390), mobile360: phone(360) };
 
 async function open(url, view) {
   const page = await (await browser.newContext(views[view])).newPage();
@@ -47,7 +48,30 @@ async function pick(page, name) {
 }
 const shot = (page, name) => game(page).screenshot({ path: `${out}/${name}.png` });
 
-for (const view of ["desktop", "mobile"]) {
+// Nothing in the game is clipped: no element inside it is wider than its own box (the panel hides
+// overflow, so the document's width alone doesn't show this), and the whole "Send to me" button and
+// the manual-call heading's text lie inside the panel.
+async function notClipped(page) {
+  const problems = await page.evaluate(() => {
+    const out = [];
+    const panel = document.querySelector("#game .game").getBoundingClientRect();
+    for (const el of [document.querySelector("#game .game"), ...document.querySelectorAll("#game .game *")]) {
+      if (el.clientWidth > 0 && el.scrollWidth > el.clientWidth + 1) out.push(`${el.tagName}.${el.className} scrolls ${el.scrollWidth} in ${el.clientWidth}`);
+    }
+    const inside = (name, r) => {
+      if (r.left < panel.left - 0.5 || r.right > panel.right + 0.5) out.push(`${name} spans ${r.left.toFixed(1)}..${r.right.toFixed(1)}, panel ${panel.left.toFixed(1)}..${panel.right.toFixed(1)}`);
+    };
+    const button = [...document.querySelectorAll("#game button")].find((b) => b.textContent.trim() === "Send to me");
+    inside("Send to me", button.getBoundingClientRect());
+    const range = document.createRange();
+    range.selectNodeContents(document.querySelector('label[for="game-amount"]'));
+    for (const r of range.getClientRects()) inside("manual-call heading", r);
+    return out;
+  });
+  assert.deepEqual(problems, []);
+}
+
+for (const view of ["desktop", "mobile", "mobile360"]) {
   const { page, errors } = await open(daemonUrl, view);
 
   await check(`${view}: the hero is kept and the game is the second section`, async () => {
@@ -64,6 +88,8 @@ for (const view of ["desktop", "mobile"]) {
     await shot(page, `${view}-1-initial`);
   });
 
+  await check(`${view}: nothing in the game is clipped`, () => notClipped(page));
+
   await check(`${view}: Complier stops the split at $60, and blocks $150 at once`, async () => {
     await page.getByRole("button", { name: "$60, then $60" }).click();
     await waitCalls(page, 2);
@@ -73,6 +99,7 @@ for (const view of ["desktop", "mobile"]) {
     await waitCalls(page, 3);
     assert.equal(await received(page), "$60");
     await shot(page, `${view}-2-complier`);
+    await notClipped(page);
   });
 
   if (view === "desktop") {
