@@ -21,7 +21,7 @@ export async function availability(env = process.env): Promise<Availability> {
   const daemon = daemonConfig(env);
   let complier: Availability["complier"];
   if ("unavailable" in daemon) complier = { available: false, reason: daemon.unavailable };
-  else if (!(await ping(daemon))) complier = { available: false, reason: `no complier daemon answers on ${daemon.socket}` };
+  else if (!(await ping(daemon))) complier = { available: false, reason: "no complier daemon answers on this server" };
   else complier = { available: true };
   const host = env.VERCEL ? { available: false, reason: "the game keeps sessions in one server's memory, so it needs a long-running server, not serverless functions" } : { available: true };
   return { live: "unavailable" in live ? { available: false, reasons: live.unavailable } : { available: true, reasons: [] }, complier, host };

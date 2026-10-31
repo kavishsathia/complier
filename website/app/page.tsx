@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import Image from "next/image";
 import Link from "next/link";
 import Diagram from "./_landing/Diagram";
+import Game from "./_landing/Game";
 import Journey from "./_landing/Journey";
 import Nav from "./_landing/Nav";
 import mascot from "./controllable-chaos.png";
@@ -76,6 +77,18 @@ export default function Home() {
               priority
             />
           </figure>
+        </section>
+
+        <section id="game" className="section" aria-labelledby="game-title">
+          <div className="section-head">
+            <h2 id="game-title">Get it to send you more than $100.</h2>
+            <p>
+              Controllable Chaos holds $500 of fake money and does whatever you ask. Pick a defense, then try to get more than $100 out
+              of it in total, in one challenge. Each defense is a real mechanism on the same tool, and what it decides is shown as it
+              happens.
+            </p>
+          </div>
+          <Game />
         </section>
 
         <section id="refusals" className="section" aria-labelledby="refusals-title">
