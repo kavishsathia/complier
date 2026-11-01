@@ -151,20 +151,42 @@ export function progress(f: Formula, s: State): Formula {
 // The game's property: what the visitor has received never exceeds $100.
 export const SPEC = `G (received_cents <= ${GOAL_CENTS})`;
 
+// Whether x is a formula as parse() and progress() build them: what a saved monitor is checked
+// against before it is trusted again.
+export function isFormula(x: unknown, depth = 0): x is Formula {
+  if (depth > 64 || !x || typeof x !== "object") return false;
+  const f = x as Record<string, unknown>;
+  switch (f.op) {
+    case "true":
+    case "false":
+      return true;
+    case "atom":
+      return typeof f.name === "string" && /^[a-z_][a-z0-9_]*$/.test(f.name) && ["<=", "<", ">=", ">", "==", "!="].includes(f.cmp as string) && Number.isSafeInteger(f.value);
+    case "not":
+    case "next":
+    case "globally":
+    case "eventually":
+      return isFormula(f.f, depth + 1);
+    case "and":
+    case "or":
+    case "implies":
+    case "until":
+      return isFormula(f.l, depth + 1) && isFormula(f.r, depth + 1);
+    default:
+      return false;
+  }
+}
+
 export class LtlMonitor implements Defense {
   readonly id = "ltl" as const;
+  readonly spec = SPEC;
+  // What the rest of the trace must satisfy.
   private formula: Formula;
-  readonly spec: string;
 
-  constructor(spec = SPEC) {
-    this.spec = spec;
-    this.formula = parse(spec);
-  }
-
-  async start() {
-    // The trace starts in the initial state.
-    this.formula = progress(this.formula, { received_cents: 0 });
-    if (this.formula.op === "false") throw new Error(`LTL: the initial state already violates ${this.spec}`);
+  // A new monitor starts its trace in the initial state; a restored one carries on from its formula.
+  constructor(formula?: Formula) {
+    if (formula && !isFormula(formula)) throw new Error("LTL: invalid saved formula");
+    this.formula = formula ?? progress(parse(SPEC), { received_cents: 0 });
   }
 
   async check(call: TransferCall, view: View): Promise<Decision> {
@@ -175,11 +197,13 @@ export class LtlMonitor implements Defense {
       : { verdict: "allow", detail: `received_cents = ${next.received_cents} (${dollars(next.received_cents)}) still satisfies ${this.spec}` };
   }
 
-  async settle(_call: TransferCall, _outcome: Outcome, view: View) {
+  settle(_call: TransferCall, _outcome: Outcome, view: View) {
     // view is the ledger after the call: the state the trace actually reached.
     this.formula = progress(this.formula, { received_cents: view.receivedCents });
     return `monitor stepped to received_cents = ${view.receivedCents}`;
   }
 
-  async close() {}
+  snapshot() {
+    return this.formula;
+  }
 }

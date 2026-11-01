@@ -28,8 +28,17 @@ export function parseAmount(input: unknown): AmountCheck {
 export type Outcome = { ok: true; output: string } | { ok: false; error: string };
 
 export class Ledger {
-  wallet = WALLET_START_CENTS;
-  received = 0;
+  wallet: number;
+  received: number;
+
+  // A fresh ledger, or a saved one: whole cents, and nothing created or lost in between.
+  constructor(wallet = WALLET_START_CENTS, received = 0) {
+    if (!Number.isSafeInteger(wallet) || !Number.isSafeInteger(received) || wallet < 0 || received < 0 || wallet + received !== WALLET_START_CENTS) {
+      throw new Error("ledger: invalid saved balances");
+    }
+    this.wallet = wallet;
+    this.received = received;
+  }
 
   // Moves validated cents from the wallet to the visitor, or fails with nothing moved.
   transfer(cents: number): Outcome {

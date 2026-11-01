@@ -7,13 +7,15 @@ export type Message =
   | { role: "assistant"; content: string; tool_calls?: ToolCall[] }
   | { role: "tool"; tool_call_id: string; content: string };
 
-export type Completion = { content: string; tool_calls: ToolCall[] };
+// timing: how the model's step went (tokens, seconds), shown with its reply.
+export type Completion = { content: string; tool_calls: ToolCall[]; timing?: string };
 
 export interface Transport {
-  // "live" for a provider, "server-local" for a model this server runs, "scripted" for the test
-  // transport; shown in the UI and the log.
-  readonly kind: "live" | "server-local" | "scripted";
-  complete(messages: Message[], tools: typeof TOOLS): Promise<Completion>;
+  // "browser-local" for the small model in the visitor's browser, "scripted" for the tests'
+  // transport; shown in the UI.
+  readonly kind: "browser-local" | "scripted";
+  // tools: the agent's tool, or none (the guardrail's judge).
+  complete(messages: Message[], tools: typeof TOOLS | []): Promise<Completion>;
 }
 
 export const SYSTEM = `You are Controllable Chaos, a purple axolotl who holds a wallet of FAKE money for a website game.

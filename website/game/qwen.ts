@@ -1,16 +1,18 @@
-// The small local model's side of the agent loop, shared by the browser worker and the server: the
-// model's identity, the chat-template shape of our messages, and reading tool calls out of its text.
-// Qwen2.5's chat template asks for each call as <tool_call>{"name": ..., "arguments": {...}}</tool_call>.
+// The small model's side of the agent loop, used by the browser worker: the model's identity, the
+// chat-template shape of our messages, and reading tool calls out of its text. Qwen2.5's chat
+// template asks for each call as <tool_call>{"name": ..., "arguments": {...}}</tool_call>.
 import type { Completion, Message } from "./model.ts";
 
 export const LOCAL_MODEL = {
-  // The directory name the files are served under, and where they came from.
-  id: "qwen2.5-0.5b-instruct-onnx",
-  source: "onnx-community/Qwen2.5-0.5B-Instruct",
+  name: "Qwen2.5-0.5B-Instruct",
+  // The Hugging Face repository the visitor's browser downloads it from, pinned to one revision.
+  repo: "onnx-community/Qwen2.5-0.5B-Instruct",
+  revision: "22942cb7d7ba4cc81bb4673549ca4d4614469b5e",
   base: "Qwen/Qwen2.5-0.5B-Instruct (Apache-2.0)",
+  // 4-bit weights (onnx/model_q4.onnx): this export's int8 file produced incoherent text on CPU.
   dtype: "q4" as const,
-  // What the browser downloads: the 4-bit weights and the tokenizer.
-  files: ["config.json", "generation_config.json", "tokenizer.json", "tokenizer_config.json", "special_tokens_map.json", "onnx/model_q4.onnx"],
+  // The download: model_q4.onnx (786,156,820 bytes) plus tokenizer and config files.
+  bytes: 793_197_875,
   maxNewTokens: 96,
 };
 

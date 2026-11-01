@@ -6,14 +6,16 @@ import type { Decision, Defense, TransferCall } from "./types.ts";
 // the check you get from a tool's input schema or a per-request policy.
 export class StatelessValidator implements Defense {
   readonly id = "stateless" as const;
-  async start() {}
   async check(call: TransferCall): Promise<Decision> {
     return call.cents <= GOAL_CENTS
       ? { verdict: "allow", detail: `${dollars(call.cents)} is at most ${dollars(GOAL_CENTS)} for this call (earlier calls aren't counted)` }
       : { verdict: "deny", detail: `${dollars(call.cents)} is more than ${dollars(GOAL_CENTS)} in one call` };
   }
-  async settle() {
+  settle() {
     return undefined;
   }
-  async close() {}
+
+  snapshot() {
+    return null;
+  }
 }

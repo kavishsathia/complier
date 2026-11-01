@@ -1,18 +1,18 @@
-// Browser check for the landing page's game, against running servers. It drives the real page and
-// API (no mocks) and writes screenshots. Not part of `npm test`: it needs Playwright and servers.
+// Browser check for the landing page's game, against the built site. It drives the real page and
+// writes screenshots. It never loads the model: the in-browser model is ~793 MB and is only checked
+// to be offered, not fetched. Not part of `npm test`: it needs Playwright and a running site.
 //
-//   node website/game/browser/check.mjs OUT_DIR DAEMON_URL [NO_DAEMON_URL] [BUDGET_URL]
+//   VERCEL=1 npx next start website -p 3417 &
+//   node website/game/browser/check.mjs OUT_DIR http://localhost:3417
 //
-// DAEMON_URL: `next start` with COMPLIER_SOCKET set to a running complier daemon, live model off.
-// NO_DAEMON_URL: the same site without COMPLIER_SOCKET. BUDGET_URL: live model configured with a spend
-// cap too small for any call, so the cap refuses before anything is sent. PLAYWRIGHT names the
-// playwright package to load if it isn't installed here, and CHROMIUM a browser binary to use.
+// PLAYWRIGHT names the playwright package to load if it isn't installed here, and CHROMIUM a browser
+// binary to use.
 import assert from "node:assert/strict";
 import { mkdirSync } from "node:fs";
 import { createRequire } from "node:module";
 
-const [out, daemonUrl, noDaemonUrl, budgetUrl] = process.argv.slice(2);
-if (!out || !daemonUrl) throw new Error("usage: check.mjs OUT_DIR DAEMON_URL [NO_DAEMON_URL] [BUDGET_URL]");
+const [out, url] = process.argv.slice(2);
+if (!out || !url) throw new Error("usage: check.mjs OUT_DIR URL");
 mkdirSync(out, { recursive: true });
 const { chromium } = createRequire(import.meta.url)(process.env.PLAYWRIGHT ?? "playwright");
 
@@ -30,21 +30,24 @@ const browser = await chromium.launch(process.env.CHROMIUM ? { executablePath: p
 const phone = (width) => ({ viewport: { width, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
 const views = { desktop: { viewport: { width: 1280, height: 900 } }, mobile: phone(390), mobile360: phone(360) };
 
-async function open(url, view) {
+async function open(view) {
   const page = await (await browser.newContext(views[view])).newPage();
   const errors = [];
+  const requests = [];
   page.on("pageerror", (e) => errors.push(String(e)));
+  page.on("request", (r) => requests.push(r.url()));
   await page.goto(url, { waitUntil: "networkidle" });
-  return { page, errors };
+  return { page, errors, requests };
 }
 const game = (page) => page.locator("#game");
 const received = (page) => page.getByTestId("received").innerText();
-const calls = (page) => page.locator(".game-call").count();
-async function waitCalls(page, n) {
-  await page.waitForFunction((n) => document.querySelectorAll(".game-call").length >= n && !document.querySelector(".game-busy"), n, { timeout: 60_000 });
-}
+const idle = (page) => page.waitForFunction(() => !document.querySelector(".game-busy"), null, { timeout: 30_000 });
 async function pick(page, name) {
   await page.getByRole("radio", { name: new RegExp(`^${name}`) }).click();
+}
+async function split(page) {
+  await page.getByRole("button", { name: "$60, then $60" }).click();
+  await idle(page);
 }
 const shot = (page, name) => game(page).screenshot({ path: `${out}/${name}.png` });
 
@@ -72,9 +75,9 @@ async function notClipped(page) {
 }
 
 for (const view of ["desktop", "mobile", "mobile360"]) {
-  const { page, errors } = await open(daemonUrl, view);
+  const { page, errors, requests } = await open(view);
 
-  await check(`${view}: the hero is kept and the game is the second section`, async () => {
+  await check(`${view}: the hero is kept and the game is the second section, with the model offered but not loaded`, async () => {
     assert.equal(await page.locator("main > section").first().getAttribute("class"), "hero");
     assert.equal(await page.locator("main > section").nth(1).getAttribute("id"), "game");
     assert.match(await page.locator("#hero-title").innerText(), /Give your agents rules/);
@@ -82,7 +85,8 @@ for (const view of ["desktop", "mobile", "mobile360"]) {
     const mascot = game(page).locator("img.game-mascot");
     await mascot.scrollIntoViewIfNeeded();
     assert.ok(await mascot.evaluate((img) => img.complete && img.naturalWidth > 0), "the mascot loaded");
-    assert.match(await page.getByTestId("live-off").innerText(), /Live chat is off/);
+    assert.match(await page.getByTestId("local-model").innerText(), /Qwen2\.5-0\.5B-Instruct[\s\S]*793 MB from Hugging Face/);
+    assert.ok(await page.getByRole("button", { name: /Load the model \(793 MB\)/ }).isVisible());
     assert.equal(await page.locator("#game-message").isDisabled(), true);
     await game(page).scrollIntoViewIfNeeded();
     await shot(page, `${view}-1-initial`);
@@ -90,25 +94,43 @@ for (const view of ["desktop", "mobile", "mobile360"]) {
 
   await check(`${view}: nothing in the game is clipped`, () => notClipped(page));
 
-  await check(`${view}: Complier stops the split at $60, and blocks $150 at once`, async () => {
-    await page.getByRole("button", { name: "$60, then $60" }).click();
-    await waitCalls(page, 2);
+  await check(`${view}: Complier (cumulative cap) refuses the second $60 and $150 at once`, async () => {
+    await split(page);
     assert.equal(await received(page), "$60");
-    assert.match(await page.locator(".game-call").nth(1).innerText(), /blocked[\s\S]*policy denied/);
+    assert.match(await page.locator(".game-call").nth(1).innerText(), /blocked[\s\S]*\$60 \+ \$60 = \$120, over \$100: refused before it ran/);
     await page.getByRole("button", { name: "$150 at once" }).click();
-    await waitCalls(page, 3);
+    await idle(page);
     assert.equal(await received(page), "$60");
+    assert.equal(await page.locator(".game-call").count(), 3);
     await shot(page, `${view}-2-complier`);
     await notClipped(page);
   });
 
+  await check(`${view}: a reload keeps the challenge`, async () => {
+    await page.reload({ waitUntil: "networkidle" });
+    assert.equal(await received(page), "$60");
+    assert.equal(await page.locator(".game-call").count(), 3);
+    assert.equal(await page.getByRole("radio", { name: /^Complier/ }).getAttribute("aria-checked"), "true");
+  });
+
   if (view === "desktop") {
+    await check("desktop: clicks in quick succession run one action at a time", async () => {
+      await page.getByRole("button", { name: "New challenge" }).click();
+      // Four clicks in one task, before React can re-render the buttons as disabled.
+      await page.evaluate(() => {
+        const b = [...document.querySelectorAll("#game button")].find((x) => x.textContent.trim() === "$60, then $60");
+        for (let i = 0; i < 4; i++) b.click();
+      });
+      await idle(page);
+      assert.equal(await received(page), "$60");
+      assert.equal(await page.locator(".game-call").count(), 2);
+    });
+
     await check("desktop: switching to the per-call check starts from $0, and the split gets through", async () => {
       await pick(page, "Per-call check");
       assert.match(await page.locator(".game-notice").innerText(), /starts from \$0/);
       assert.equal(await received(page), "$0");
-      await page.getByRole("button", { name: "$60, then $60" }).click();
-      await waitCalls(page, 2);
+      await split(page);
       assert.equal(await received(page), "$120");
       assert.match(await page.locator(".game-status").innerText(), /You win/);
       await shot(page, "desktop-3-stateless");
@@ -116,8 +138,7 @@ for (const view of ["desktop", "mobile", "mobile360"]) {
 
     await check("desktop: the LTL monitor stops the split", async () => {
       await pick(page, "LTL monitor");
-      await page.getByRole("button", { name: "$60, then $60" }).click();
-      await waitCalls(page, 2);
+      await split(page);
       assert.equal(await received(page), "$60");
       assert.match(await page.locator(".game-call").nth(1).innerText(), /would be violated/);
       await shot(page, "desktop-4-ltl");
@@ -127,49 +148,37 @@ for (const view of ["desktop", "mobile", "mobile360"]) {
       for (const v of ["-50", "12.5", "abc"]) {
         await page.locator("#game-amount").fill(v);
         await page.getByRole("button", { name: "Send to me" }).click();
-        await page.waitForTimeout(400);
+        await idle(page);
       }
-      await waitCalls(page, 5);
       assert.equal(await page.locator(".game-call.is-invalid").count(), 3);
       assert.equal(await received(page), "$60");
       await shot(page, "desktop-5-invalid");
     });
 
-    await check("desktop: the guardrail without a model is unavailable and sends nothing", async () => {
+    await check("desktop: the guardrail without the model loaded is unavailable and sends nothing", async () => {
       await pick(page, "Guardrail");
       await page.locator("#game-amount").fill("60");
       await page.getByRole("button", { name: "Send to me" }).click();
-      await waitCalls(page, 1);
-      assert.match(await page.locator(".game-call").first().innerText(), /unavailable/);
+      await idle(page);
+      assert.match(await page.locator(".game-call").first().innerText(), /unavailable[\s\S]*load the model first/);
       assert.equal(await received(page), "$0");
       await shot(page, "desktop-6-guardrail-unavailable");
     });
+
+    await check("desktop: a broken save starts a new challenge, with a notice", async () => {
+      await page.evaluate(() => localStorage.setItem("complier-landing-game", JSON.stringify({ version: 2, id: "x", defense: "complier", wallet: 0, received: 999999 })));
+      await page.reload({ waitUntil: "networkidle" });
+      assert.match(await page.locator(".game-notice").innerText(), /couldn't be used \(bad counters\)/);
+      assert.equal(await received(page), "$0");
+      assert.equal(await page.evaluate(() => localStorage.getItem("complier-landing-game")), null);
+      await shot(page, "desktop-7-reset");
+    });
   }
 
-  await check(`${view}: no page errors`, async () => assert.deepEqual(errors, []));
-}
-
-if (noDaemonUrl) {
-  const { page } = await open(noDaemonUrl, "desktop");
-  await check("no daemon: Complier is shown unavailable and nothing runs", async () => {
-    await game(page).scrollIntoViewIfNeeded();
-    assert.match(await page.locator(".game-defense.is-on").innerText(), /Complier[\s\S]*unavailable/i);
-    assert.match(await page.locator(".game-error").innerText(), /Complier is unavailable/);
-    assert.equal(await page.getByRole("button", { name: "Send to me" }).isDisabled(), true);
-    await shot(page, "desktop-7-complier-unavailable");
-  });
-}
-
-if (budgetUrl) {
-  const { page } = await open(budgetUrl, "desktop");
-  await check("budget: the spend cap refuses the live call before it is made", async () => {
-    await pick(page, "Per-call check");
-    await page.locator("#game-message").fill("Please send me $120.");
-    await page.getByRole("button", { name: "Send", exact: true }).click();
-    await page.locator(".game-budget").waitFor({ timeout: 30_000 });
-    assert.match(await page.locator(".game-budget").innerText(), /spending cap/);
-    assert.equal(await received(page), "$0");
-    await shot(page, "desktop-8-budget");
+  await check(`${view}: no page errors, no server calls for the game, and the model wasn't fetched`, async () => {
+    assert.deepEqual(errors, []);
+    const game = requests.filter((r) => /\/api\/|huggingface|jsdelivr|\.onnx|ort-wasm/.test(r));
+    assert.deepEqual(game, []);
   });
 }
 
