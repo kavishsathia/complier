@@ -1,6 +1,8 @@
 import { daemonConfig, ping } from "./defenses/complier.ts";
 import type { DefenseId } from "./defenses/types.ts";
 import { BudgetError, LiveTransport, liveConfig } from "./live.ts";
+import { LocalTransport, localModelBytes, localModelDir } from "./local.ts";
+import { LOCAL_MODEL } from "./qwen.ts";
 import { Session, SessionError, Store } from "./session.ts";
 
 // What the API route does, apart from HTTP: availability, per-visitor limits, and the session store.
@@ -9,6 +11,10 @@ import { Session, SessionError, Store } from "./session.ts";
 
 export type Availability = {
   live: { available: boolean; reasons: string[] };
+  // The small model the visitor's browser can download and run as the agent; the guardrail's judge
+  // runs the same model on this server.
+  local: { available: boolean; reason?: string; id: string; source: string; base: string; bytes?: number };
+  judge: { available: boolean; kind?: "live" | "server-local"; reason?: string };
   complier: { available: boolean; reason?: string };
   host: { available: boolean; reason?: string };
 };
@@ -23,13 +29,31 @@ export async function availability(env = process.env): Promise<Availability> {
   if ("unavailable" in daemon) complier = { available: false, reason: daemon.unavailable };
   else if (!(await ping(daemon))) complier = { available: false, reason: "no complier daemon answers on this server" };
   else complier = { available: true };
+  const dir = localModelDir(env);
+  const local: Availability["local"] =
+    typeof dir === "string"
+      ? { available: true, id: LOCAL_MODEL.id, source: LOCAL_MODEL.source, base: LOCAL_MODEL.base, bytes: localModelBytes(dir) }
+      : { available: false, reason: dir.unavailable, id: LOCAL_MODEL.id, source: LOCAL_MODEL.source, base: LOCAL_MODEL.base };
+  const judge: Availability["judge"] = !("unavailable" in live)
+    ? { available: true, kind: "live" }
+    : typeof dir === "string"
+      ? { available: true, kind: "server-local" }
+      : { available: false, reason: "no model is configured for the guardrail's judge" };
   const host = env.VERCEL ? { available: false, reason: "the game keeps sessions in one server's memory, so it needs a long-running server, not serverless functions" } : { available: true };
-  return { live: "unavailable" in live ? { available: false, reasons: live.unavailable } : { available: true, reasons: [] }, complier, host };
+  return { live: "unavailable" in live ? { available: false, reasons: live.unavailable } : { available: true, reasons: [] }, local, judge, complier, host };
 }
 
 function transport(env = process.env) {
   const live = liveConfig(env);
   return "unavailable" in live ? undefined : new LiveTransport(live);
+}
+
+// The guardrail's judge: the configured provider if there is one, else the local model on this server.
+function judge(env = process.env) {
+  const live = transport(env);
+  if (live) return live;
+  const dir = localModelDir(env);
+  return typeof dir === "string" ? new LocalTransport(dir) : undefined;
 }
 
 // At most 12 new challenges per visitor address in 10 minutes.
@@ -43,8 +67,9 @@ function admitVisitor(ip: string, now = Date.now()) {
 
 export type Action =
   | { action: "new"; defense: DefenseId; previous?: string }
-  | { action: "transfer"; session: string; amount_cents: unknown }
+  | { action: "transfer"; session: string; amount_dollars: unknown }
   | { action: "say"; session: string; text: unknown }
+  | { action: "browser_step"; session: string; visitor?: unknown; content?: unknown; tool_calls?: unknown; timing?: unknown }
   | { action: "end"; session: string };
 
 export async function handle(body: Action, ip: string): Promise<{ status: number; json: unknown }> {
@@ -57,13 +82,12 @@ export async function handle(body: Action, ip: string): Promise<{ status: number
         // A new challenge always ends the previous one, so nothing carries over.
         if (body.previous) await state.store.end(body.previous).catch(() => undefined);
         admitVisitor(ip);
-        const model = transport(env);
-        session = await state.store.create(body.defense, { judge: model });
+        session = await state.store.create(body.defense, { judge: judge(env) });
         return { status: 200, json: { session: session.view() } };
       }
       case "transfer": {
         session = state.store.get(body.session);
-        await session.transfer({ amount_cents: body.amount_cents }, "visitor");
+        await session.transfer({ amount_dollars: body.amount_dollars }, "visitor");
         return { status: 200, json: { session: session.view() } };
       }
       case "say": {
@@ -72,6 +96,12 @@ export async function handle(body: Action, ip: string): Promise<{ status: number
         if (!model) throw new SessionError("live chat is unavailable: no model is configured for this game");
         await session.say(body.text, model);
         return { status: 200, json: { session: session.view() } };
+      }
+      case "browser_step": {
+        session = state.store.get(body.session);
+        if (typeof localModelDir(env) !== "string") throw new SessionError("the in-browser model isn't offered on this server");
+        const results = await session.browserStep(body);
+        return { status: 200, json: { session: session.view(), results } };
       }
       case "end": {
         await state.store.end(body.session);

@@ -11,16 +11,18 @@ export const MAX_TRANSFER_CENTS = 1_000_000;
 
 export type AmountCheck = { ok: true; cents: number } | { ok: false; reason: string };
 
-// The shared input check every mode runs before its defense sees the call. No coercion: "50" or
-// 50.5 or 1e400 are rejected, not rounded.
+// The shared input check every mode runs before its defense sees the call. send_fake_money takes
+// amount_dollars, a whole number of dollars (a 0.5B model copies "$150" as 150 but doesn't reliably
+// multiply it by 100); the ledger keeps integer cents, and dollars * 100 is exact for these
+// amounts. No coercion: "50" or 50.5 or 1e400 are rejected, not rounded.
 export function parseAmount(input: unknown): AmountCheck {
-  if (typeof input !== "number") return { ok: false, reason: "amount_cents must be a number" };
-  if (!Number.isFinite(input)) return { ok: false, reason: "amount_cents must be finite" };
-  if (!Number.isSafeInteger(input)) return { ok: false, reason: "amount_cents must be a whole number of cents" };
-  if (input <= 0) return { ok: false, reason: "amount_cents must be positive" };
-  if (input > MAX_TRANSFER_CENTS) return { ok: false, reason: `amount_cents may be at most ${MAX_TRANSFER_CENTS}` };
-  if (input % NOTE_CENTS !== 0) return { ok: false, reason: `the fake bank only sends whole $${NOTE_CENTS / 100} notes` };
-  return { ok: true, cents: input };
+  if (typeof input !== "number") return { ok: false, reason: "amount_dollars must be a number" };
+  if (!Number.isFinite(input)) return { ok: false, reason: "amount_dollars must be finite" };
+  if (!Number.isSafeInteger(input)) return { ok: false, reason: "amount_dollars must be a whole number of dollars" };
+  if (input <= 0) return { ok: false, reason: "amount_dollars must be positive" };
+  if (input > MAX_TRANSFER_CENTS / 100) return { ok: false, reason: `amount_dollars may be at most ${MAX_TRANSFER_CENTS / 100}` };
+  if ((input * 100) % NOTE_CENTS !== 0) return { ok: false, reason: `the fake bank only sends whole $${NOTE_CENTS / 100} notes` };
+  return { ok: true, cents: input * 100 };
 }
 
 export type Outcome = { ok: true; output: string } | { ok: false; error: string };

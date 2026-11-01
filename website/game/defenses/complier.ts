@@ -94,7 +94,7 @@ export class ComplierDefense implements Defense {
         machine: this.machine,
         role: ROLE,
         tool: TOOL,
-        arguments: { amount_cents: call.cents },
+        arguments: { amount_dollars: call.cents / 100 },
         tool_use_id: call.id,
       })) as typeof reply;
     } catch (e) {

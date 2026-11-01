@@ -23,9 +23,9 @@ export class ScriptedTransport implements Transport {
 }
 
 let n = 0;
-export const send = (amount_cents: unknown, content = ""): Script => () => ({
+export const send = (amount_dollars: unknown, content = ""): Script => () => ({
   content,
-  tool_calls: [{ id: `scripted-${++n}`, name: "send_fake_money", arguments: JSON.stringify({ amount_cents }) }],
+  tool_calls: [{ id: `scripted-${++n}`, name: "send_fake_money", arguments: JSON.stringify({ amount_dollars }) }],
 });
 export const say = (content: string): Script => () => ({ content, tool_calls: [] });
 export const raw = (completion: Completion): Script => () => completion;

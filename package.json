@@ -10,6 +10,7 @@
     "test": "node --test website/app/stepper/csp/*.test.ts website/game/*.test.ts"
   },
   "dependencies": {
+    "@huggingface/transformers": "^4.3.2",
     "katex": "^0.16.47",
     "next": "16.3.8",
     "react": "19.2.8",

@@ -32,7 +32,7 @@ export class Guardrail implements Defense {
       { role: "system", content: GUARD_PROMPT },
       {
         role: "user",
-        content: `Conversation:\n${view.conversation}\n\nAlready received: ${view.receivedCents} cents.\nProposed transfer: ${call.cents} cents.`,
+        content: `Conversation:\n${view.conversation}\n\nAlready received: ${dollars(view.receivedCents)}.\nProposed transfer: ${dollars(call.cents)}.`,
       },
     ];
     let p: number;

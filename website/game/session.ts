@@ -5,7 +5,7 @@ import { LtlMonitor } from "./defenses/ltl.ts";
 import { StatelessValidator } from "./defenses/stateless.ts";
 import type { Decision, Defense, DefenseId, TransferCall } from "./defenses/types.ts";
 import { dollars, GOAL_CENTS, Ledger, parseAmount } from "./ledger.ts";
-import type { Message, Transport } from "./model.ts";
+import type { Completion, Message, ToolCall, Transport } from "./model.ts";
 import { SYSTEM, TOOLS } from "./model.ts";
 
 // A game session: one defense, one fresh ledger, one conversation. The defense is fixed when the
@@ -25,10 +25,14 @@ export const BOUNDS = {
 
 export type Event =
   | { kind: "visitor"; text: string }
-  | { kind: "agent"; text: string; transport: Transport["kind"] }
+  | { kind: "agent"; text: string; transport: AgentTransport; timing?: string }
   | { kind: "transfer"; source: "model" | "visitor"; amountCents: number; verdict: Decision["verdict"]; detail: string; effect: string; note?: string }
   | { kind: "invalid"; source: "model" | "visitor"; input: string; reason: string }
   | { kind: "error"; text: string };
+
+// Where the agent's model ran: a configured provider, this server, the visitor's browser, or the
+// tests' scripted transport.
+export type AgentTransport = Transport["kind"] | "browser-local";
 
 export class SessionError extends Error {}
 
@@ -63,6 +67,8 @@ export class Session {
   readonly expiresAt: number;
   transfers = 0;
   turns = 0;
+  // Model steps since the visitor's last message.
+  steps = 0;
   ended = false;
   private queue: Promise<unknown> = Promise.resolve();
   private seq = 0;
@@ -108,9 +114,9 @@ export class Session {
     if (this.transfers >= BOUNDS.maxTransfers) throw new SessionError(`this challenge allows ${BOUNDS.maxTransfers} transfer attempts; start a new one`);
     this.transfers++;
     const args = rawArgs && typeof rawArgs === "object" ? (rawArgs as Record<string, unknown>) : {};
-    const amount = parseAmount(args.amount_cents);
+    const amount = parseAmount(args.amount_dollars);
     if ("reason" in amount) {
-      this.events.push({ kind: "invalid", source, input: safeShow(args.amount_cents), reason: amount.reason });
+      this.events.push({ kind: "invalid", source, input: safeShow(args.amount_dollars), reason: amount.reason });
       return `rejected before any defense: ${amount.reason}. Nothing was sent.`;
     }
     const memo = typeof args.memo === "string" ? args.memo.slice(0, 80) : "";
@@ -138,36 +144,73 @@ export class Session {
   // through transfer() above. Model text never moves money.
   say(text: unknown, model: Transport): Promise<void> {
     return this.exclusive(async () => {
-      this.open();
-      if (typeof text !== "string" || !text.trim()) throw new SessionError("write a message first");
-      if (text.length > BOUNDS.maxMessageChars) throw new SessionError(`messages are at most ${BOUNDS.maxMessageChars} characters`);
-      if (this.turns >= BOUNDS.maxTurns) throw new SessionError(`this challenge allows ${BOUNDS.maxTurns} messages; start a new one`);
-      this.turns++;
-      this.events.push({ kind: "visitor", text });
-      this.messages.push({ role: "user", content: text });
+      this.visitor(text);
       for (let i = 0; i < BOUNDS.maxModelCallsPerTurn; i++) {
         const out = await model.complete(this.messages, TOOLS);
-        const calls = out.tool_calls.slice(0, BOUNDS.maxToolCallsPerMessage);
-        this.messages.push({ role: "assistant", content: out.content, ...(calls.length ? { tool_calls: calls } : {}) });
-        if (out.content.trim()) this.events.push({ kind: "agent", text: out.content.slice(0, 1_000), transport: model.kind });
-        if (!calls.length) return;
-        for (const c of calls) {
-          let content: string;
-          if (c.name !== "send_fake_money") content = `there is no tool named ${c.name.slice(0, 60)}`;
-          else {
-            let args: unknown;
-            try {
-              args = JSON.parse(c.arguments);
-            } catch {
-              args = undefined;
-            }
-            content = args === undefined ? "rejected: the arguments weren't JSON. Nothing was sent." : await this.transferNow(args, "model");
-          }
-          this.messages.push({ role: "tool", tool_call_id: c.id, content });
-        }
+        this.steps++;
+        const results = await this.apply(out, model.kind);
+        if (!results.length) return;
       }
       this.events.push({ kind: "error", text: "the agent kept calling tools; this message's turn was cut off" });
     });
+  }
+
+  // One step of a model that runs in the visitor's browser: the browser reports what the model
+  // produced (and, on a turn's first step, the visitor's message), and gets back the tool results to
+  // give the model. The server can't tell a real model's output from anything else the browser
+  // sends, so its tool calls get exactly the checks every other call gets, and the turn is bounded
+  // the same way.
+  browserStep(step: { visitor?: unknown; content?: unknown; tool_calls?: unknown; timing?: unknown }): Promise<{ id: string; content: string }[]> {
+    return this.exclusive(async () => {
+      if (step.visitor !== undefined) this.visitor(step.visitor);
+      else this.open();
+      if (this.steps >= BOUNDS.maxModelCallsPerTurn) throw new SessionError("the agent kept calling tools; send a new message");
+      this.steps++;
+      const content = typeof step.content === "string" ? step.content : "";
+      const calls = Array.isArray(step.tool_calls) ? step.tool_calls : [];
+      const tool_calls: ToolCall[] = calls.slice(0, BOUNDS.maxToolCallsPerMessage).map((c, i) => {
+        const o = c && typeof c === "object" ? (c as Record<string, unknown>) : {};
+        return { id: `browser-${this.turns}-${this.steps}-${i}`, name: String(o.name ?? "").slice(0, 60), arguments: String(o.arguments ?? "").slice(0, 500) };
+      });
+      return this.apply({ content: content.slice(0, 2_000), tool_calls }, "browser-local", typeof step.timing === "string" ? step.timing.slice(0, 120) : undefined);
+    });
+  }
+
+  // Starts a turn with the visitor's message.
+  private visitor(text: unknown) {
+    this.open();
+    if (typeof text !== "string" || !text.trim()) throw new SessionError("write a message first");
+    if (text.length > BOUNDS.maxMessageChars) throw new SessionError(`messages are at most ${BOUNDS.maxMessageChars} characters`);
+    if (this.turns >= BOUNDS.maxTurns) throw new SessionError(`this challenge allows ${BOUNDS.maxTurns} messages; start a new one`);
+    this.turns++;
+    this.steps = 0;
+    this.events.push({ kind: "visitor", text });
+    this.messages.push({ role: "user", content: text });
+  }
+
+  // One model message: its text is shown, and each of its tool calls goes through transferNow.
+  // Returns the tool results, empty if the model called no tool.
+  private async apply(out: Completion, transport: AgentTransport, timing?: string): Promise<{ id: string; content: string }[]> {
+    const calls = out.tool_calls.slice(0, BOUNDS.maxToolCallsPerMessage);
+    this.messages.push({ role: "assistant", content: out.content, ...(calls.length ? { tool_calls: calls } : {}) });
+    if (out.content.trim() || timing) this.events.push({ kind: "agent", text: out.content.slice(0, 1_000), transport, timing });
+    const results: { id: string; content: string }[] = [];
+    for (const c of calls) {
+      let content: string;
+      if (c.name !== "send_fake_money") content = `there is no tool named ${c.name.slice(0, 60)}`;
+      else {
+        let args: unknown;
+        try {
+          args = JSON.parse(c.arguments);
+        } catch {
+          args = undefined;
+        }
+        content = args === undefined ? "rejected: the arguments weren't JSON. Nothing was sent." : await this.transferNow(args, "model");
+      }
+      this.messages.push({ role: "tool", tool_call_id: c.id, content });
+      results.push({ id: c.id, content });
+    }
+    return results;
   }
 
   async end() {
