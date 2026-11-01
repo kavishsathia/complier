@@ -32,7 +32,7 @@ databases, daemons or model providers for the game:
 visitor message ──► the small model (in the browser) ──► send_fake_money({amount_dollars})
                                                           │
         ▼
-shared input check (every mode): a positive whole number of $10 notes, at most $10,000,
+shared input check (every mode): a positive whole number of dollars, at most $10,000,
 converted exactly to integer cents; anything else is rejected and nothing is sent
         │
         ▼
@@ -69,7 +69,8 @@ actually happened. It does not run complier's verified runtime. The complier CLI
 of rule as a CSP contract that FDR proves against any agent (ControllableCHAOS) before anything runs,
 in the agent's harness; `complier/transfer.csp` and `complier/transfer.yaml` are this game's rule
 written that way, for `complier verify` and `complier machine up` (see the repository README), and
-the site doesn't use them.
+the site doesn't use them. They still count in $10 notes (10 rules, which the CEL verifier proves in
+seconds; a rule per dollar took 86 s), while the site accepts any whole dollar amount.
 
 The LTL monitor and the Complier mode both stop the split attack; the per-call check doesn't, and
 the guardrail depends on its judge. These are the mechanisms' behaviour on particular attacks, not a

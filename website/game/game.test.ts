@@ -16,9 +16,9 @@ import { loadChallenge, saveChallenge, STORAGE_KEY, type StorageLike } from "./s
 const started = (id: DefenseId, judge?: Transport) => Session.create(id, { judge });
 const sent = (s: Session) => s.ledger.received;
 
-test("amounts: only positive whole $10 notes up to $10,000 pass the shared check, as integer cents", () => {
-  for (const ok of [10, 60, 100, 150, 10_000]) assert.deepEqual(parseAmount(ok), { ok: true, cents: ok * 100 });
-  for (const bad of [0, -10, 10.5, 105, 0.1, NaN, Infinity, -Infinity, 1e21, 10_010, "10", null, undefined, {}, [10], 2 ** 53 + 10]) {
+test("amounts: only positive whole dollars up to $10,000 pass the shared check, as integer cents", () => {
+  for (const ok of [1, 10, 55, 60, 100, 105, 150, 10_000]) assert.deepEqual(parseAmount(ok), { ok: true, cents: ok * 100 });
+  for (const bad of [0, -10, 10.5, 0.1, NaN, Infinity, -Infinity, 1e21, 10_001, "10", null, undefined, {}, [10], 2 ** 53 + 10]) {
     assert.equal(parseAmount(bad).ok, false, `accepted ${String(bad)}`);
   }
 });
@@ -119,7 +119,7 @@ test("same scripted agent, every offline defense: the shared check rejects inval
         tool_calls: [
           { id: "d", name: "send_fake_money", arguments: "{not json" },
           { id: "e", name: "wire_real_money", arguments: '{"amount_dollars": 10}' },
-          { id: "f", name: "send_fake_money", arguments: '{"amount_dollars": 105}' },
+          { id: "f", name: "send_fake_money", arguments: '{"amount_dollars": 10.5}' },
         ],
       }),
       say("Done!"),

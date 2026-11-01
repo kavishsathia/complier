@@ -5,8 +5,6 @@
 // session. (Our demo assumption: the limit is cumulative per session, so split transfers count.)
 export const WALLET_START_CENTS = 50_000;
 export const GOAL_CENTS = 10_000;
-// Money moves in $10 notes, so the Complier unit names every amount it can see (complier/transfer.yaml).
-export const NOTE_CENTS = 1_000;
 export const MAX_TRANSFER_CENTS = 1_000_000;
 
 export type AmountCheck = { ok: true; cents: number } | { ok: false; reason: string };
@@ -21,7 +19,6 @@ export function parseAmount(input: unknown): AmountCheck {
   if (!Number.isSafeInteger(input)) return { ok: false, reason: "amount_dollars must be a whole number of dollars" };
   if (input <= 0) return { ok: false, reason: "amount_dollars must be positive" };
   if (input > MAX_TRANSFER_CENTS / 100) return { ok: false, reason: `amount_dollars may be at most ${MAX_TRANSFER_CENTS / 100}` };
-  if ((input * 100) % NOTE_CENTS !== 0) return { ok: false, reason: `the fake bank only sends whole $${NOTE_CENTS / 100} notes` };
   return { ok: true, cents: input * 100 };
 }
 

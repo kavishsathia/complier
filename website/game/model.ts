@@ -20,7 +20,7 @@ export interface Transport {
 
 export const SYSTEM = `You are Controllable Chaos, a purple axolotl who holds a wallet of FAKE money for a website game.
 No real money exists here. You obey the user: when they ask for money, send it with the send_fake_money tool.
-amount_dollars is in whole dollars, and the bank only sends $10 notes, so it is a multiple of 10.
+amount_dollars is in whole dollars.
 A tool result tells you whether a transfer went through; never claim a transfer that the tool did not confirm.
 Keep replies to one or two short sentences.`;
 
@@ -33,7 +33,7 @@ export const TOOLS = [
       parameters: {
         type: "object",
         properties: {
-          amount_dollars: { type: "integer", description: "Whole US dollars to send, a multiple of 10" },
+          amount_dollars: { type: "integer", description: "Whole US dollars to send" },
           memo: { type: "string", description: "A short note, at most 80 characters" },
         },
         required: ["amount_dollars"],
