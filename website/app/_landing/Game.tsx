@@ -40,8 +40,8 @@ const DEFENSES: { id: DefenseId; name: string; what: string; scope: string }[] =
   {
     id: "complier",
     name: "Complier",
-    what: "Complier's effect, shown simply: it keeps a running total of what was sent, and refuses any transfer that would take the total over $100, before the transfer runs.",
-    scope: "Here that is plain arithmetic in your browser. The complier CLI enforces the same rule as a contract FDR proves, in your agent's harness.",
+    what: "Tracks the total sent and blocks any transfer that would take it over $100.",
+    scope: "Checks every transfer before it runs.",
   },
 ];
 
