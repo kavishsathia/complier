@@ -5,8 +5,8 @@ import type { Decision, Defense, TransferCall } from "./types.ts";
 // The Complier mode on this site: the effect of complier's policy, shown simply. It keeps its own
 // running total of what was sent and refuses, before it runs, any transfer that would take that
 // total over $100; a transfer the bank failed isn't added. This is plain arithmetic in the page,
-// not the complier runtime: the CLI runs the same rule as a CSP contract that FDR proves
-// (complier/transfer.csp), against any agent, before anything runs.
+// not the complier runtime: the CLI runs this kind of rule as a CSP contract that FDR proves
+// against any agent, before anything runs.
 
 export class CumulativeCap implements Defense {
   readonly id = "complier" as const;

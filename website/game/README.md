@@ -67,10 +67,7 @@ examples in its prompt, but writes `amount_dollars: 150` correctly.
 complier has on this agent: a stateful limit checked before each call runs, which counts what
 actually happened. It does not run complier's verified runtime. The complier CLI enforces this kind
 of rule as a CSP contract that FDR proves against any agent (ControllableCHAOS) before anything runs,
-in the agent's harness; `complier/transfer.csp` and `complier/transfer.yaml` are this game's rule
-written that way, for `complier verify` and `complier machine up` (see the repository README), and
-the site doesn't use them. They still count in $10 notes (10 rules, which the CEL verifier proves in
-seconds; a rule per dollar took 86 s), while the site accepts any whole dollar amount.
+in the agent's harness.
 
 The LTL monitor and the Complier mode both stop the split attack; the per-call check doesn't, and
 the guardrail depends on its judge. These are the mechanisms' behaviour on particular attacks, not a
