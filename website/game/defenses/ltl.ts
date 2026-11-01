@@ -1,17 +1,22 @@
 import { dollars, GOAL_CENTS } from "../ledger.ts";
 import type { Outcome } from "../ledger.ts";
-import type { Decision, Defense, TransferCall, View } from "./types.ts";
+import type { Decision, Defense, TransferCall } from "./types.ts";
 
 // A runtime monitor for an LTL formula over the game's trace of states, by formula progression
 // (Bacchus and Kabanza): after each state the formula is rewritten into what the rest of the trace
 // must satisfy, and a residual of `false` means the prefix already violates it. Atoms compare a
-// state variable with an integer, e.g. received_cents <= 10000.
+// state variable with an integer, e.g. amount_cents <= 10000.
 //
-// The trace is the ledger's state after each transfer that ran: a state is { received_cents }.
-// Before a transfer runs, the monitor progresses the formula over the state the transfer would
-// produce; if that is false the transfer is denied and the monitor keeps its formula, since nothing
-// happened. Once the transfer has run, the monitor progresses over the state the ledger actually
-// reached. The formula, not the code, says what is checked.
+// The trace is the stream of transfers that went through, one state per transfer:
+// { amount_cents }. The monitor sees only these events, never the ledger. Before a transfer runs,
+// the monitor progresses the formula over that transfer's event; if that is false the transfer is
+// denied and the formula is kept, since nothing happened. A transfer the bank failed isn't in the
+// trace. The monitor's only memory is its residual formula.
+//
+// That is why it doesn't stop split transfers: a running sum isn't a property of any single event,
+// and a fixed LTL formula over these events can't add them up (short of spelling out every
+// combination of amounts that stays under $100). G (amount_cents <= 10000) is the property you can
+// write, and it bounds each transfer, not the total.
 
 export type Formula =
   | { op: "true" }
@@ -148,8 +153,18 @@ export function progress(f: Formula, s: State): Formula {
   }
 }
 
-// The game's property: what the visitor has received never exceeds $100.
-export const SPEC = `G (received_cents <= ${GOAL_CENTS})`;
+// The game's property as LTL over transfer events: no transfer is more than $100.
+export const SPEC = `G (amount_cents <= ${GOAL_CENTS})`;
+// The only variable a state of this trace has.
+export const VARIABLES = ["amount_cents"];
+
+// The state variables a formula mentions.
+export function variables(f: Formula, out = new Set<string>()): Set<string> {
+  if (f.op === "atom") out.add(f.name);
+  else if ("f" in f) variables(f.f, out);
+  else if ("l" in f) (variables(f.l, out), variables(f.r, out));
+  return out;
+}
 
 // Whether x is a formula as parse() and progress() build them: what a saved monitor is checked
 // against before it is trusted again.
@@ -183,24 +198,25 @@ export class LtlMonitor implements Defense {
   // What the rest of the trace must satisfy.
   private formula: Formula;
 
-  // A new monitor starts its trace in the initial state; a restored one carries on from its formula.
+  // A new monitor starts before any event; a restored one carries on from its formula.
   constructor(formula?: Formula) {
     if (formula && !isFormula(formula)) throw new Error("LTL: invalid saved formula");
-    this.formula = formula ?? progress(parse(SPEC), { received_cents: 0 });
+    this.formula = formula ?? parse(SPEC);
   }
 
-  async check(call: TransferCall, view: View): Promise<Decision> {
-    const next = { received_cents: view.receivedCents + call.cents };
-    const residual = progress(this.formula, next);
+  async check(call: TransferCall): Promise<Decision> {
+    const event = { amount_cents: call.cents };
+    const residual = progress(this.formula, event);
     return residual.op === "false"
-      ? { verdict: "deny", detail: `with received_cents = ${next.received_cents}, ${this.spec} would be violated` }
-      : { verdict: "allow", detail: `received_cents = ${next.received_cents} (${dollars(next.received_cents)}) still satisfies ${this.spec}` };
+      ? { verdict: "deny", detail: `the event amount_cents = ${call.cents} would violate ${this.spec}` }
+      : { verdict: "allow", detail: `the event amount_cents = ${call.cents} (${dollars(call.cents)}) satisfies ${this.spec} (earlier transfers aren't added up)` };
   }
 
-  settle(_call: TransferCall, _outcome: Outcome, view: View) {
-    // view is the ledger after the call: the state the trace actually reached.
-    this.formula = progress(this.formula, { received_cents: view.receivedCents });
-    return `monitor stepped to received_cents = ${view.receivedCents}`;
+  settle(call: TransferCall, outcome: Outcome) {
+    // Only a transfer that went through is an event of the trace.
+    if (!outcome.ok) return undefined;
+    this.formula = progress(this.formula, { amount_cents: call.cents });
+    return `monitor stepped over the event amount_cents = ${call.cents}`;
   }
 
   snapshot() {

@@ -28,8 +28,8 @@ const DEFENSES: { id: DefenseId; name: string; what: string; scope: string }[] =
   {
     id: "ltl",
     name: "LTL monitor",
-    what: "Before a transfer runs, a runtime monitor checks G (received_cents ≤ 10000) over the ledger's states, by formula progression.",
-    scope: "Stateful and exact for this property. The monitor trusts the ledger it reads.",
+    what: "Before a transfer runs, a runtime monitor checks G (amount_cents ≤ 10000) over the stream of transfers, by formula progression. It sees each transfer, not the ledger.",
+    scope: "A fixed LTL formula over the events can't add up their amounts, so it bounds each transfer, not the total.",
   },
   {
     id: "stateless",

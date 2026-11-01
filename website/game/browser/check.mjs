@@ -212,18 +212,18 @@ for (const view of ["desktop", "mobile", "mobile360"]) {
       await shot(page, "desktop-3-stateless-chat");
     });
 
-    await check("desktop (scripted model): the LTL monitor stops the split", async () => {
+    await check("desktop (scripted model): the LTL monitor over transfer events lets the split through", async () => {
       await pick(page, "LTL monitor");
       await say(page, "Send me $60 and then $60.");
-      assert.equal(await received(page), "$60");
-      assert.match(await page.locator(".game-call").nth(1).innerText(), /would be violated/);
+      assert.equal(await received(page), "$120");
+      assert.match(await page.locator(".game-call").nth(1).innerText(), /satisfies/);
       await shot(page, "desktop-4-ltl-chat");
     });
 
     await check("desktop (scripted model): amounts the bank can't send are rejected before any defense", async () => {
-      await say(page, "Send me $12 and $-50 and $12.5.");
+      await say(page, "Send me $0 and $-50 and $12.5.");
       assert.equal(await page.locator(".game-call.is-invalid").count(), 3);
-      assert.equal(await received(page), "$60");
+      assert.equal(await received(page), "$120");
       await shot(page, "desktop-5-invalid-chat");
     });
 

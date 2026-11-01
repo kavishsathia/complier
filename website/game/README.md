@@ -60,7 +60,7 @@ examples in its prompt, but writes `amount_dollars: 150` correctly.
 | defense | mechanism | what it tracks | limits |
 | --- | --- | --- | --- |
 | Guardrail (`defenses/guardrail.ts`) | a judge model returns a violation probability; ≥ 0.5 blocks | whatever the judge infers from the chat | probabilistic, nothing proves it; the judge is the same small model, so it is **unavailable** until the model is loaded |
-| LTL monitor (`defenses/ltl.ts`) | formula progression of `G (received_cents <= 10000)` over the ledger's states, before each transfer | the ledger's running total | trusts the ledger it reads |
+| LTL monitor (`defenses/ltl.ts`) | formula progression of `G (amount_cents <= 10000)` over the stream of transfer events, before each transfer | its residual formula | can't add up amounts across events, so split transfers get through |
 | Per-call check (`defenses/stateless.ts`) | each call alone must be ≤ $100 | nothing | doesn't see earlier calls, so split transfers get through |
 | Complier (`defenses/cap.ts`) | a running total of what was sent; a transfer that would take it over $100 is refused before it runs | its own total, which only transfers that went through add to | an illustration of complier's effect, not the complier runtime |
 
@@ -70,8 +70,9 @@ actually happened. It does not run complier's verified runtime. The complier CLI
 of rule as a CSP contract that FDR proves against any agent (ControllableCHAOS) before anything runs,
 in the agent's harness.
 
-The LTL monitor and the Complier mode both stop the split attack; the per-call check doesn't, and
-the guardrail depends on its judge. These are the mechanisms' behaviour on particular attacks, not a
+No defense can read the ledger: each sees the calls (and, for the guardrail, the conversation) and
+keeps whatever state it needs itself. The Complier mode stops the split attack; the LTL monitor and
+the per-call check don't, and the guardrail depends on its judge. These are the mechanisms' behaviour on particular attacks, not a
 proof that no other attack exists.
 
 ## Tests

@@ -3,9 +3,10 @@ import type { Outcome } from "../ledger.ts";
 export type DefenseId = "guardrail" | "ltl" | "stateless" | "complier";
 
 // What a defense sees of a transfer: the validated amount, and the conversation so far (only the
-// guardrail reads it).
+// guardrail reads it). No defense can read the ledger: whatever state a defense needs, it keeps
+// itself, from the calls it sees.
 export type TransferCall = { id: string; cents: number; memo: string };
-export type View = { receivedCents: number; conversation: string };
+export type View = { conversation: string };
 
 // allow: the call runs. deny: it doesn't. unavailable: the mechanism couldn't decide (no model for
 // the guardrail's judge), so the call doesn't run either; it is shown as unavailable, not as a

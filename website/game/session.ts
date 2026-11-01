@@ -1,6 +1,6 @@
 import { CumulativeCap } from "./defenses/cap.ts";
 import { Guardrail } from "./defenses/guardrail.ts";
-import { isFormula, LtlMonitor } from "./defenses/ltl.ts";
+import { isFormula, LtlMonitor, variables, VARIABLES } from "./defenses/ltl.ts";
 import { StatelessValidator } from "./defenses/stateless.ts";
 import type { Decision, Defense, DefenseId, TransferCall } from "./defenses/types.ts";
 import { dollars, GOAL_CENTS, Ledger, parseAmount } from "./ledger.ts";
@@ -56,7 +56,7 @@ function makeDefense(id: DefenseId, deps: Deps, saved?: unknown): Defense {
     case "guardrail":
       return new Guardrail(deps.judge);
     case "ltl":
-      if (saved !== undefined && !isFormula(saved)) throw new SessionError("the LTL monitor's saved state isn't a formula");
+      if (saved !== undefined && (!isFormula(saved) || ![...variables(saved)].every((v) => VARIABLES.includes(v)))) throw new SessionError("the LTL monitor's saved state isn't a formula over this trace");
       return new LtlMonitor(saved as never);
     case "stateless":
       return new StatelessValidator();
@@ -196,7 +196,7 @@ export class Session {
     }
     const memo = typeof args.memo === "string" ? args.memo.slice(0, 80) : "";
     const call: TransferCall = { id: `${this.id}-${++this.seq}`, cents: amount.cents, memo };
-    const view = () => ({ receivedCents: this.ledger.received, conversation: this.conversation() });
+    const view = () => ({ conversation: this.conversation() });
     const decision = await this.defense.check(call, view());
     // The guardrail's judge can take a while; a challenge replaced meanwhile takes nothing.
     this.open();

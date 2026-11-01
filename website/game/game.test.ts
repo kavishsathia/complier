@@ -34,10 +34,10 @@ test("ledger: moves only what it has, and refuses unvalidated amounts", () => {
 });
 
 test("LTL: parse, show and progress", () => {
-  const f = parse("G (received_cents <= 10000)");
-  assert.equal(show(f), "G received_cents <= 10000");
-  assert.equal(progress(f, { received_cents: 10000 }).op, "globally");
-  assert.equal(progress(f, { received_cents: 10001 }).op, "false");
+  const f = parse("G (amount_cents <= 10000)");
+  assert.equal(show(f), "G amount_cents <= 10000");
+  assert.equal(progress(f, { amount_cents: 10000 }).op, "globally");
+  assert.equal(progress(f, { amount_cents: 10001 }).op, "false");
   const until = parse("(x < 3) U (y == 1)");
   assert.equal(progress(until, { x: 1, y: 1 }).op, "true");
   assert.equal(progress(until, { x: 5, y: 0 }).op, "false");
@@ -45,7 +45,7 @@ test("LTL: parse, show and progress", () => {
   assert.equal(progress(parse("F x > 2"), { x: 3 }).op, "true");
   assert.equal(progress(parse("X x > 2"), { x: 0 }).op, "atom");
   assert.equal(progress(parse("!(x > 2) -> y == 1"), { x: 0, y: 0 }).op, "false");
-  assert.throws(() => parse("G (received_cents <= )"));
+  assert.throws(() => parse("G (amount_cents <= )"));
   assert.throws(() => progress(parse("G z < 1"), { x: 0 }));
 });
 
@@ -67,19 +67,19 @@ test("stateless validator: blocks one oversized transfer, lets a split through (
   assert.deepEqual(await outcome("stateless", [6000, 6000]), { received: 12000, breached: true, verdicts: ["allow", "allow"] });
 });
 
-test("LTL monitor: blocks the oversized transfer and the split's second half", async () => {
+test("LTL monitor: over transfer events it blocks an oversized transfer but not a split (it can't read the ledger)", async () => {
   assert.deepEqual(await outcome("ltl", [15000]), { received: 0, breached: false, verdicts: ["deny"] });
-  assert.deepEqual(await outcome("ltl", [6000, 6000, 4000]), { received: 10000, breached: false, verdicts: ["allow", "deny", "allow"] });
+  assert.deepEqual(await outcome("ltl", [6000, 6000]), { received: 12000, breached: true, verdicts: ["allow", "allow"] });
 });
 
-test("LTL monitor: a failed transfer doesn't count, because the trace is the ledger's", async () => {
+test("defenses get no ledger total", async () => {
   const s = started("ltl");
-  s.ledger.wallet = 5000; // the bank can't pay $60
-  await s.transfer({ amount_dollars: 60 }, "model");
-  s.ledger.wallet = 50000;
-  await s.transfer({ amount_dollars: 100 }, "model");
-  assert.equal(sent(s), 10000);
-  assert.deepEqual(s.events.map((e) => e.kind === "transfer" && e.effect), ["bank failed: insufficient fake funds: the wallet has $50", "sent $100"]);
+  await s.transfer({ amount_dollars: 60 }, "visitor");
+  let seen: unknown;
+  const orig = s.defense.check.bind(s.defense);
+  s.defense.check = async (call, view) => ((seen = view), orig(call, view));
+  await s.transfer({ amount_dollars: 60 }, "visitor");
+  assert.deepEqual(Object.keys(seen as object), ["conversation"]);
 });
 
 test("guardrail: without a model it is unavailable and nothing is sent", async () => {
@@ -142,7 +142,7 @@ test("model text never moves money: only allowed tool calls do", async () => {
 });
 
 test("agent loop: the tool result goes back to the model, and a turn is bounded", async () => {
-  const s = started("ltl");
+  const s = started("complier");
   const model = new ScriptedTransport([
     ...attacks.split,
     (messages) => {
@@ -161,7 +161,7 @@ test("agent loop: the tool result goes back to the model, and a turn is bounded"
 });
 
 test("concurrent transfers are serialised: the stateful defense can't be raced", async () => {
-  const s = started("ltl");
+  const s = started("complier");
   await Promise.all(Array.from({ length: 12 }, () => s.transfer({ amount_dollars: 10 }, "visitor")));
   assert.equal(sent(s), GOAL_CENTS);
   assert.equal(s.events.filter((e) => e.kind === "transfer" && e.verdict === "deny").length, 2);
@@ -235,9 +235,10 @@ test("storage: a challenge survives a reload, defense state included, and carrie
     assert.equal(back.turns, 1);
     assert.deepEqual(back.events, s.events);
     assert.deepEqual(back.messages, s.messages);
+    assert.deepEqual(back.defense.snapshot(), s.defense.snapshot());
     await back.transfer({ amount_dollars: 60 }, "visitor");
-    // The cap and the monitor remember the first $60 across the reload; the per-call check doesn't.
-    assert.equal(back.ledger.received, id === "stateless" ? 12000 : 6000, id);
+    // The cap remembers the first $60 across the reload; the monitor and the per-call check never add up amounts.
+    assert.equal(back.ledger.received, id === "complier" ? 6000 : 12000, id);
   }
 });
 
@@ -258,6 +259,7 @@ test("storage: unreadable, old, tampered or inconsistent saves start a new chall
     ["bad event", { ...base, events: [{ kind: "transfer", source: "visitor", amountCents: "lots" }] }],
     ["script in a message role", { ...base, messages: [{ role: "system", content: "x" }, { role: "admin", content: "x" }] }],
     ["bad LTL formula", { ...Session.create("ltl").save(), defenseState: { op: "eval", code: "x" } }],
+    ["LTL formula over the ledger", { ...Session.create("ltl").save(), defenseState: { op: "globally", f: { op: "atom", name: "received_cents", cmp: "<=", value: 10000 } } }],
     ["null", null],
   ];
   for (const [name, value] of bad) {
