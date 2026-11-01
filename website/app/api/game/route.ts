@@ -11,7 +11,7 @@ export async function GET() {
 
 export async function POST(request: Request) {
   const text = await request.text();
-  if (text.length > 4_096) return Response.json({ error: "request too large" }, { status: 413 });
+  if (text.length > 8_192) return Response.json({ error: "request too large" }, { status: 413 });
   let body: Action;
   try {
     body = JSON.parse(text);

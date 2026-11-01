@@ -2352,3 +2352,9 @@ body:has(.landing) {
     height: 260px;
   }
 }
+
+.game-local {
+  display: grid;
+  gap: 8px;
+  justify-items: start;
+}
