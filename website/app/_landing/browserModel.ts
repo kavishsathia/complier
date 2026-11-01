@@ -6,6 +6,18 @@ import { LOCAL_MODEL } from "../../game/qwen";
 
 export type ModelState = { state: "idle" | "loading" | "ready" | "error"; loaded?: number; ms?: number; error?: string };
 
+// What the game needs of its model: a Transport it can load and stop.
+export type AgentModel = Transport & { state: ModelState; load(): void; terminate(): void };
+
+// The game's model: the small model in a worker. Browser tests (website/game/browser/check.mjs) run
+// where the 793 MB model can't load, so they define window.__complierGameTestModel before the page
+// starts, and its transport (kind "scripted", labelled as a scripted test wherever it shows) stands
+// in. A visitor's page never has it.
+export function makeAgentModel(onState: (s: ModelState) => void): AgentModel {
+  const test = (globalThis as { __complierGameTestModel?: (onState: (s: ModelState) => void) => AgentModel }).__complierGameTestModel;
+  return typeof test === "function" ? test(onState) : new BrowserModel(onState);
+}
+
 type Reply = { type: "generated"; content: string; tool_calls: { name: string; arguments: string }[]; promptTokens: number; newTokens: number; ms: number } | { type: "error"; error: string };
 
 export class BrowserModel implements Transport {

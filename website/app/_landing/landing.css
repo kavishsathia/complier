@@ -2252,8 +2252,7 @@ body:has(.landing) {
   color: var(--ink-2);
 }
 
-.game-chat,
-.game-direct {
+.game-chat {
   display: grid;
   /* One column no wider than the panel: an implicit column would size to its content and be clipped. */
   grid-template-columns: minmax(0, 1fr);
@@ -2261,17 +2260,12 @@ body:has(.landing) {
   padding: 14px 16px;
 }
 
-.game-chat {
-  border-bottom: 1px solid var(--line);
-}
-
 .game-label {
   font-weight: 700;
   font-size: 0.95rem;
 }
 
-.game-live-off,
-.game-hint {
+.game-live-off {
   font-size: 0.86rem;
   color: var(--ink-3);
 }
@@ -2301,17 +2295,6 @@ body:has(.landing) {
 
 .game-row .btn {
   flex: none;
-}
-
-.game-dollar {
-  font-weight: 700;
-  color: var(--ink-2);
-}
-
-.game-presets {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
 }
 
 .game .btn:disabled {

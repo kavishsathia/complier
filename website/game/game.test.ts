@@ -340,3 +340,13 @@ test("the game needs no server: nothing in it reads the host, a daemon or the en
     assert.doesNotMatch(src, /from "node:|process\.env|COMPLIER_SOCKET|daemon\.sock|fetch\(/, f);
   }
 });
+
+test("the page's only way to play is the chat with the local model: no manual tool form, no hosted-model notice", async () => {
+  const { readFileSync } = await import("node:fs");
+  const page = readFileSync(new URL("../app/_landing/Game.tsx", import.meta.url), "utf8");
+  for (const gone of [/Be the agent/i, /yourself/i, /customTransfer/, /game-direct/, /game-amount/, /Live chat is off/i, /no model is configured/i, /\.transfer\(/]) {
+    assert.doesNotMatch(page, gone);
+  }
+  assert.match(page, /Load the model/);
+  assert.match(page, /\.say\(text, getModel\(\)\)/);
+});

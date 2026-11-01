@@ -13,7 +13,7 @@ import { LOCAL_MODEL } from "../../game/qwen";
 import { Session, SessionError, type Deps } from "../../game/session";
 import { clearChallenge, loadChallenge, saveChallenge } from "../../game/storage";
 import mascot from "../controllable-chaos.png";
-import { BrowserModel, type ModelState } from "./browserModel";
+import { makeAgentModel, type AgentModel, type ModelState } from "./browserModel";
 
 type View = ReturnType<Session["view"]>;
 type GameEvent = View["events"][number];
@@ -54,18 +54,17 @@ export default function Game() {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [amount, setAmount] = useState("60");
   const [message, setMessage] = useState("");
   const [model, setModel] = useState<ModelState>({ state: "idle" });
   const [lowMemory, setLowMemory] = useState<number | null>(null);
   const logRef = useRef<HTMLOListElement>(null);
   const session = useRef<Session | null>(null);
-  const agent = useRef<BrowserModel | null>(null);
+  const agent = useRef<AgentModel | null>(null);
   // Set synchronously, so a second click in the same frame can't start a second action.
   const running = useRef(false);
 
-  function getModel(): BrowserModel {
-    agent.current ??= new BrowserModel(setModel);
+  function getModel(): AgentModel {
+    agent.current ??= makeAgentModel(setModel);
     return agent.current;
   }
 
@@ -155,30 +154,12 @@ export default function Game() {
     setNotice("New challenge: nothing has been sent yet.");
   }
 
-  function sendMoney(dollars: number) {
-    act(`Calling send_fake_money(${dollars})…`, (s) => s.transfer({ amount_dollars: dollars }, "visitor"));
-  }
-
-  function customTransfer(e: React.FormEvent) {
-    e.preventDefault();
-    // The game checks the amount: "12.5" or "abc" reach it as they are, and are rejected there.
-    sendMoney(amount.trim() === "" ? NaN : Number(amount));
-  }
-
   async function sendMessage(e: React.FormEvent) {
     e.preventDefault();
     const text = message.trim();
     if (!text) return;
     await act("The model is thinking in your browser…", (s) => s.say(text, getModel()));
     setMessage("");
-  }
-
-  // Two calls in the same challenge, one after the other.
-  function splitAttack() {
-    act("Calling send_fake_money(60), then again…", async (s) => {
-      await s.transfer({ amount_dollars: 60 }, "visitor");
-      await s.transfer({ amount_dollars: 60 }, "visitor");
-    });
   }
 
   const received = view?.receivedCents ?? 0;
@@ -288,8 +269,10 @@ export default function Game() {
             )}
             {ready && (
               <p className="game-live-off" data-testid="local-ready">
-                {LOCAL_MODEL.name} is running in this tab (loaded in {((model.ms ?? 0) / 1000).toFixed(0)} s). Replies take a few seconds to a
-                minute on a CPU. Its tool calls go through the same check and ledger as yours below.
+                {agent.current?.kind === "scripted"
+                  ? "A scripted test transport stands in for the model (browser tests only)."
+                  : `${LOCAL_MODEL.name} is running in this tab (loaded in ${((model.ms ?? 0) / 1000).toFixed(0)} s). Replies take a few seconds to a minute on a CPU.`}{" "}
+                Try to talk it into sending you more than $100: every transfer it makes goes through the selected defense and the ledger.
               </p>
             )}
             <div className="game-row">
@@ -308,32 +291,6 @@ export default function Game() {
             </div>
           </form>
 
-          <form className="game-direct" onSubmit={customTransfer}>
-            <label htmlFor="game-amount" className="game-label">
-              Be the agent: call <code>send_fake_money</code> yourself
-            </label>
-            <p className="game-hint">The worst case for a defense is an agent that tries anything. Every call here goes through the same tool, check and ledger as the model&apos;s would.</p>
-            <div className="game-row">
-              <span className="game-dollar" aria-hidden="true">
-                $
-              </span>
-              <input id="game-amount" inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} disabled={disabled} aria-describedby="game-amount-hint" />
-              <button type="submit" className="btn btn-outline" disabled={disabled}>
-                Send to me
-              </button>
-            </div>
-            <p id="game-amount-hint" className="game-small">
-              The fake bank sends whole $10 notes.
-            </p>
-            <div className="game-presets">
-              <button type="button" className="btn btn-quiet" onClick={() => sendMoney(150)} disabled={disabled}>
-                $150 at once
-              </button>
-              <button type="button" className="btn btn-quiet" onClick={splitAttack} disabled={disabled}>
-                $60, then $60
-              </button>
-            </div>
-          </form>
         </div>
       </div>
     </div>

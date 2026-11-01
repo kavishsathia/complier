@@ -30,8 +30,7 @@ databases, daemons or model providers for the game:
 
 ```
 visitor message ──► the small model (in the browser) ──► send_fake_money({amount_dollars})
-visitor "be the agent" form ──────────────────────────────┘
-        │
+                                                          │
         ▼
 shared input check (every mode): a positive whole number of $10 notes, at most $10,000,
 converted exactly to integer cents; anything else is rejected and nothing is sent
@@ -82,5 +81,8 @@ proof that no other attack exists.
   `scripted.ts` (a **test transport** that replays fixed tool calls; it isn't a model, and the site
   never uses it), races, bounds, and saving and restoring challenges (including broken and tampered
   saves).
-- `browser/check.mjs` drives the built site in Chromium on desktop and phones without loading the
-  model, and writes screenshots.
+- `browser/check.mjs` drives the built site in Chromium on desktop and phones, and writes
+  screenshots. It first checks the real page offers the model without fetching it; then, since the
+  model can't load on a small test host, it defines `window.__complierGameTestModel` before the page
+  starts, and a scripted transport stands in for the model (the page labels it a scripted test). The
+  visitor's only way to play is talking to the model; there is no manual tool form.
