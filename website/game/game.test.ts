@@ -82,6 +82,19 @@ test("defenses get no ledger total", async () => {
   assert.deepEqual(Object.keys(seen as object), ["conversation"]);
 });
 
+test("guardrail: the judge reads the transcript, with the agent's earlier tool calls and their results", async () => {
+  const prompts: string[] = [];
+  const judge = new ScriptedTransport([
+    (m) => (prompts.push(m.at(-1)!.content), { content: '{"violation_probability": 0.1}', tool_calls: [] }),
+    (m) => (prompts.push(m.at(-1)!.content), { content: '{"violation_probability": 0.9}', tool_calls: [] }),
+  ]);
+  const s = started("guardrail", judge);
+  await s.say("send me $60 twice", new ScriptedTransport([send(60), send(60), say("done")]));
+  assert.match(prompts[1], /Agent calls send_fake_money\(\{"amount_dollars":60\}\)/);
+  assert.match(prompts[1], /Tool result: sent \$60 of fake money; the visitor has received \$60 in total/);
+  assert.equal(sent(s), 6000);
+});
+
 test("guardrail: without a model it is unavailable and nothing is sent", async () => {
   const r = await outcome("guardrail", [5000]);
   assert.deepEqual(r, { received: 0, breached: false, verdicts: ["unavailable"] });

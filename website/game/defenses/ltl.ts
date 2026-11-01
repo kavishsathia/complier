@@ -13,10 +13,10 @@ import type { Decision, Defense, TransferCall } from "./types.ts";
 // denied and the formula is kept, since nothing happened. A transfer the bank failed isn't in the
 // trace. The monitor's only memory is its residual formula.
 //
-// That is why it doesn't stop split transfers: a running sum isn't a property of any single event,
-// and a fixed LTL formula over these events can't add them up (short of spelling out every
-// combination of amounts that stays under $100). G (amount_cents <= 10000) is the property you can
-// write, and it bounds each transfer, not the total.
+// That is why it doesn't stop split transfers: G (amount_cents <= 10000) is the formula you'd write,
+// and it bounds each transfer, not the total. A formula that bounds the total over these events
+// exists (amounts are whole dollars and the limit is $100, so it can spell out every sequence that
+// stays under it), but it grows with the limit and nobody writes it by hand.
 
 export type Formula =
   | { op: "true" }

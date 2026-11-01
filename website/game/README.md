@@ -59,8 +59,8 @@ examples in its prompt, but writes `amount_dollars: 150` correctly.
 
 | defense | mechanism | what it tracks | limits |
 | --- | --- | --- | --- |
-| Guardrail (`defenses/guardrail.ts`) | a judge model returns a violation probability; ≥ 0.5 blocks | whatever the judge infers from the chat | probabilistic, nothing proves it; the judge is the same small model, so it is **unavailable** until the model is loaded |
-| LTL monitor (`defenses/ltl.ts`) | formula progression of `G (amount_cents <= 10000)` over the stream of transfer events, before each transfer | its residual formula | can't add up amounts across events, so split transfers get through |
+| Guardrail (`defenses/guardrail.ts`) | a judge model returns a violation probability; ≥ 0.5 blocks | whatever the judge infers from the transcript (messages, tool calls and their results) | probabilistic, nothing proves it; the judge is the same small model, so it is **unavailable** until the model is loaded, and an answer it can't parse leaves the transfer unrun and counted as a judge failure, not a catch |
+| LTL monitor (`defenses/ltl.ts`) | formula progression of `G (amount_cents <= 10000)` over the stream of transfer events, before each transfer | its residual formula | bounds each transfer, so split transfers get through; a formula for the total exists but spells out every sequence under $100 |
 | Per-call check (`defenses/stateless.ts`) | each call alone must be ≤ $100 | nothing | doesn't see earlier calls, so split transfers get through |
 | Complier (`defenses/cap.ts`) | a running total of what was sent; a transfer that would take it over $100 is refused before it runs | its own total, which only transfers that went through add to | an illustration of complier's effect, not the complier runtime |
 

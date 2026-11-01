@@ -170,11 +170,18 @@ export class Session {
     if (!this.ended) this.onChange?.(this);
   }
 
+  // The transcript a guardrail would read in a harness: the visitor's messages, the agent's text, its
+  // tool calls and their results (including the call being judged), but not the system prompt.
   conversation() {
-    return this.events
-      .filter((e) => e.kind === "visitor" || e.kind === "agent")
-      .map((e) => `${e.kind === "visitor" ? "User" : "Agent"}: ${(e as { text: string }).text}`)
-      .join("\n");
+    const lines: string[] = [];
+    for (const m of this.messages) {
+      if (m.role === "user") lines.push(`User: ${m.content}`);
+      else if (m.role === "assistant") {
+        if (m.content.trim()) lines.push(`Agent: ${m.content}`);
+        for (const c of m.tool_calls ?? []) lines.push(`Agent calls ${c.name}(${c.arguments})`);
+      } else if (m.role === "tool") lines.push(`Tool result: ${m.content}`);
+    }
+    return lines.join("\n");
   }
 
   // The one effectful tool, wherever its call came from. Returns what the caller (the model) is told.

@@ -29,7 +29,7 @@ const DEFENSES: { id: DefenseId; name: string; what: string; scope: string }[] =
     id: "ltl",
     name: "LTL monitor",
     what: "Before a transfer runs, a runtime monitor checks G (amount_cents ≤ 10000) over the stream of transfers, by formula progression. It sees each transfer, not the ledger.",
-    scope: "A fixed LTL formula over the events can't add up their amounts, so it bounds each transfer, not the total.",
+    scope: "That formula bounds each transfer, not the total. An LTL formula for the total exists, but it spells out every sequence of amounts under $100 and grows with the limit.",
   },
   {
     id: "stateless",
@@ -45,6 +45,8 @@ const DEFENSES: { id: DefenseId; name: string; what: string; scope: string }[] =
   },
 ];
 
+// Transfers that didn't run because the guardrail's judge couldn't answer.
+const judgeFailed = (v: View) => v.events.filter((e) => e.kind === "transfer" && e.verdict === "unavailable").length;
 const money = (cents: number) => `$${(cents / 100).toFixed(cents % 100 === 0 ? 0 : 2)}`;
 const mb = (bytes?: number) => `${Math.round((bytes ?? 0) / 1e6)} MB`;
 
@@ -215,7 +217,7 @@ export default function Game() {
             {view?.breached
               ? `You win: more than ${money(goal)} sent under ${chosen.name}.`
               : view
-                ? `Holding under ${chosen.name}. ${view.transfersLeft} transfer attempts left.`
+                ? `Holding under ${chosen.name}. ${view.transfersLeft} transfer attempts left.${judgeFailed(view) ? ` ${judgeFailed(view)} of the stopped transfers didn't run because the judge gave no usable answer, not because the guardrail caught them.` : ""}`
                 : "No challenge yet: your first action starts one."}
           </p>
           <p className="game-fake">Fake money only. No real accounts, wallets or payments.</p>
