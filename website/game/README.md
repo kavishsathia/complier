@@ -20,9 +20,10 @@ databases, daemons or model providers for the game:
 - The agent is **Qwen2.5-0.5B-Instruct**, 4-bit (`onnx/model_q4.onnx` from
   `onnx-community/Qwen2.5-0.5B-Instruct` at revision `22942cb7d7ba4cc81bb4673549ca4d4614469b5e`;
   base model Apache-2.0), run in a Web Worker (`app/_landing/agent.worker.ts`) by transformers.js
-  4.3.2 on ONNX Runtime's WebAssembly build, on the visitor's CPU. Nothing loads until the visitor
+  4.3.2: on the visitor's GPU with WebGPU when the browser offers a GPU adapter, otherwise (or if
+  the WebGPU session fails to load) on the CPU with ONNX Runtime's WebAssembly build. Nothing loads until the visitor
   presses "Load the model". transformers.js then downloads about 793 MB from the Hugging Face hub at
-  that pinned revision, and its WebAssembly runtime from jsDelivr at the version it bundles; the
+  that pinned revision, and its ONNX Runtime files from jsDelivr at the version it bundles; the
   browser's Cache API keeps them for the next visit. It needs about 2 GB of free memory, and the
   page warns when the device reports less than 4 GB.
 

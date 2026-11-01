@@ -13,7 +13,7 @@ import { LOCAL_MODEL } from "../../game/qwen";
 import { Session, SessionError, type Deps } from "../../game/session";
 import { clearChallenge, loadChallenge, saveChallenge } from "../../game/storage";
 import mascot from "../controllable-chaos.png";
-import { makeAgentModel, type AgentModel, type ModelState } from "./browserModel";
+import { deviceName, makeAgentModel, type AgentModel, type ModelState } from "./browserModel";
 
 type View = ReturnType<Session["view"]>;
 type GameEvent = View["events"][number];
@@ -242,7 +242,7 @@ export default function Game() {
             {!ready && (
               <div className="game-local" data-testid="local-model">
                 <p className="game-live-off">
-                  The agent is a small model that runs in this tab: {LOCAL_MODEL.name} ({LOCAL_MODEL.base}), 4-bit, on your CPU. Loading it
+                  The agent is a small model that runs in this tab: {LOCAL_MODEL.name} ({LOCAL_MODEL.base}), 4-bit, on your GPU with WebGPU if your browser supports it, otherwise on your CPU. Loading it
                   downloads {mb(LOCAL_MODEL.bytes)} from Hugging Face (your browser keeps it for next time) and needs about 2 GB of free
                   memory. No model provider is involved.
                 </p>
@@ -271,7 +271,7 @@ export default function Game() {
               <p className="game-live-off" data-testid="local-ready">
                 {agent.current?.kind === "scripted"
                   ? "A scripted test transport stands in for the model (browser tests only)."
-                  : `${LOCAL_MODEL.name} is running in this tab (loaded in ${((model.ms ?? 0) / 1000).toFixed(0)} s). Replies take a few seconds to a minute on a CPU.`}{" "}
+                  : `${LOCAL_MODEL.name} is running in this tab on ${deviceName(model.device)} (loaded in ${((model.ms ?? 0) / 1000).toFixed(0)} s).${model.device === "webgpu" ? "" : " Replies take a few seconds to a minute on a CPU."}`}{" "}
                 Try to talk it into sending you more than $100: every transfer it makes goes through the selected defense and the ledger.
               </p>
             )}

@@ -4,7 +4,9 @@ import { JudgeUnavailable } from "../../game/defenses/guardrail";
 import type { Completion, Message, Transport } from "../../game/model";
 import { LOCAL_MODEL } from "../../game/qwen";
 
-export type ModelState = { state: "idle" | "loading" | "ready" | "error"; loaded?: number; ms?: number; error?: string };
+export type ModelState = { state: "idle" | "loading" | "ready" | "error"; loaded?: number; ms?: number; error?: string; device?: "webgpu" | "wasm" };
+
+export const deviceName = (d: ModelState["device"]) => (d === "webgpu" ? "your GPU (WebGPU)" : "your CPU");
 
 // What the game needs of its model: a Transport it can load and stop.
 export type AgentModel = Transport & { state: ModelState; load(): void; terminate(): void };
@@ -18,7 +20,7 @@ export function makeAgentModel(onState: (s: ModelState) => void): AgentModel {
   return typeof test === "function" ? test(onState) : new BrowserModel(onState);
 }
 
-type Reply = { type: "generated"; content: string; tool_calls: { name: string; arguments: string }[]; promptTokens: number; newTokens: number; ms: number } | { type: "error"; error: string };
+type Reply = { type: "generated"; content: string; tool_calls: { name: string; arguments: string }[]; device: "webgpu" | "wasm"; promptTokens: number; newTokens: number; ms: number } | { type: "error"; error: string };
 
 export class BrowserModel implements Transport {
   readonly kind = "browser-local" as const;
@@ -48,7 +50,7 @@ export class BrowserModel implements Transport {
       if (m.type === "progress") {
         files.set(m.file, m.loaded ?? 0);
         if (this.state.state === "loading") this.set({ state: "loading", loaded: [...files.values()].reduce((a, b) => a + b, 0) });
-      } else if (m.type === "loaded") this.set({ state: "ready", ms: m.ms });
+      } else if (m.type === "loaded") this.set({ state: "ready", ms: m.ms, device: m.device });
       else if (m.id !== undefined && this.pending.has(m.id)) {
         const resolve = this.pending.get(m.id)!;
         this.pending.delete(m.id);
@@ -85,7 +87,7 @@ export class BrowserModel implements Transport {
     return {
       content: reply.content,
       tool_calls: reply.tool_calls.map((c, i) => ({ id: `m${id}-${i}`, ...c })),
-      timing: `${LOCAL_MODEL.name} in your browser · ${reply.promptTokens} prompt + ${reply.newTokens} new tokens · ${(reply.ms / 1000).toFixed(1)} s`,
+      timing: `${LOCAL_MODEL.name} on ${deviceName(reply.device)} · ${reply.promptTokens} prompt + ${reply.newTokens} new tokens · ${(reply.ms / 1000).toFixed(1)} s`,
     };
   }
 }

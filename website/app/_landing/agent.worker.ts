@@ -1,5 +1,6 @@
 // The game's agent model (and the guardrail's judge), run in the visitor's browser:
-// Qwen2.5-0.5B-Instruct, 4-bit, on the CPU with ONNX Runtime's WebAssembly build, by transformers.js.
+// Qwen2.5-0.5B-Instruct, 4-bit, by transformers.js: on the GPU with WebGPU where the browser offers
+// it, otherwise on the CPU with ONNX Runtime's WebAssembly build.
 // transformers.js downloads the model from the Hugging Face hub at a pinned revision, and its
 // runtime from jsDelivr at the version it bundles; the browser's Cache API keeps the files for the
 // next visit. The model only produces text and tool calls: the page checks and runs the calls.
@@ -7,7 +8,8 @@ import { AutoModelForCausalLM, AutoTokenizer, env } from "@huggingface/transform
 import { TOOLS, type Message } from "../../game/model";
 import { LOCAL_MODEL, parseOutput, toTemplate } from "../../game/qwen";
 
-type Loaded = { tokenizer: any; model: any };
+type Device = "webgpu" | "wasm";
+type Loaded = { tokenizer: any; model: any; device: Device };
 let loaded: Promise<Loaded> | undefined;
 
 function load(): Promise<Loaded> {
@@ -20,11 +22,28 @@ function load(): Promise<Loaded> {
     if (p.status === "progress" && p.file) postMessage({ type: "progress", file: p.file, loaded: p.loaded, total: p.total });
   };
   const options = { revision: LOCAL_MODEL.revision, progress_callback: progress };
+  const loadModel = (device: Device) => AutoModelForCausalLM.from_pretrained(LOCAL_MODEL.repo, { ...options, dtype: LOCAL_MODEL.dtype, device });
   return (async () => {
     const tokenizer = await AutoTokenizer.from_pretrained(LOCAL_MODEL.repo, options);
-    const model = await AutoModelForCausalLM.from_pretrained(LOCAL_MODEL.repo, { ...options, dtype: LOCAL_MODEL.dtype, device: "wasm" });
-    return { tokenizer, model };
+    // WebGPU first; if the browser has no usable GPU adapter or the GPU session fails, the CPU.
+    if (await hasWebGPU()) {
+      try {
+        return { tokenizer, model: await loadModel("webgpu"), device: "webgpu" as const };
+      } catch (err) {
+        console.warn("[complier game] WebGPU failed, using the CPU:", err);
+      }
+    }
+    return { tokenizer, model: await loadModel("wasm"), device: "wasm" as const };
   })();
+}
+
+async function hasWebGPU(): Promise<boolean> {
+  try {
+    const gpu = (navigator as any).gpu;
+    return !!gpu && !!(await gpu.requestAdapter());
+  } catch {
+    return false;
+  }
 }
 
 self.onmessage = async (e: MessageEvent) => {
@@ -37,19 +56,19 @@ self.onmessage = async (e: MessageEvent) => {
         loaded = undefined;
         throw err;
       });
-      await loaded;
-      postMessage({ type: "loaded", ms: Math.round(performance.now() - started) });
+      const { device } = await loaded;
+      postMessage({ type: "loaded", device, ms: Math.round(performance.now() - started) });
       return;
     }
     if (!loaded) throw new Error("the model isn't loaded");
-    const { tokenizer, model } = await loaded;
+    const { tokenizer, model, device } = await loaded;
     const inputs = tokenizer.apply_chat_template(toTemplate(msg.messages), { ...(msg.tools ? { tools: TOOLS } : {}), add_generation_prompt: true, return_dict: true });
     const started = performance.now();
     const out = await model.generate({ ...inputs, max_new_tokens: LOCAL_MODEL.maxNewTokens, do_sample: false });
     const promptTokens = inputs.input_ids.dims[1];
     const generated = out.slice(null, [promptTokens, null]);
     const raw: string = tokenizer.decode(generated[0], { skip_special_tokens: false });
-    postMessage({ type: "generated", id: msg.id, raw, ...parseOutput(raw), promptTokens, newTokens: generated.dims[1], ms: Math.round(performance.now() - started) });
+    postMessage({ type: "generated", id: msg.id, raw, ...parseOutput(raw), device, promptTokens, newTokens: generated.dims[1], ms: Math.round(performance.now() - started) });
   } catch (err) {
     postMessage({ type: "error", id: (msg as { id?: number }).id, error: String((err as Error)?.message ?? err) });
   }
