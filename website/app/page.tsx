@@ -84,8 +84,7 @@ export default function Home() {
             <h2 id="game-title">Get it to send you more than $100.</h2>
             <p>
               Controllable Chaos holds $500 of fake money and does whatever you ask. Pick a defense, then try to get more than $100 out
-              of it in total, in one challenge. Each defense is a real mechanism on the same tool, and what it decides is shown as it
-              happens.
+              of it in total, in one challenge. Every defense checks the same tool call, and what it decides is shown as it happens.
             </p>
           </div>
           <Game />
