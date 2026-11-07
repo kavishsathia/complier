@@ -1,0 +1,20 @@
+-- A saved Claude Code workflow: tests must pass after the last edit before a commit.
+-- Editing makes the work untested; a passing test run makes it tested; a commit is allowed only
+-- while it is tested, and a successful commit ends the workflow. Other commands are always allowed.
+datatype Act = edit | test | commit | other
+datatype Value = done | failed
+Returns(_) = {done, failed}
+
+Policy = Untested
+
+Untested =
+     Permit(edit, \ _ @ Untested)
+  [] Permit(other, \ _ @ Untested)
+  [] Permit(test, \ v @ if v == done then Tested else Untested)
+  [] Deny(commit, Untested)
+
+Tested =
+     Permit(edit, \ _ @ Untested)
+  [] Permit(other, \ _ @ Tested)
+  [] Permit(test, \ v @ if v == done then Tested else Untested)
+  [] Permit(commit, \ v @ if v == done then SKIP else Tested)
