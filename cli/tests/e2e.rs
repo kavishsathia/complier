@@ -14,6 +14,10 @@ use std::time::{Duration, Instant};
 
 const BIN: &str = env!("CARGO_BIN_EXE_complier");
 
+fn dirs_home() -> Option<PathBuf> {
+    std::env::var_os("HOME").map(PathBuf::from)
+}
+
 fn fixture(name: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures").join(name)
 }
@@ -35,6 +39,11 @@ impl Env {
         let _ = std::fs::remove_dir_all(&home);
         let path = home.join("empty-path");
         std::fs::create_dir_all(&path).unwrap();
+        // FDR reads its licence from $HOME/.config/fdr: lend it the real one, read-only.
+        if let Some(real) = dirs_home().map(|h| h.join(".config/fdr")).filter(|d| d.is_dir()) {
+            std::fs::create_dir_all(home.join(".config")).unwrap();
+            std::os::unix::fs::symlink(real, home.join(".config/fdr")).unwrap();
+        }
         let mut up = Command::new(BIN);
         up.env("HOME", &home).env("PATH", &path);
         for (k, v) in extra {
@@ -365,4 +374,122 @@ fn results_are_bound_and_decide_what_comes_next() {
     assert!(env.attempt("g", "mcp__fake__write-item", json!({ "id": "x" })).0);
     let results: Vec<String> = env.log("g").iter().filter(|e| e["kind"] == "result").map(|e| e["event"].as_str().unwrap().to_string()).collect();
     assert_eq!(results, ["result.check.small", "result.check.failed", "result.check.big", "result.write.done"]);
+}
+
+// A Claude Code hook's stdout for `input`, in a session bound to no machine by the environment:
+// whatever binds it comes from a workflow applied to its session.
+fn session_hook(env: &Env, which: &str, input: Value) -> String {
+    let mut child = Command::new(BIN)
+        .env("HOME", &env.home)
+        .env("PATH", &env.path)
+        .env_remove("COMPLIER_MACHINE")
+        .env_remove("COMPLIER_ROLE")
+        .args(["hook", which])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child.stdin.take().unwrap().write_all(input.to_string().as_bytes()).unwrap();
+    let out = child.wait_with_output().unwrap();
+    assert!(out.status.success(), "the hook failed: {}", String::from_utf8_lossy(&out.stderr));
+    String::from_utf8_lossy(&out.stdout).to_string()
+}
+
+// The session calls a built-in tool as Claude Code runs it; (allowed, reason).
+fn session_call(env: &Env, session: &str, tool: &str, args: Value, ok: bool) -> (bool, String) {
+    static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    let id = format!("toolu_s{}", NEXT.fetch_add(1, std::sync::atomic::Ordering::SeqCst));
+    let pre = json!({ "session_id": session, "hook_event_name": "PreToolUse", "tool_name": tool, "tool_input": args, "tool_use_id": id });
+    let stdout = session_hook(env, "pre-tool-use", pre);
+    if !stdout.trim().is_empty() {
+        let d: Value = serde_json::from_str(&stdout).unwrap();
+        return (false, format!("{}: {}", d["hookSpecificOutput"]["permissionDecision"], d["hookSpecificOutput"]["permissionDecisionReason"]));
+    }
+    let post = match ok {
+        true => json!({ "session_id": session, "hook_event_name": "PostToolUse", "tool_name": tool, "tool_input": args, "tool_use_id": id, "tool_response": { "stdout": "", "stderr": "" } }),
+        false => json!({ "session_id": session, "hook_event_name": "PostToolUseFailure", "tool_name": tool, "tool_input": args, "tool_use_id": id, "error": "exit 1" }),
+    };
+    session_hook(env, "post-tool-use", post);
+    (true, String::new())
+}
+
+#[test]
+fn a_saved_workflow_applied_to_a_session_constrains_its_built_in_tools_until_it_finishes() {
+    let env = Env::new("workflow");
+    let example = Path::new(env!("CARGO_MANIFEST_DIR")).join("../examples/workflows/test-before-commit");
+    let example = example.to_str().unwrap();
+    let session = "5f0c1a2b-0000-4000-8000-000000000001";
+    let bash = |command: &str| json!({ "command": command });
+
+    // Outside a workflow nothing is constrained, but saving or applying one asks the user first.
+    assert!(session_call(&env, session, "Bash", bash("git commit -m wip"), true).0);
+    let (ok, text) = session_call(&env, session, "Bash", bash("complier workflow save t ./draft --description x"), true);
+    assert!(!ok && text.starts_with("\"ask\"") && text.contains("go-ahead"), "{text}");
+    let (ok, text) = session_call(&env, session, "Bash", bash("complier workflow apply t"), true);
+    assert!(!ok && text.starts_with("\"ask\""), "{text}");
+
+    // Nothing unproven is saved: a unit naming its service by path, or a spec FDR rejects.
+    let bad = env.home.join("bad");
+    std::fs::create_dir_all(&bad).unwrap();
+    std::fs::copy(fixture("unsafe.csp"), bad.join("policy.csp")).unwrap();
+    std::fs::copy(format!("{example}/claude-code.yaml"), bad.join("claude-code.yaml")).unwrap();
+    let (ok, out) = env.complier(&["workflow", "save", "bad", bad.to_str().unwrap(), "--description", "x"]);
+    assert!(!ok && out.contains("can't be saved"), "{out}");
+    assert!(!env.home.join(".complier/workflows/bad").exists());
+
+    let (ok, out) = env.complier(&["workflow", "save", "tbc", example, "--description", "tests pass before a commit", "--noticed", "fix the bug, run the tests, commit"]);
+    assert!(ok && out.contains("admitted: FDR proved") && out.contains("saved workflow tbc"), "{out}");
+    let (ok, out) = env.complier(&["workflow", "save", "tbc", example, "--description", "again"]);
+    assert!(!ok && out.contains("--replace"), "{out}");
+    let (_, out) = env.complier(&["workflow", "ls"]);
+    assert!(out.contains("tbc\tsaved\ttests pass before a commit"), "{out}");
+
+    // A new session is told which workflows are saved.
+    let start = session_hook(&env, "session-start", json!({ "session_id": session, "hook_event_name": "SessionStart" }));
+    assert!(start.contains("tbc (tests pass before a commit)") && start.contains("only if they say yes"), "{start}");
+
+    // Applied to the session: its built-in tools are now checked against the workflow.
+    let (ok, out) = env.complier(&["workflow", "apply", "tbc", "--session", session]);
+    assert!(ok && out.contains("allowed now: edit, other, test"), "{out}");
+    let start = session_hook(&env, "session-start", json!({ "session_id": session, "hook_event_name": "SessionStart" }));
+    assert!(start.contains("machine workflow-tbc"), "{start}");
+    // Another session isn't.
+    assert!(session_call(&env, "another-session", "Bash", bash("git commit -m x"), true).0);
+
+    assert!(session_call(&env, session, "Read", json!({ "file_path": "/repo/src/lib.rs" }), true).0);
+    assert!(session_call(&env, session, "Edit", json!({ "file_path": "/repo/src/lib.rs" }), true).0);
+    let (ok, text) = session_call(&env, session, "Bash", bash("git commit -am fix"), true);
+    assert!(!ok && text.contains("denied"), "{text}");
+    // A failing test run leaves the work untested.
+    assert!(session_call(&env, session, "Bash", bash("cargo test"), false).0);
+    assert!(!session_call(&env, session, "Bash", bash("git commit -am fix"), true).0);
+    assert!(session_call(&env, session, "Bash", bash("cargo test"), true).0);
+    // Built-in tools the unit doesn't name are blocked, and the agent can't release itself.
+    let (ok, text) = session_call(&env, session, "WebFetch", json!({ "url": "https://example.com" }), true);
+    assert!(!ok && text.contains("isn't available"), "{text}");
+    let (ok, text) = session_call(&env, session, "Bash", bash("complier workflow release tbc"), true);
+    assert!(!ok && text.contains("configures what constrains you"), "{text}");
+
+    // Until the policy finishes, the session's Stop is turned back.
+    let stop = session_hook(&env, "stop", json!({ "session_id": session, "hook_event_name": "Stop" }));
+    assert!(stop.contains("\"block\"") && stop.contains("commit"), "{stop}");
+
+    // The commit, now tested, is allowed and ends the workflow, which lets the session go.
+    assert!(session_call(&env, session, "Bash", bash("git commit -am fix"), true).0);
+    assert_eq!(session_hook(&env, "stop", json!({ "session_id": session, "hook_event_name": "Stop" })).trim(), "");
+    assert!(session_call(&env, session, "WebFetch", json!({ "url": "https://example.com" }), true).0);
+    assert!(!env.home.join(format!(".complier/sessions/{session}.json")).exists());
+    let log = env.log("workflow-tbc");
+    assert!(log.iter().any(|e| e["kind"] == "status" && e["status"] == "finished"), "{log:#?}");
+
+    // Applied again and released by the user before it finishes.
+    let (ok, out) = env.complier(&["workflow", "apply", "tbc", "--session", session]);
+    assert!(ok, "{out}");
+    assert!(!session_call(&env, session, "Bash", bash("git commit -am again"), true).0);
+    let (ok, out) = env.complier(&["workflow", "release", "tbc"]);
+    assert!(ok && out.contains("1 session(s) let go"), "{out}");
+    assert!(session_call(&env, session, "Bash", bash("git commit -am again"), true).0);
+    let (ok, out) = env.complier(&["workflow", "rm", "tbc"]);
+    assert!(ok, "{out}");
 }

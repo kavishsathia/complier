@@ -41,8 +41,9 @@ Live demo and walkthrough: [complier.dev](https://www.complier.dev)
   stays where it was. Only allowed calls run.
 - **Nothing polls the world.** Agents' translated calls are the only outside events.
 - **Fails closed.** An MCP call the units don't cover, that can't be translated, or that can't be
-  checked (no daemon, no machine) is denied. Built-in tools (Bash, Edit, ...) aren't translated
-  yet; the hook only stops them editing the configuration that enforces all this.
+  checked (no daemon, no machine) is denied. Built-in tools (Bash, Edit, ...) are checked only in
+  a machine with a `claude-code` unit, which then blocks the ones it doesn't name; otherwise the
+  hook only stops them editing the configuration that enforces all this.
 
 ## Repository map
 
@@ -51,9 +52,9 @@ Live demo and walkthrough: [complier.dev](https://www.complier.dev)
 | [`website/`](website) | The Next.js site: landing page, the in-browser CEL + CSP playground, the CSP stepper, the research deck | `npm run dev` (from the root) |
 | [`cli/`](cli) | The Rust `complier` CLI: daemon, Claude Code hooks, unit checker, MCP client for `gen` | `cargo build --manifest-path cli/Cargo.toml` |
 | [`cel/`](cel) | CEL backend the CLI runs: cel-java 0.14.0 + verifier behind a small stdio bridge | `cel/build.sh` |
-| [`plugin/`](plugin) | Claude Code plugin that installs complier's hooks | `claude --plugin-dir plugin` |
+| [`plugin/`](plugin) | Claude Code plugin: complier's hooks and the workflow skill | `claude --plugin-dir plugin` |
 | [`packages/`](packages) | Reviewed metadata for each MCP server (`complier gen` writes here) | `packages/notion/service.yaml` |
-| [`examples/`](examples) | A translation unit for Notion and a small runnable demo machine | `examples/units/notion.yaml`, `examples/demo/` |
+| [`examples/`](examples) | A translation unit for Notion, a small runnable demo machine and a saved-workflow example | `examples/units/notion.yaml`, `examples/demo/`, `examples/workflows/` |
 | [`fdr/`](fdr) | `complier-fdr`, which has FDR prove a policy and compile its automaton (bring your own FDR), and an earlier standalone guard demo | `fdr/build-complier-fdr.sh` |
 
 ## Quickstart
@@ -135,6 +136,51 @@ COMPLIER_MACHINE=demo COMPLIER_ROLE=writer claude --plugin-dir plugin
 
 `complier add` and `complier gen` are only needed to (re)generate a service's `tools.yaml`.
 
+### Saved workflows in your own Claude Code
+
+The plugin's `complier-workflows` skill has Claude notice when you ask for work that looks
+repeatable (an order, or a gate such as "only commit once the tests pass") and ask whether to make it
+a complier workflow. If you say yes, it drafts a spec and units, and `complier workflow save` proves
+them (FDR and the CEL verifier) and keeps them in `~/.complier/workflows/<name>/` on your computer.
+If you then also agree to apply it, `complier workflow apply` binds that Claude Code session to the
+workflow, and the plugin's hooks check its tool calls from then on. The plugin's hook also has
+Claude Code ask you to confirm each `save`, `apply` and `rm` command before it runs. New
+sessions are told which workflows are saved, so Claude can offer one again when it fits.
+
+Set it up once (the `workflow` command is new, so build complier from a checkout until a release
+has it):
+
+```sh
+cel/build.sh && fdr/build-complier-fdr.sh   # the CEL backend, and the bridge to your licensed FDR
+cargo install --path cli --locked           # puts `complier` in ~/.cargo/bin; Claude Code needs it on PATH
+complier doctor                             # ends with: ready
+```
+
+Then, inside Claude Code, add the plugin and restart Claude Code so its hooks and skill load:
+
+```
+/plugin marketplace add kavishsathia/complier
+/plugin install complier@complier
+```
+
+(`/plugin marketplace add /path/to/your/complier/checkout` installs from a checkout instead.)
+`/plugin` then lists `complier` as enabled, and a request like "fix this, run the tests, then
+commit" gets Claude offering to save it as a workflow.
+
+```sh
+complier workflow ls                        # saved workflows, and which are applied
+complier workflow show test-before-commit    # its description, spec and units
+complier workflow release test-before-commit  # stop an applied workflow (run it in your own terminal)
+```
+
+What an applied workflow enforces: every MCP tool call, and the built-in tools named by its
+`claude-code` unit, are checked against its spec; other built-in tools and MCP tools no unit covers
+are blocked; Claude can't release or edit the workflow itself; and until the policy finishes
+(`SKIP`), Claude's Stop is turned back with what it may do next. When the policy finishes, the
+session is let go. [`examples/workflows/test-before-commit`](examples/workflows/test-before-commit)
+is a complete one: edits make the work untested, a passing test run makes it tested, and a commit is
+allowed only while it's tested.
+
 Tests: `cargo test --manifest-path cli/Cargo.toml` (they run the real CEL backend, so build it first).
 
 ## What works today
@@ -146,6 +192,8 @@ Tests: `cargo test --manifest-path cli/Cargo.toml` (they run the real CEL backen
 - Policies in CSPm with the full language FDR accepts, proven and compiled by FDR at `machine up`;
   every call is allowed, denied or refused, and the agent gets the reason.
 - The plugin's other hooks: session context, and holding an idle agent's Stop until it can act.
+- Saved workflows (`complier workflow`), applied to one Claude Code session at a time, and the
+  plugin's skill that offers them.
 - Only agents' actions (controllable events) for now: nothing observes the world.
 
 ## Licence
