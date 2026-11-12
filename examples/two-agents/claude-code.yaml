@@ -1,0 +1,31 @@
+# Claude Code's built-in tools as review-gate.csp's actions. Each step is one script in the shared
+# workspace; anything else (writing the draft, checking status, waiting) is `other`. The review's
+# result is the verdict review.sh prints.
+service: claude-code
+
+translate:
+  tools: [Bash, Write, Edit]
+  schema:
+    command: optional<string>
+  rules:
+    submit:
+      when: >-
+        tool == 'Bash' && command.orValue('').contains('tools/submit.sh')
+          && !command.orValue('').contains('tools/review.sh') && !command.orValue('').contains('tools/publish.sh')
+      emit: submit
+    review:
+      when: >-
+        tool == 'Bash' && command.orValue('').contains('tools/review.sh')
+          && !command.orValue('').contains('tools/submit.sh') && !command.orValue('').contains('tools/publish.sh')
+      emit: review
+    publish:
+      when: >-
+        tool == 'Bash' && command.orValue('').contains('tools/publish.sh')
+          && !command.orValue('').contains('tools/submit.sh') && !command.orValue('').contains('tools/review.sh')
+      emit: publish
+  fallback:
+    emit: other
+  results:
+    review: "!ok ? 'failed' : (output.contains('APPROVED') ? 'approved' : 'rejected')"
+    default: "ok ? 'done' : 'failed'"
+hidden: [Read]
