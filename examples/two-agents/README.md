@@ -38,7 +38,7 @@ output folder.
 The policy's events don't carry a role: `machine up` compiles policies over `attempt.x`, not
 `attempt.r.x`. Both agents therefore drive one shared state. The role is recorded on every attempt in
 the log, but the policy can't tell *who* attempted something. The order between the two agents is
-what is enforced; who does each step is set by the prompts. Two consequences you can see in a run:
+what is enforced; who does each step is set by the prompts. What you can see in a run:
 
 - While one agent's allowed call is still running, the other agent's attempts are refused ("the
   result of … hasn't come back yet"), because the machine waits for one result at a time.
