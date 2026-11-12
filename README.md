@@ -93,6 +93,12 @@ policy goes becomes a fragment over the call's values. Only happy paths are draw
 listed under the diagram and refusals are left out. Anything the diagram can't draw (`|~|`, `|||`,
 replicated choice, events outside the prelude's channels) is an error that names it.
 
+The `/spotlight` page (a prototype, for local use) lists the workflows saved on this computer
+(`~/.complier/workflows`, or `COMPLIER_DIR`) with search, and draws each one's policy as its sequence
+diagram. It shows which sessions a workflow is applied to and how to apply or release it, but it only
+reads: applying stays in Claude Code, which asks first. `npm run dev`, then open `/spotlight`. On
+Vercel the page has nothing to read and shows only the labelled demonstration fixtures.
+
 ### CEL backend
 
 Needs a JDK 11+ and curl. Downloads pinned jars (sha256-checked) and builds the bridge:
