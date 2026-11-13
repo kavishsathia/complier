@@ -13,7 +13,7 @@ export default function TwoAgents() {
     <Shell
       current="/get-started/two-agents"
       title="Two agents"
-      lede="A writer and a reviewer, two Claude Code sessions, share one machine. The writer can't publish until the reviewer approves, and neither can take the other's steps."
+      lede="A writer and a reviewer, two Claude Code sessions, share one machine and take turns. The writer can't publish until the reviewer approves, and while one works, complier holds the other."
     >
       <Note>
         <p>
@@ -38,21 +38,20 @@ export default function TwoAgents() {
           <Code label="review-gate.csp">{`datatype Role = writer | reviewer
 
 Writing  = Permit(writer, submit, \\ v @ if v == done then InReview else Writing)
-        [] Deny(writer, publish, Writing)
-        [] Others(Writing)
+        [] Permit(writer, other, \\ _ @ Writing)
 InReview = Permit(reviewer, review, \\ v @ if v == approved then Approved
                                          else if v == rejected then Writing else InReview)
+        [] Permit(reviewer, other, \\ _ @ InReview)
         [] Deny(writer, publish, InReview)
-        [] Others(InReview)
 Approved = Permit(writer, publish, \\ v @ if v == done then SKIP else Approved)
-        [] Others(Approved)
+        [] Permit(writer, other, \\ _ @ Approved)
 
 Agent = ||| r : Role @ ControllableCHAOS(r)`}</Code>
           <p>
             <code>Agent</code> is one <code>ControllableCHAOS</code> per role: FDR proves the contract against two
-            independent agents. <code>Others</code> lets either agent do anything else (write the draft, check
-            status, wait). Next to it, <code>claude-code.yaml</code> says which tool calls count as{" "}
-            <code>submit</code>, <code>review</code> and <code>publish</code>.
+            independent agents. The agents take turns. In each state only one role has anything to do, and{" "}
+            <code>other</code> (writing the draft, reading the board) is only offered to that role. The other agent
+            ends its turn, and complier holds it until it&apos;s its turn again.
           </p>
         </Step>
 
@@ -85,25 +84,20 @@ Agent = ||| r : Role @ ControllableCHAOS(r)`}</Code>
         </Step>
 
         <Step n={7} title="What to look for">
-          <p>In the log, over a minute or two:</p>
+          <p>In the log, within a minute or so:</p>
           <ul>
+            <li>The reviewer waits without making a call: complier holds it until there&apos;s a submission.</li>
             <li>
-              The reviewer tries to review before anything is submitted: <strong>refused</strong>, &ldquo;the policy
-              doesn&apos;t take review from reviewer now&rdquo;.
+              The writer submits, then tries to publish before review: <strong>denied</strong>. It ends its turn and
+              complier holds it.
             </li>
             <li>
-              The writer tries to publish right after submitting: <strong>denied</strong>.
+              The reviewer is told to continue, and rejects or approves. A rejection wakes the writer to revise and
+              submit again.
             </li>
             <li>
-              The reviewer rejects or approves. A rejection sends it back to the writer, who revises and submits again.
-            </li>
-            <li>
-              While one agent&apos;s call is running, the other&apos;s are refused (&ldquo;hasn&apos;t come back
-              yet&rdquo;), and it retries. The machine takes one call at a time.
-            </li>
-            <li>
-              After the approval, the writer publishes and the log ends with <code>finished</code>. Both sessions are
-              free to stop.
+              After the approval, complier wakes the writer, it publishes, and the log ends with{" "}
+              <code>finished</code>. Both sessions are free to stop.
             </li>
           </ul>
         </Step>

@@ -7,15 +7,13 @@ Your job:
    reviewer's: don't read them; write from the brief alone.
 2. Submit it with `./tools/submit.sh`.
 3. Right after submitting, try `./tools/publish.sh` once, even though it hasn't been reviewed: we
-   are checking that the protocol stops it. If that attempt is refused only because another call's
-   result hasn't come back yet, retry it until the protocol answers the publish itself.
-4. Wait for the reviewer: run `./tools/status.sh`, with `sleep 4` as a separate command between
-   checks.
-5. If the review says REJECTED, read the reason in .board/review.md, revise draft.md to fix it, and
-   submit again (back to step 4).
-6. Once the review says APPROVED, publish with `./tools/publish.sh`.
+   are checking that the protocol stops it.
+4. Then end your turn. Don't poll or sleep: while the reviewer works, complier holds you, and when
+   it's your turn again it tells you to continue.
+5. When you're told to continue, read .board/review.md. If the review is REJECTED, revise draft.md
+   to fix exactly what it says and submit again (back to step 4). If it's APPROVED, publish with
+   `./tools/publish.sh`.
 
 Never run tools/review.sh, and never edit files under .board/. If complier refuses or denies a call,
-read its reason: it is the protocol telling you to wait or to do something else first. A refusal
-saying another call's result hasn't come back yet means the reviewer is mid-call: wait a moment and
-retry. You are done when status shows PUBLISHED; then reply with a two-line summary.
+read its reason: it is the protocol telling you to wait or to do something else first. You are done
+once you've published; then reply with a two-line summary.

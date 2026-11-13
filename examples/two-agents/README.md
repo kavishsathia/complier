@@ -44,15 +44,11 @@ Each agent is its own `ControllableCHAOS`: the spec declares `datatype Role = wr
 and `Agent = ||| r : Role @ ControllableCHAOS(r)`, and every event carries the role that made it
 (`attempt.writer.submit`, `result.reviewer.review.approved`). The daemon attempts each call as the
 agent's `COMPLIER_ROLE`, so only the writer can submit or publish and only the reviewer can review;
-the same step from the other agent is refused. What you can see in a run:
+the same step from the other agent is refused. The agents take turns. In each state only one role has a step, and `other` (anything that isn't
+submit, review or publish) is only offered to that role. The waiting agent ends its turn instead of
+polling, and its Stop hook holds it until its role has a step, then tells it to continue. So the
+waiting agent makes no calls, and nothing contends for the machine's one pending call.
 
-- While one agent's allowed call is still running, the other agent's attempts are refused ("the
-  result of … hasn't come back yet"), because the machine waits for one result at a time.
-- The Stop hook tells each agent what its own role may do next. When it's the other role's turn, the
-  agent's Stop hook waits until it has a step.
-- Every Bash/Write/Edit call is mediated, including `sleep` and status checks. While one agent waits
-  with `sleep 4`, the other agent's calls are refused (one pending result per machine). Agents recover
-  by retrying, but a refused edit followed by a successful submit can send an unchanged draft for
-  review. The policy orders steps and says whose they are; it doesn't see what's in the files.
-- Once the policy finishes, the machine stops taking attempts, so a final `status.sh` check is
-  refused too. Both agents are released from their Stop hold.
+- The reviewer starts held, until the writer submits.
+- The writer's publish during review is **denied**, then it ends its turn and is held.
+- Once the policy finishes, both agents are released.
