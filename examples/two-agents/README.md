@@ -33,20 +33,21 @@ loads this checkout's plugin with `--plugin-dir`, so nothing is installed global
 (`writer.jsonl`, `reviewer.jsonl`), session ids, the workspace and `machine.log` are kept in the
 output folder.
 
-## What the roles are, today
+## Roles
 
-The policy's events don't carry a role: `machine up` compiles policies over `attempt.x`, not
-`attempt.r.x`. Both agents therefore drive one shared state. The role is recorded on every attempt in
-the log, but the policy can't tell *who* attempted something. The order between the two agents is
-what is enforced; who does each step is set by the prompts. What you can see in a run:
+Each agent is its own `ControllableCHAOS`: the spec declares `datatype Role = writer | reviewer`
+and `Agent = ||| r : Role @ ControllableCHAOS(r)`, and every event carries the role that made it
+(`attempt.writer.submit`, `result.reviewer.review.approved`). The daemon attempts each call as the
+agent's `COMPLIER_ROLE`, so only the writer can submit or publish and only the reviewer can review;
+the same step from the other agent is refused. What you can see in a run:
 
 - While one agent's allowed call is still running, the other agent's attempts are refused ("the
   result of … hasn't come back yet"), because the machine waits for one result at a time.
-- The Stop hook tells each agent what the shared policy allows next, which can be the other agent's
-  step.
+- The Stop hook tells each agent what its own role may do next. When it's the other role's turn, the
+  agent's Stop hook waits until it has a step.
 - Every Bash/Write/Edit call is mediated, including `sleep` and status checks. While one agent waits
   with `sleep 4`, the other agent's calls are refused (one pending result per machine). Agents recover
   by retrying, but a refused edit followed by a successful submit can send an unchanged draft for
-  review. The policy orders steps; it doesn't see what's in the files.
+  review. The policy orders steps and says whose they are; it doesn't see what's in the files.
 - Once the policy finishes, the machine stops taking attempts, so a final `status.sh` check is
   refused too. Both agents are released from their Stop hold.

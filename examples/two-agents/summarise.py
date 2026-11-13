@@ -21,7 +21,7 @@ for r in rows:
         why = f"  ({r['reason']})" if r.get("reason") else ""
         print(f"{t}  {r['role']:<8} {r['event']:<8} {r['outcome'].upper():<8} state {r['state']}{why}")
     elif kind == "result":
-        if not r["event"].startswith("result.other."):
+        if ".other." not in r["event"]:
             print(f"{t}  {'':<8} {r['event']:<24} -> state {r['state']}")
     elif kind == "status":
         print(f"{t}  machine {r['status']}: {r.get('reason', '')}")
