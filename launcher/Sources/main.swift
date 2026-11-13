@@ -400,7 +400,7 @@ struct LauncherView: View {
                             Image(systemName: "play.fill")
                             Text("Launch: opens \(launch.windows.map(\.title).joined(separator: ", "))")
                             Spacer()
-                            Text("⌘↩").font(.system(size: 11, design: .monospaced)).opacity(0.8)
+                            Keys(caps: [.symbol("command"), .symbol("return")], onAccent: true)
                         }
                         .font(.system(size: 12.5, weight: .semibold))
                         .padding(10)
@@ -415,7 +415,7 @@ struct LauncherView: View {
                         HStack {
                             Text(s.title).font(.system(size: 12, weight: .semibold))
                             Spacer()
-                            Text("⌘\(i + 1)").font(.system(size: 11, design: .monospaced)).foregroundStyle(.secondary)
+                            Keys(caps: [.symbol("command"), .text("\(i + 1)")])
                         }
                         Text(s.text)
                             .font(.system(size: 12.5, design: .monospaced))
@@ -437,18 +437,67 @@ struct LauncherView: View {
             if let c = model.copied {
                 Label(c, systemImage: "checkmark.circle.fill").foregroundStyle(.green)
             } else {
-                if model.current?.launch != nil { Text("⌘↩ launch").foregroundStyle(.secondary) }
-                Text("↩ copy setup").foregroundStyle(.secondary)
-                Text("⌘1–⌘\(max(1, model.current?.setup.count ?? 3)) copy one").foregroundStyle(.secondary)
-                Text("↑↓ choose").foregroundStyle(.secondary)
-                Text("esc close").foregroundStyle(.secondary)
+                if model.current?.launch != nil { Hint(caps: [.symbol("command"), .symbol("return")], label: "launch") }
+                Hint(caps: [.symbol("return")], label: "copy setup")
+                Hint(caps: [.symbol("command"), .text("1–\(max(1, model.current?.setup.count ?? 3))")], label: "copy one")
+                Hint(caps: [.symbol("arrow.up"), .symbol("arrow.down")], label: "choose")
+                Hint(caps: [.text("esc")], label: "close")
             }
             Spacer()
             Text("complier").foregroundStyle(.tertiary)
         }
         .font(.system(size: 11.5))
         .padding(.horizontal, 16)
-        .frame(height: 32)
+        .frame(height: 36)
+    }
+}
+
+// MARK: - Keycaps
+
+enum Cap: Hashable {
+    case symbol(String)
+    case text(String)
+}
+
+// Keys drawn as small rounded keycaps, with SF Symbols for ⌘, return, the arrows and escape.
+struct Keys: View {
+    let caps: [Cap]
+    var onAccent = false
+
+    var body: some View {
+        HStack(spacing: 3) {
+            ForEach(caps, id: \.self) { cap in
+                Group {
+                    switch cap {
+                    case .symbol(let name): Image(systemName: name).font(.system(size: 9.5, weight: .semibold))
+                    case .text(let t): Text(t).font(.system(size: 10.5, weight: .semibold, design: .rounded))
+                    }
+                }
+                .frame(minWidth: 18, minHeight: 18)
+                .padding(.horizontal, 3)
+                .foregroundStyle(onAccent ? Color.white : Color.primary.opacity(0.75))
+                .background(
+                    RoundedRectangle(cornerRadius: 5, style: .continuous)
+                        .fill(onAccent ? Color.white.opacity(0.22) : Color.primary.opacity(0.08))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 5, style: .continuous)
+                        .strokeBorder(onAccent ? Color.white.opacity(0.3) : Color.primary.opacity(0.14), lineWidth: 0.5)
+                )
+            }
+        }
+    }
+}
+
+struct Hint: View {
+    let caps: [Cap]
+    let label: String
+
+    var body: some View {
+        HStack(spacing: 5) {
+            Keys(caps: caps)
+            Text(label).foregroundStyle(.secondary)
+        }
     }
 }
 
@@ -460,7 +509,7 @@ final class Panel: NSPanel {
 }
 
 final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
-    static let size = NSSize(width: 760, height: 432)
+    static let size = NSSize(width: 760, height: 436)
     let model = Model()
     var panel: Panel!
     var status: NSStatusItem!
