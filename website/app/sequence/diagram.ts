@@ -1,5 +1,5 @@
-// A policy as a sequence diagram between the agents (ControllableCHAOS, one per role) and the
-// monitor (ComplierGuard(Policy)). Only the happy path is drawn: each allowed call is one exchange,
+// A policy as a sequence diagram between the spec's Agent (ControllableCHAOS, or one per role) and
+// the monitor, ComplierGuard(Policy), as the spec's System composes them. Only the happy path is drawn: each allowed call is one exchange,
 // attempt and result into the monitor and allow out of it, and every deny is left out (and listed in
 // `omitted`). Refusals aren't drawn either: they leave the policy where it was.
 //
@@ -46,8 +46,8 @@ export function diagram(policy: Policy): Diagram {
   return new Builder(policy).run();
 }
 
-// The agent lifeline's name when there are no roles.
-export const AGENT = "ControllableCHAOS";
+// The agent lifeline's name when there are no roles: the spec's own Agent.
+export const AGENT = "Agent";
 
 class Builder {
   count = 0;

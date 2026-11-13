@@ -13,6 +13,10 @@ const root = new URL("../../../", import.meta.url);
 const read = (path: string) => readFileSync(new URL(path, root), "utf8");
 const draw = (src: string) => diagram(parsePolicy(src));
 const head = "datatype Act = a | b | c | other\ndatatype Value = done | failed\nReturns(_) = {done, failed}\n";
+const agent = "Agent = ControllableCHAOS\n";
+const system = "System = prioritise(Agent [| {|attempt, allow, deny, result, refuse|} |] ComplierGuard(Policy), <{|attempt|}, {refuse}>)\n";
+// A spec with the explicit agent and system before its policy.
+const spec = (policy: string) => head + agent + system + policy;
 
 // The happy path as text: exchanges, states, loops and fragments.
 const outline = (items: Item[]): string[] =>
@@ -57,7 +61,7 @@ test("external choice stays a choice: each operand is offered, and is taken by a
     "[] {attempts appended: appended:done|failed ↺Policy} {attempts replaced: replaced:done|failed ↺Policy}",
   ]);
   // [] is associative: nested choices are one fragment.
-  const nested = draw(head + "Policy = Permit(a, \\ _ @ Policy) [] (Permit(b, \\ _ @ STOP) [] Permit(c, \\ _ @ SKIP))");
+  const nested = draw(spec("Policy = Permit(a, \\ _ @ Policy) [] (Permit(b, \\ _ @ STOP) [] Permit(c, \\ _ @ SKIP))"));
   assert.deepEqual(outline(nested.items), [
     "(Policy)",
     "[] {attempts a: a:done|failed ↺Policy} {attempts b: b:done|failed stop} {attempts c: c:done|failed skip}",
@@ -78,12 +82,12 @@ test("a result that decides the way on is a fragment over the call's values", ()
 });
 
 test("Permit is the prelude's three events: writing them out draws the same diagram", () => {
-  const permit = draw(head + "Policy = Permit(a, \\ _ @ Policy) [] Deny(other, Policy)");
-  const raw = draw(head + "Policy = attempt.a -> allow.a -> result.a?v : Returns(a) -> Policy [] attempt.other -> deny.other -> Policy");
+  const permit = draw(spec("Policy = Permit(a, \\ _ @ Policy) [] Deny(other, Policy)"));
+  const raw = draw(spec("Policy = attempt.a -> allow.a -> result.a?v : Returns(a) -> Policy [] attempt.other -> deny.other -> Policy"));
   assert.deepEqual(raw.items, permit.items);
   assert.deepEqual(raw.omitted, permit.omitted);
   // A policy that accepts only some of the call's results isn't admissible.
-  assert.throws(() => draw(head + "Policy = attempt.a -> allow.a -> result.a.done -> Policy"), /doesn't accept result\.a\.failed/);
+  assert.throws(() => draw(spec("Policy = attempt.a -> allow.a -> result.a.done -> Policy")), /doesn't accept result\.a\.failed/);
 });
 
 test("denials and refusals are never drawn; a state with only denials says so", () => {
@@ -91,7 +95,7 @@ test("denials and refusals are never drawn; a state with only denials says so", 
     const shapes = arrange(draw(src)).shapes;
     assert.ok(!shapes.some((s) => s.k === "arrow" && /^(deny|refuse)/.test(s.label)));
   }
-  const d = draw(head + "Policy = Permit(a, \\ _ @ Closed)\nClosed = Deny(other, Closed)");
+  const d = draw(spec("Policy = Permit(a, \\ _ @ Closed)\nClosed = Deny(other, Closed)"));
   assert.deepEqual(outline(d.items), ["(Policy)", "a:done|failed", "(Closed)", "denied(deny.other)"]);
 });
 
@@ -124,7 +128,7 @@ test("each exchange is three arrows on the left of one monitor bar", () => {
   }
 });
 
-test("roles: one ControllableCHAOS lifeline per role, and each arrow starts at its role's", () => {
+test("roles: one ControllableCHAOS(r) lifeline per role, and each arrow starts at its role's", () => {
   const d = draw(EXAMPLES[3].src);
   assert.deepEqual(d.agents, ["writer", "reviewer"]);
   const { shapes } = arrange(d);
@@ -161,11 +165,31 @@ test("what isn't drawn is an error that names it", () => {
     ["Policy = Next", /Next is used but never defined/],
     ["ControllableCHAOS = STOP\nPolicy = STOP", /prelude/],
   ];
-  for (const [src, error] of cases) assert.throws(() => draw(head + src), error, src);
+  for (const [src, error] of cases) assert.throws(() => draw(spec(src)), error, src);
   // A definition that doesn't parse matters only once the policy reaches it.
-  assert.doesNotThrow(() => draw(head + "Policy = Permit(a, \\ _ @ Policy)\nUnused = a |~| b"));
-  assert.throws(() => draw(head + "Policy = Permit(a, \\ _ @ Unused)\nUnused = a |~| b"), /line 5/);
+  assert.doesNotThrow(() => draw(spec("Policy = Permit(a, \\ _ @ Policy)\nUnused = a |~| b")));
+  assert.throws(() => draw(spec("Policy = Permit(a, \\ _ @ Unused)\nUnused = a |~| b")), /line 7/);
   assert.throws(() => draw("datatype Value = done\nPolicy = STOP"), /datatype Act/);
+});
+
+test("the agent and the system are the spec's own, and must be complier's", () => {
+  const policy = "Policy = Permit(a, \\ _ @ Policy)";
+  // Without them, nothing is drawn: the lifelines come from them.
+  assert.throws(() => draw(head + system + policy), /define the agent explicitly: Agent = ControllableCHAOS/);
+  assert.throws(() => draw(head + agent + policy), /define the system explicitly/);
+  // A weaker agent, or a system without the guard's priority, isn't what complier admits.
+  assert.throws(() => draw(head + "Agent = STOP\n" + system + policy), /Agent must be ControllableCHAOS/);
+  assert.throws(
+    () => draw(head + agent + "System = Agent [| {|attempt, allow, deny, result, refuse|} |] ComplierGuard(Policy)\n" + policy),
+    /System must be prioritise/,
+  );
+  // Spacing and the order of [| |]'s operands don't matter.
+  const swapped = "System=prioritise(ComplierGuard(Policy)[|{|attempt,allow,deny,result,refuse|}|]Agent,<{|attempt|},{refuse}>)\n";
+  assert.doesNotThrow(() => draw(head + agent + swapped + policy));
+  // With roles, the agent is one ControllableCHAOS per role, under any bound name.
+  const roles = EXAMPLES[3].src;
+  assert.throws(() => draw(roles.replace("||| r : Role @ ControllableCHAOS(r)", "ControllableCHAOS")), /Agent must be \|\|\| r : Role/);
+  assert.doesNotThrow(() => draw(roles.replace("||| r : Role @ ControllableCHAOS(r)", "||| who : Role @ ControllableCHAOS(who)")));
 });
 
 test("assertions and helper processes in a spec are skipped", () => {

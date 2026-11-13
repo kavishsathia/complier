@@ -31,11 +31,21 @@ Live demo and walkthrough: [complier.dev](https://www.complier.dev)
 - **Translation units are proven before they load.** Google's CEL verifier (with Z3) checks that no
   call matches two rules and every call matches a rule or the fallback. A unit that isn't proven
   is refused. See [`cel/README.md`](cel/README.md).
-- **Contracts are CSP policies, proven and compiled by FDR.** A spec defines `Role`, `Act` and a
-  `Policy` over `attempt`, `allow` and `deny : Role.Act`, built from `Permit`, `Deny` and
-  `PermitIf`. At `machine up`, FDR checks that the policy answers every attempt it takes, can't
-  leave an agent waiting, is deterministic, and passes the spec's own assertions, then compiles it
-  into an automaton. The daemon only walks that automaton; complier doesn't interpret CSP itself.
+- **Contracts are CSP policies, proven and compiled by FDR.** A spec defines `Act`, `Value`,
+  `Returns(x)` and a `Policy` over `attempt`, `allow`, `deny` and `result`, built from `Permit` and
+  `Deny`, and it states its agent and system explicitly:
+
+  ```csp
+  Agent  = ControllableCHAOS
+  System = prioritise(Agent [| {|attempt, allow, deny, result, refuse|} |] ComplierGuard(Policy),
+                      <{|attempt|}, {refuse}>)
+  ```
+
+  At `machine up`, FDR checks that `Agent` is `ControllableCHAOS` and `System` is that
+  composition (so every property is proven against the most general agent), that the policy
+  answers every attempt it takes, can't leave an agent waiting, is deterministic, and passes the
+  spec's own assertions, then compiles it into an automaton. The daemon only walks that automaton;
+  complier doesn't interpret CSP itself.
 - **Allow, deny or refuse.** A call becomes `attempt.<role>.<action>`. If the policy offers it, the
   policy's own `allow` or `deny` edge is the verdict; if not, the call is refused and the policy
   stays where it was. Only allowed calls run.
@@ -85,8 +95,10 @@ The `/stepper` runs plain CSP and shows the rule behind every transition. Beside
   guard: `prioritise(ControllableCHAOS(A, R) [| union(A, R) |] (Policy ||| RefusalLoop), <A, R>)`.
 
 The `/sequence` page draws a policy (a spec as `complier machine up` loads it) as a sequence
-diagram. Each agent is a `ControllableCHAOS` lifeline, one per `Role` if the spec declares one, and
-the monitor is `ComplierGuard(Policy)`. Each allowed call is one bar on the monitor, with `attempt`
+diagram. The lifelines come from the spec's own `Agent` and `System`: the agent
+(`Agent = ControllableCHAOS`, or `||| r : Role @ ControllableCHAOS(r)` for one lifeline per role)
+and the monitor, `ComplierGuard(Policy)`. A spec without them, or with an agent or system complier
+wouldn't admit, isn't drawn. Each allowed call is one bar on the monitor, with `attempt`
 coming in, `allow` going out and the call's `result` coming in, all on its left. `[]` is drawn as an
 external-choice fragment whose operands are offered together, and a result that decides where the
 policy goes becomes a fragment over the call's values. Only happy paths are drawn: denials are

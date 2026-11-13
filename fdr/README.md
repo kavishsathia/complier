@@ -14,35 +14,54 @@ fdr/build-complier-fdr.sh                 # writes build/complier-fdr and build/
 fdr/build/complier-fdr compile examples/demo/draft.csp
 ```
 
-A spec defines `Role` and `Act` (datatypes) and `Policy`. complier-fdr appends a prelude with the
-encoding from the paper:
+A spec defines `Act` (its actions), `Value` and `Returns(x)` (what each action's calls return),
+`Policy`, and, explicitly, its agent and the system the policy runs in:
 
 ```csp
-channel attempt, allow, deny : Role.Act
-channel refuse : Role
-Permit(r, x, P) = attempt.r.x -> allow.r.x -> P
-Deny(r, x, P) = attempt.r.x -> deny.r.x -> P
-PermitIf(r, x, c, P, Q) = attempt.r.x -> (if c then allow.r.x -> P else deny.r.x -> Q)
-ControllableCHAOS(r) = (STOP |~| (|~| x:Act @ attempt.r.x -> ComplierAwait(r, x))) [] (refuse.r -> ControllableCHAOS(r))
-Monitor(W) = W ||| RUN({|refuse|})
-Agents = ||| r:Role @ ControllableCHAOS(r)
-System = prioritise(Agents [| {|attempt, allow, deny, refuse|} |] Monitor(Policy), <{|attempt|}, {|refuse|}>)
+datatype Act = draft | recreate | other
+datatype Value = done | failed
+Returns(_) = {done, failed}
+
+Policy   = Draft
+Draft    = Permit(draft, \ _ @ Recreate) [] Deny(other, Draft)
+Recreate = Permit(recreate, \ _ @ Draft) [] Deny(other, Recreate)
+
+Agent  = ControllableCHAOS
+System = prioritise(Agent [| {|attempt, allow, deny, result, refuse|} |] ComplierGuard(Policy),
+                    <{|attempt|}, {refuse}>)
 ```
 
-Those names (and anything starting with `Complier`) are reserved. A policy is admitted only if FDR
-shows that:
+complier-fdr appends a prelude with the paper's encoding. It provides the builtins the spec uses;
+it doesn't define `Agent` or `System`:
+
+```csp
+channel attempt, allow, deny : Act
+channel result : Act.Value
+channel refuse
+Permit(x, P) = attempt.x -> allow.x -> result.x?v : Returns(x) -> P(v)
+Deny(x, P)   = attempt.x -> deny.x -> P
+ControllableCHAOS = (STOP |~| (|~| x:Act @ attempt.x -> Await(x))) [] (refuse -> ControllableCHAOS)
+Await(x) = allow.x -> (|~| v : Returns(x) @ result.x.v -> ControllableCHAOS) [] deny.x -> ControllableCHAOS
+ComplierGuard(W) = W ||| RUN({refuse})
+ComplierSystem = prioritise(ControllableCHAOS [| {|attempt, allow, deny, result, refuse|} |] ComplierGuard(Policy), <{|attempt|}, {refuse}>)
+```
+
+Those names (and anything starting with `Complier`) are reserved. A spec without `Agent` or
+`System` doesn't load. A policy is admitted only if FDR shows that:
 
 | check | assertion |
 | --- | --- |
-| every attempt the policy takes is answered with allow or deny | `ComplierHandshake [FD= Policy` |
+| the agent is the most general one | `ControllableCHAOS [FD= Agent` and `Agent [FD= ControllableCHAOS` |
+| the system is that agent against the guarded policy | `ComplierSystem [FD= System` and `System [FD= ComplierSystem` |
+| every attempt the policy takes is answered with allow or deny, and every result it can return is accepted | `ComplierHandshake [FD= Policy` |
 | no agent is left waiting for a verdict | `System :[deadlock free [F]]` |
 | each verdict is determined | `Policy :[deterministic [FD]]` |
 | the spec's own properties hold | every `assert` in the spec, e.g. `Safe [T= System \ diff(Events, {\|allow\|})` |
 
 A failed check comes back with FDR's counterexample trace. Then `normal(Policy)` is compiled and
 every state and transition is printed as JSON. The daemon answers a call by following
-`attempt.r.x` and then the policy's `allow.r.x` or `deny.r.x` edge, or refuses it if the current
-state doesn't offer the attempt, which keeps the state as `Monitor` and `prioritise` say.
+`attempt.x` and then the policy's `allow.x` or `deny.x` edge, or refuses it if the current
+state doesn't offer the attempt, which keeps the state as `ComplierGuard` and `prioritise` say.
 
 On macOS, FDR is x86_64 only, so complier-fdr is built for x86_64 and runs under Rosetta on Apple
 silicon. On Linux, the setup below applies.

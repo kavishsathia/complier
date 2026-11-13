@@ -15,6 +15,10 @@ Returns(_) = {done, failed}
 Policy   = Draft
 Draft    = Permit(draft, \\ _ @ Recreate) [] Deny(other, Draft)
 Recreate = Permit(recreate, \\ _ @ Draft) [] Deny(other, Recreate)
+
+Agent  = ControllableCHAOS
+System = prioritise(Agent [| {|attempt, allow, deny, result, refuse|} |] ComplierGuard(Policy),
+                    <{|attempt|}, {refuse}>)
 `,
   },
   {
@@ -32,6 +36,10 @@ Drafted  = Permit(draft, \\ _ @ Drafted)
         [] Deny(publish, Drafted)
 Approved = Permit(publish, \\ _ @ Policy)
         [] Permit(draft, \\ _ @ Drafted)
+
+Agent  = ControllableCHAOS
+System = prioritise(Agent [| {|attempt, allow, deny, result, refuse|} |] ComplierGuard(Policy),
+                    <{|attempt|}, {refuse}>)
 `,
   },
   {
@@ -46,13 +54,17 @@ Returns(_)     = {done, failed}
 Policy = Permit(check, Checked)
 Checked(big) = Permit(write, \\ _ @ Policy)
 Checked(_)   = Policy
+
+Agent  = ControllableCHAOS
+System = prioritise(Agent [| {|attempt, allow, deny, result, refuse|} |] ComplierGuard(Policy),
+                    <{|attempt|}, {refuse}>)
 `,
   },
   {
     name: "Two agents (roles)",
     src: `-- With a Role datatype, every event carries the role,
--- as in the paper's encoding: one ControllableCHAOS
--- per role. (complier machine up compiles policies
+-- as in the paper's encoding, and Agent is one
+-- ControllableCHAOS per role. (complier machine up compiles policies
 -- without roles today.)
 datatype Role = writer | reviewer
 datatype Act = draft | approve | publish
@@ -63,6 +75,10 @@ Policy   = Permit(writer, draft, \\ _ @ Review)
 Review   = Permit(reviewer, approve, \\ _ @ Approved)
         [] Permit(writer, draft, \\ _ @ Review)
 Approved = Permit(writer, publish, \\ _ @ Policy)
+
+Agent  = ||| r : Role @ ControllableCHAOS(r)
+System = prioritise(Agent [| {|attempt, allow, deny, result, refuse|} |] ComplierGuard(Policy),
+                    <{|attempt|}, {|refuse|}>)
 `,
   },
 ];

@@ -44,7 +44,11 @@ cd ~/loop-test`}</Code>
          [] Deny(commit, Unchecked)
 Checked   = Permit(edit, \\ _ @ Unchecked)
          [] Permit(check, \\ v @ (if v == done then Checked else Unchecked))
-         [] Permit(commit, \\ _ @ SKIP)`}</Code>
+         [] Permit(commit, \\ _ @ SKIP)
+
+Agent  = ControllableCHAOS
+System = prioritise(Agent [| {|attempt, allow, deny, result, refuse|} |] ComplierGuard(Policy),
+                    <{|attempt|}, {refuse}>)`}</Code>
           <p>
             Next to it, <code>claude-code.yaml</code> says which of Claude Code&apos;s tool calls count as{" "}
             <code>edit</code>, <code>check</code> and <code>commit</code>.

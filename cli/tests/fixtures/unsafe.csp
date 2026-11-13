@@ -5,6 +5,11 @@ datatype Value = done | failed
 Returns(_) = {done, failed}
 
 Policy = Permit(appended, \ _ @ Policy) [] Permit(replaced, \ _ @ Policy)
+
+Agent  = ControllableCHAOS
+System = prioritise(Agent [| {|attempt, allow, deny, result, refuse|} |] ComplierGuard(Policy),
+                    <{|attempt|}, {refuse}>)
+
 AfterAppend = allow.appended -> Appended
 Appended = allow.appended -> Appended [] allow.replaced -> AfterAppend
 assert AfterAppend [T= System \ diff(Events, {|allow|})
