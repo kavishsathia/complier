@@ -33,6 +33,9 @@ export default function Playground() {
           <Link href="/stepper" prefetch={false}>
             Stepper
           </Link>
+          <Link href="/sequence" prefetch={false}>
+            Sequence
+          </Link>
           <a href={REPO}>GitHub</a>
         </nav>
       </header>

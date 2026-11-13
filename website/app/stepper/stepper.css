@@ -201,6 +201,8 @@
 }
 
 .topnav {
+  display: flex;
+  gap: 1rem;
   margin-left: auto;
   font-size: 13px;
 }

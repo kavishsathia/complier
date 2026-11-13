@@ -167,6 +167,9 @@ export default function Stepper() {
         </div>
         <p className="tagline">CSP&apos;s operational semantics, one derivation at a time.</p>
         <nav className="topnav" aria-label="Site">
+          <Link href="/sequence" prefetch={false}>
+            Sequence
+          </Link>
           <Link href="/playground" prefetch={false}>
             Playground
           </Link>

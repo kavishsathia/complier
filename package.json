@@ -7,7 +7,7 @@
     "build": "next build website",
     "start": "next start website",
     "typecheck": "next typegen website && tsc --noEmit -p website",
-    "test": "node --test website/app/stepper/csp/*.test.ts website/game/*.test.ts"
+    "test": "node --test website/app/stepper/csp/*.test.ts website/app/sequence/*.test.ts website/game/*.test.ts"
   },
   "dependencies": {
     "@huggingface/transformers": "^4.3.2",
