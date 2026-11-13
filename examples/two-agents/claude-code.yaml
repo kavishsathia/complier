@@ -1,5 +1,7 @@
 # Claude Code's built-in tools as review-gate.csp's actions. Each step is one script in the shared
-# workspace; anything else (writing the draft, checking status, waiting) is `other`. The review's
+# workspace, counted only when the script is the command being run (./tools/submit.sh, a path ending
+# in tools/submit.sh, or bash/sh tools/submit.sh), never when it's only mentioned (cat
+# tools/submit.sh). Anything else (writing the draft, reading files) is `other`. The review's
 # result is the verdict review.sh prints.
 service: claude-code
 
@@ -10,18 +12,21 @@ translate:
   rules:
     submit:
       when: >-
-        tool == 'Bash' && command.orValue('').contains('tools/submit.sh')
-          && !command.orValue('').contains('tools/review.sh') && !command.orValue('').contains('tools/publish.sh')
+        tool == 'Bash' && command.orValue('').matches('(^|[;&|]\\s*)((ba)?sh\\s+)?(\\S*/)?tools/submit\\.sh(\\s|$)')
+          && !command.orValue('').matches('(^|[;&|]\\s*)((ba)?sh\\s+)?(\\S*/)?tools/review\\.sh(\\s|$)')
+          && !command.orValue('').matches('(^|[;&|]\\s*)((ba)?sh\\s+)?(\\S*/)?tools/publish\\.sh(\\s|$)')
       emit: submit
     review:
       when: >-
-        tool == 'Bash' && command.orValue('').contains('tools/review.sh')
-          && !command.orValue('').contains('tools/submit.sh') && !command.orValue('').contains('tools/publish.sh')
+        tool == 'Bash' && command.orValue('').matches('(^|[;&|]\\s*)((ba)?sh\\s+)?(\\S*/)?tools/review\\.sh(\\s|$)')
+          && !command.orValue('').matches('(^|[;&|]\\s*)((ba)?sh\\s+)?(\\S*/)?tools/submit\\.sh(\\s|$)')
+          && !command.orValue('').matches('(^|[;&|]\\s*)((ba)?sh\\s+)?(\\S*/)?tools/publish\\.sh(\\s|$)')
       emit: review
     publish:
       when: >-
-        tool == 'Bash' && command.orValue('').contains('tools/publish.sh')
-          && !command.orValue('').contains('tools/submit.sh') && !command.orValue('').contains('tools/review.sh')
+        tool == 'Bash' && command.orValue('').matches('(^|[;&|]\\s*)((ba)?sh\\s+)?(\\S*/)?tools/publish\\.sh(\\s|$)')
+          && !command.orValue('').matches('(^|[;&|]\\s*)((ba)?sh\\s+)?(\\S*/)?tools/submit\\.sh(\\s|$)')
+          && !command.orValue('').matches('(^|[;&|]\\s*)((ba)?sh\\s+)?(\\S*/)?tools/review\\.sh(\\s|$)')
       emit: publish
   fallback:
     emit: other
