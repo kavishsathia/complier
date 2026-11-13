@@ -4,14 +4,21 @@
 //   complier-fdr compile SPEC.csp [--max-states N]
 //
 // SPEC.csp defines `Act` (the actions), `Value` (what a call can return), `Returns(x)` (the values
-// action x's calls return) and `Policy`, a process over the prelude's channels, usually built from
-// Permit and Deny. It may also hold its own assertions (over `System`). complier-fdr appends the
-// prelude, then:
+// action x's calls return), `Policy`, a process over the prelude's channels, usually built from
+// Permit and Deny, and, explicitly, the agent and the system it runs in:
 //
-//   1. admission: the policy answers every attempt it takes with allow or deny, and then accepts
-//      every value that call can return (ComplierHandshake [FD= Policy); System can't deadlock;
-//      Policy is deterministic; and every assertion in SPEC.csp passes. A failure comes back with
-//      FDR's counterexample trace.
+//   Agent  = ControllableCHAOS
+//   System = prioritise(Agent [| {|attempt, allow, deny, result, refuse|} |] ComplierGuard(Policy),
+//                       <{|attempt|}, {refuse}>)
+//
+// It may also hold its own assertions (over `System`). complier-fdr appends the prelude, then:
+//
+//   1. admission: Agent is ControllableCHAOS and System is Agent against ComplierGuard(Policy) as
+//      above (each is checked equal to the standard one in failures-divergences, both ways), so
+//      every property is proven against the most general agent; the policy answers every attempt it
+//      takes with allow or deny, and then accepts every value that call can return
+//      (ComplierHandshake [FD= Policy); System can't deadlock; Policy is deterministic; and every
+//      assertion in SPEC.csp passes. A failure comes back with FDR's counterexample trace.
 //   2. compilation: normal(Policy), walked breadth first. The daemon gets every state and transition.
 //      A refusal (an attempt the current state doesn't offer) leaves the state where it is, which is
 //      what ComplierGuard(Policy) = Policy ||| RUN({refuse}) under prioritise means; so the automaton
@@ -47,6 +54,12 @@ enum ExitCode
     EXIT_INVARIANT = 6,
 };
 
+// What a spec must say about the agent and the system, verbatim.
+const char* const SHAPE =
+    "A spec defines its agent and system explicitly: Agent = ControllableCHAOS and "
+    "System = prioritise(Agent [| {|attempt, allow, deny, result, refuse|} |] ComplierGuard(Policy), "
+    "<{|attempt|}, {refuse}>).";
+
 // The prelude every spec is loaded with: the paper's encoding, as CSPm.
 const char* const PRELUDE = R"csp(
 -- complier prelude, appended to the spec by complier-fdr.
@@ -63,8 +76,9 @@ Deny(x, P)   = attempt.x -> deny.x -> P
 ControllableCHAOS = (STOP |~| (|~| x:Act @ attempt.x -> Await(x))) [] (refuse -> ControllableCHAOS)
 Await(x) = allow.x -> (|~| v : Returns(x) @ result.x.v -> ControllableCHAOS) [] deny.x -> ControllableCHAOS
 ComplierGuard(W) = W ||| RUN({refuse})
--- A refusal happens only when no attempt can.
-System = prioritise(ControllableCHAOS [| {|attempt, allow, deny, result, refuse|} |] ComplierGuard(Policy), <{|attempt|}, {refuse}>)
+-- The spec defines Agent and System itself; admission checks they are these. A refusal happens only
+-- when no attempt can.
+ComplierSystem = prioritise(ControllableCHAOS [| {|attempt, allow, deny, result, refuse|} |] ComplierGuard(Policy), <{|attempt|}, {refuse}>)
 -- What a well-formed policy may do: take an attempt, answer exactly it, and if it allowed the call,
 -- accept whatever the call returns.
 ComplierHandshake = STOP |~| SKIP |~| (|~| x:Act @ attempt.x -> (deny.x -> ComplierHandshake |~| allow.x -> ([] v : Returns(x) @ result.x.v -> ComplierHandshake)))
@@ -173,13 +187,29 @@ private:
         }
         catch (const FDR::Error& error)
         {
-            fail("load", error.what());
+            std::string message = error.what();
+            if (message.find("Agent is not in scope") != std::string::npos ||
+                message.find("System is not in scope") != std::string::npos)
+                message += ". " + std::string(SHAPE);
+            fail("load", message);
             return EXIT_LOAD_ERROR;
         }
         if (acts_.empty())
         {
             fail("load", "Act must have at least one value");
             return EXIT_LOAD_ERROR;
+        }
+        for (const char* name : {"Policy", "Agent", "System"})
+        {
+            try
+            {
+                session_->parse_assertion(std::string(name) + " :[deadlock free [F]]");
+            }
+            catch (const FDR::Error&)
+            {
+                fail("load", std::string("the spec must define ") + name + ". " + SHAPE);
+                return EXIT_LOAD_ERROR;
+            }
         }
         return EXIT_ADMITTED;
     }
@@ -263,10 +293,20 @@ private:
         }
     }
 
+    // a and b are the same process: each refines the other in failures-divergences.
+    bool equal(const std::string& what, const std::string& a, const std::string& b)
+    {
+        bool ok = check(what, b + " [FD= " + a);
+        return check(what, a + " [FD= " + b) && ok;
+    }
+
     int admit()
     {
         // Every check runs, so the report says everything that's wrong at once.
-        bool ok = check("every attempt the policy takes is answered with allow or deny, and every result an allowed call can return is accepted", "ComplierHandshake [FD= Policy");
+        bool ok = equal("Agent is ControllableCHAOS, the most general agent", "Agent", "ControllableCHAOS");
+        ok = equal("System is Agent against the guarded policy, refusing only when no attempt can",
+                   "System", "ComplierSystem") && ok;
+        ok = check("every attempt the policy takes is answered with allow or deny, and every result an allowed call can return is accepted", "ComplierHandshake [FD= Policy") && ok;
         ok = check("no agent is left waiting for a verdict (System can't deadlock)", "System :[deadlock free [F]]") && ok;
         ok = check("the policy is deterministic, so each verdict is determined", "Policy :[deterministic [FD]]") && ok;
         for (const auto& assertion : session_->assertions())
@@ -380,7 +420,9 @@ private:
 int usage()
 {
     std::cerr << "usage: complier-fdr compile SPEC.csp [--max-states N]\n"
-                 "  SPEC defines Act, Value, Returns(x) and Policy over attempt, allow, deny : Act and result : Act.Value.\n";
+                 "  SPEC defines Act, Value, Returns(x) and Policy over attempt, allow, deny : Act and result : Act.Value,\n"
+                 "  then Agent = ControllableCHAOS and System = prioritise(Agent [| {|attempt, allow, deny, result, refuse|} |]\n"
+                 "  ComplierGuard(Policy), <{|attempt|}, {refuse}>).\n";
     return EXIT_USAGE;
 }
 

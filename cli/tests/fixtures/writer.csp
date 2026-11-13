@@ -7,3 +7,7 @@ Returns(_) = {done, failed}
 Policy  = Append
 Append  = Permit(appended, \ _ @ Replace) [] Deny(other, Append)
 Replace = Permit(replaced, \ _ @ Append) [] Deny(other, Replace)
+
+Agent  = ControllableCHAOS
+System = prioritise(Agent [| {|attempt, allow, deny, result, refuse|} |] ComplierGuard(Policy),
+                    <{|attempt|}, {refuse}>)

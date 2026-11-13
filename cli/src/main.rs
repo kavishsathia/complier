@@ -322,7 +322,11 @@ fn doctor() -> Result<()> {
         Err(e) => line(false, "CEL verifier", format!("{e:#}")),
     }
     let spec = std::env::temp_dir().join(format!("complier-doctor-{}.csp", std::process::id()));
-    std::fs::write(&spec, "datatype Act = a\ndatatype Value = done\nReturns(_) = {done}\nPolicy = Permit(a, \\ _ @ Policy)\n")?;
+    std::fs::write(&spec, concat!(
+        "datatype Act = a\ndatatype Value = done\nReturns(_) = {done}\nPolicy = Permit(a, \\ _ @ Policy)\n",
+        "Agent = ControllableCHAOS\n",
+        "System = prioritise(Agent [| {|attempt, allow, deny, result, refuse|} |] ComplierGuard(Policy), <{|attempt|}, {refuse}>)\n",
+    ))?;
     match fdr::compile(&spec) {
         Ok(Ok(compiled)) => line(true, "FDR", format!("proved and compiled a policy ({})", compiled.report.fdr.split(" copyright").next().unwrap_or(""))),
         Ok(Err(report)) => line(false, "FDR", report.problem.unwrap_or_else(|| "the test policy wasn't admitted".into())),

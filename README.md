@@ -31,11 +31,21 @@ Live demo and walkthrough: [complier.dev](https://www.complier.dev)
 - **Translation units are proven before they load.** Google's CEL verifier (with Z3) checks that no
   call matches two rules and every call matches a rule or the fallback. A unit that isn't proven
   is refused. See [`cel/README.md`](cel/README.md).
-- **Contracts are CSP policies, proven and compiled by FDR.** A spec defines `Role`, `Act` and a
-  `Policy` over `attempt`, `allow` and `deny : Role.Act`, built from `Permit`, `Deny` and
-  `PermitIf`. At `machine up`, FDR checks that the policy answers every attempt it takes, can't
-  leave an agent waiting, is deterministic, and passes the spec's own assertions, then compiles it
-  into an automaton. The daemon only walks that automaton; complier doesn't interpret CSP itself.
+- **Contracts are CSP policies, proven and compiled by FDR.** A spec defines `Act`, `Value`,
+  `Returns(x)` and a `Policy` over `attempt`, `allow`, `deny` and `result`, built from `Permit` and
+  `Deny`, and it states its agent and system explicitly:
+
+  ```csp
+  Agent  = ControllableCHAOS
+  System = prioritise(Agent [| {|attempt, allow, deny, result, refuse|} |] ComplierGuard(Policy),
+                      <{|attempt|}, {refuse}>)
+  ```
+
+  At `machine up`, FDR checks that `Agent` is `ControllableCHAOS` and `System` is that
+  composition (so every property is proven against the most general agent), that the policy
+  answers every attempt it takes, can't leave an agent waiting, is deterministic, and passes the
+  spec's own assertions, then compiles it into an automaton. The daemon only walks that automaton;
+  complier doesn't interpret CSP itself.
 - **Allow, deny or refuse.** A call becomes `attempt.<role>.<action>`. If the policy offers it, the
   policy's own `allow` or `deny` edge is the verdict; if not, the call is refused and the policy
   stays where it was. Only allowed calls run.
@@ -49,7 +59,7 @@ Live demo and walkthrough: [complier.dev](https://www.complier.dev)
 
 | path | what it is | entry point |
 | --- | --- | --- |
-| [`website/`](website) | The Next.js site: landing page, the in-browser CEL + CSP playground, the CSP stepper, the research deck | `npm run dev` (from the root) |
+| [`website/`](website) | The Next.js site: landing page, the in-browser CEL + CSP playground, the CSP stepper, policy sequence diagrams, the research deck | `npm run dev` (from the root) |
 | [`cli/`](cli) | The Rust `complier` CLI: daemon, Claude Code hooks, unit checker, MCP client for `gen` | `cargo build --manifest-path cli/Cargo.toml` |
 | [`cel/`](cel) | CEL backend the CLI runs: cel-java 0.14.0 + verifier behind a small stdio bridge | `cel/build.sh` |
 | [`plugin/`](plugin) | Claude Code plugin: complier's hooks and the workflow skill | `claude --plugin-dir plugin` |
@@ -68,7 +78,7 @@ npm ci
 npm run dev          # http://localhost:3000
 npm run build        # production build (what Vercel runs)
 npm run typecheck
-npm test             # the stepper's CSP tests; set FDR_HOME to also compare its traces with FDR's
+npm test             # the stepper's and sequence diagrams' tests; set FDR_HOME to also compare traces with FDR's
 ```
 
 The `/playground` runs entirely in the browser. The `/progress` deck's live agent demos also need
@@ -84,6 +94,17 @@ The `/stepper` runs plain CSP and shows the rule behind every transition. Beside
   `(STOP |~| (|~| x:A @ x -> ControllableCHAOS(A, R))) [] ([] r:R @ r -> ControllableCHAOS(A, R))`.
   It may try any event of A or none, and always offers R. Its default example is the refusal
   guard: `prioritise(ControllableCHAOS(A, R) [| union(A, R) |] (Policy ||| RefusalLoop), <A, R>)`.
+
+The `/sequence` page draws a policy (a spec as `complier machine up` loads it) as a sequence
+diagram. The lifelines come from the spec's own `Agent` and `System`: the agent
+(`Agent = ControllableCHAOS`, or `||| r : Role @ ControllableCHAOS(r)` for one lifeline per role)
+and the monitor, `ComplierGuard(Policy)`. A spec without them, or with an agent or system complier
+wouldn't admit, isn't drawn. Each allowed call is one bar on the monitor, with `attempt`
+coming in, `allow` going out and the call's `result` coming in, all on its left. `[]` is drawn as an
+external-choice fragment whose operands are offered together, and a result that decides where the
+policy goes becomes a fragment over the call's values. Only happy paths are drawn: denials are
+listed under the diagram and refusals are left out. Anything the diagram can't draw (`|~|`, `|||`,
+replicated choice, events outside the prelude's channels) is an error that names it.
 
 ### CEL backend
 
