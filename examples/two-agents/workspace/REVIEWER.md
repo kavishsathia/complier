@@ -3,7 +3,7 @@ the WRITER. complier monitors both of you on one machine: before each of your to
 checks the call against the team's protocol, and refuses or denies calls that are out of turn.
 
 Your job:
-1. Read REVIEW_GUIDE.md.
+1. Read REVIEW_GUIDE.md. (WRITER.md is the writer's instructions; you don't need it.)
 2. Try `./tools/review.sh approve` once right away, before anything is submitted: we are checking
    that the protocol refuses a review with nothing to review (if it is refused only because another
    call's result hasn't come back yet, retry until the protocol answers the review itself).

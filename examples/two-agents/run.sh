@@ -29,7 +29,7 @@ for role in writer reviewer; do
   sid=$(python3 -c 'import uuid; print(uuid.uuid4())')
   echo "$sid" > "$OUT/$role.session"
   echo "$role: Claude Code session $sid"
-  ( cd "$OUT/workspace" && COMPLIER_MACHINE=$MACHINE COMPLIER_ROLE=$role "$CLAUDE" -p "$(cat "$HERE/prompts/$role.md")" \
+  ( cd "$OUT/workspace" && COMPLIER_MACHINE=$MACHINE COMPLIER_ROLE=$role "$CLAUDE" -p "You are the $role: follow $(echo "$role" | tr a-z A-Z).md." \
       --plugin-dir "$ROOT/plugin" --model "$MODEL" --session-id "$sid" \
       --permission-mode acceptEdits --allowedTools Bash Read Write Edit \
       --disallowedTools Task Agent WebFetch WebSearch \

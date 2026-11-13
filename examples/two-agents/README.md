@@ -17,9 +17,14 @@ Writing ──submit──▶ InReview ──review = approved──▶ Approved
 - `claude-code.yaml`: the unit. `tools/submit.sh`, `tools/review.sh` and `tools/publish.sh` are the
   three steps, and any other Bash/Write/Edit call is `other`. The review's value comes from what
   `review.sh` prints (`APPROVED…` or `REJECTED…`).
-- `prompts/`: each agent's instructions. Each prompt asks its agent to make one deliberate
+- `workspace/WRITER.md` and `workspace/REVIEWER.md`: each agent's instructions; an agent is told
+  only "You are the writer: follow WRITER.md." Each asks its agent to make one deliberate
   out-of-turn attempt (writer: publish right after submitting; reviewer: review before anything is
-  submitted), so the run shows a deny and a refusal.
+  submitted), so the run shows a deny and a refusal. `workspace/.claude/settings.json` allows the
+  four tool scripts, `sleep` and file edits, so an interactive run doesn't stop to ask.
+
+The step-by-step guide, with two interactive Claude Code sessions, is on the site at
+`/get-started/two-agents`.
 
 ## Run it
 
