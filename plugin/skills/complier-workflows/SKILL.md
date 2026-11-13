@@ -51,7 +51,10 @@ Write a spec and units in a scratch folder outside the user's project, e.g.
 **Spec** (`policy.csp`, exactly one `.csp` in the folder): a `datatype Act` listing the steps, a
 `datatype Value` for results, `Returns`, and a `Policy` built from `Permit(act, \ v @ Next)` (allow,
 then continue with the result `v`), `Deny(act, Next)`, external choice `[]`, `if ... then ... else`,
-and `SKIP` when the work is done. Template, from complier's `examples/workflows/test-before-commit`:
+and `SKIP` when the work is done. Then define the agent and the system explicitly, exactly as in
+the template's last two definitions: `Agent = ControllableCHAOS` (the most general agent) and
+`System`, that agent against `ComplierGuard(Policy)`. complier refuses a spec without them, or
+with any other agent or system. Template, from complier's `examples/workflows/test-before-commit`:
 
 ```csp
 datatype Act = edit | test | commit | other
@@ -71,6 +74,10 @@ Tested =
   [] Permit(other, \ _ @ Tested)
   [] Permit(test, \ v @ if v == done then Tested else Untested)
   [] Permit(commit, \ v @ if v == done then SKIP else Tested)
+
+Agent  = ControllableCHAOS
+System = prioritise(Agent [| {|attempt, allow, deny, result, refuse|} |] ComplierGuard(Policy),
+                    <{|attempt|}, {refuse}>)
 ```
 
 End the policy with `SKIP` once the workflow's goal is reached: that is what releases the session.
