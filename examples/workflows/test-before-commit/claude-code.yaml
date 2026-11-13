@@ -1,0 +1,27 @@
+# Claude Code's built-in tools, as the actions of policy.csp. Reads are hidden (passed through);
+# every other built-in tool this unit doesn't name is blocked while the workflow is applied.
+service: claude-code
+
+translate:
+  tools: [Bash, Edit, Write, NotebookEdit]
+  schema:
+    command: optional<string>
+  rules:
+    edit:
+      when: tool != 'Bash'
+      emit: edit
+    test:
+      when: >-
+        tool == 'Bash' && (command.orValue('').contains('cargo test') || command.orValue('').contains('npm test')
+          || command.orValue('').contains('pytest'))
+      emit: test
+    commit:
+      when: >-
+        tool == 'Bash' && command.orValue('').contains('git commit') && !(command.orValue('').contains('cargo test')
+          || command.orValue('').contains('npm test') || command.orValue('').contains('pytest'))
+      emit: commit
+  fallback:
+    emit: other
+  results:
+    default: "ok ? 'done' : 'failed'"
+hidden: [Read, ToolSearch]

@@ -10,6 +10,7 @@ mod oauth;
 mod secrets;
 mod translate;
 mod unit;
+mod workflow;
 mod yaml;
 
 use anyhow::{bail, Context, Result};
@@ -100,6 +101,49 @@ enum Command {
     },
     /// Forget a server and delete its credentials from the keychain.
     Remove { name: String },
+    /// Save proven workflows on this computer and apply them to Claude Code sessions.
+    Workflow {
+        #[command(subcommand)]
+        command: WorkflowCommand,
+    },
+}
+
+#[derive(Subcommand)]
+enum WorkflowCommand {
+    /// Prove a workflow folder (one .csp spec and its .yaml units) and save it under ~/.complier/workflows/<name>.
+    ///
+    /// complier workflow save test-before-commit ./draft --description "tests pass before a commit"
+    Save {
+        name: String,
+        dir: PathBuf,
+        /// What the workflow makes the agent do.
+        #[arg(long)]
+        description: String,
+        /// The request that made the workflow look repeatable.
+        #[arg(long, default_value = "")]
+        noticed: String,
+        /// Overwrite a saved workflow of the same name.
+        #[arg(long)]
+        replace: bool,
+    },
+    /// List saved workflows.
+    Ls,
+    /// Print a saved workflow's description, spec and units.
+    Show { name: String },
+    /// Start a saved workflow's machine and bind a Claude Code session to it (by default the one
+    /// running this command), whose tool calls the plugin's hooks then check against it.
+    Apply {
+        name: String,
+        #[arg(long, default_value = "claude")]
+        role: String,
+        /// The Claude Code session id; defaults to CLAUDE_CODE_SESSION_ID.
+        #[arg(long)]
+        session: Option<String>,
+    },
+    /// Stop an applied workflow and let its session go.
+    Release { name: String },
+    /// Delete a saved workflow.
+    Rm { name: String },
 }
 
 #[derive(Subcommand)]
@@ -170,6 +214,14 @@ fn main() -> Result<()> {
         Command::Hook { command: HookCommand::PostToolUse } => hooks::post_tool_use(),
         Command::Hook { command: HookCommand::Stop } => hook_stop(),
         Command::Remove { name } => remove(&name),
+        Command::Workflow { command } => match command {
+            WorkflowCommand::Save { name, dir, description, noticed, replace } => workflow::save(&name, &dir, &description, &noticed, replace),
+            WorkflowCommand::Ls => workflow::ls(),
+            WorkflowCommand::Show { name } => workflow::show(&name),
+            WorkflowCommand::Apply { name, role, session } => workflow::apply(&name, &role, session),
+            WorkflowCommand::Release { name } => workflow::release(&name),
+            WorkflowCommand::Rm { name } => workflow::remove(&name),
+        },
     }
 }
 
@@ -358,10 +410,9 @@ fn machine(command: MachineCommand) -> Result<()> {
 
 // Waits while the agent has nothing it may do yet; then, while the policy is still running and lets
 // the agent do something, makes Claude continue instead of stopping. Outside a machine (no
-// COMPLIER_MACHINE/COMPLIER_ROLE), or once the policy has finished, it lets Claude stop.
+// COMPLIER_MACHINE/COMPLIER_ROLE or applied workflow), or once the policy has finished, it lets Claude stop.
 fn hook_stop() -> Result<()> {
-    let _ = std::io::copy(&mut std::io::stdin(), &mut std::io::sink()); // the hook's JSON input
-    let (Ok(machine), Ok(role)) = (std::env::var("COMPLIER_MACHINE"), std::env::var("COMPLIER_ROLE")) else {
+    let Some((machine, role)) = hooks::binding(&hooks::input()) else {
         return Ok(());
     };
     let request = daemon::Request::Stop { machine: machine.clone(), role: role.clone() };

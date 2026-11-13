@@ -1,5 +1,5 @@
 {
   "name": "complier",
-  "description": "Binds Claude Code to a complier machine: run claude with COMPLIER_MACHINE and COMPLIER_ROLE set.",
-  "version": "0.1.0"
+  "description": "Checks Claude Code's tool calls against a complier machine (COMPLIER_MACHINE and COMPLIER_ROLE, or a workflow applied to the session), and a skill that saves repeatable work as complier workflows.",
+  "version": "0.2.0"
 }
