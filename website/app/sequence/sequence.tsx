@@ -180,8 +180,9 @@ export default function Sequence() {
               </div>
               <ul className="seq-legend">
                 <li>
-                  <b>Lifelines.</b> Each agent is a <code>ControllableCHAOS</code>, one per role; the monitor is{" "}
-                  <code>ComplierGuard(Policy)</code>.
+                  <b>Lifelines.</b> They come from the spec&apos;s own <code>System</code>: its <code>Agent</code>{" "}
+                  (<code>ControllableCHAOS</code>, one per role if there are roles) against the monitor,{" "}
+                  <code>ComplierGuard(Policy)</code>. A spec without both doesn&apos;t draw.
                 </li>
                 <li>
                   <b>One bar per allowed call.</b> On the left of the monitor&apos;s bar, <code>attempt</code> comes in,{" "}

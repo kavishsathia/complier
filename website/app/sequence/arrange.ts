@@ -167,7 +167,7 @@ export function arrange(d: Diagram): Layout {
   const end = lay(d.items, top + 18, 0) + 10;
   d.agents.forEach((name, i) =>
     shapes.unshift(
-      { k: "actor", x: agentX[i], y: TOP, w: ACTOR_W, h: ACTOR_H, title: d.roles ? name : "ControllableCHAOS", sub: d.roles ? "ControllableCHAOS" : "the agent" },
+      { k: "actor", x: agentX[i], y: TOP, w: ACTOR_W, h: ACTOR_H, title: d.roles ? name : "Agent", sub: d.roles ? `ControllableCHAOS(${name})` : "ControllableCHAOS" },
       { k: "life", x: agentX[i], y1: top, y2: end },
     ),
   );

@@ -95,8 +95,10 @@ The `/stepper` runs plain CSP and shows the rule behind every transition. Beside
   guard: `prioritise(ControllableCHAOS(A, R) [| union(A, R) |] (Policy ||| RefusalLoop), <A, R>)`.
 
 The `/sequence` page draws a policy (a spec as `complier machine up` loads it) as a sequence
-diagram. Each agent is a `ControllableCHAOS` lifeline, one per `Role` if the spec declares one, and
-the monitor is `ComplierGuard(Policy)`. Each allowed call is one bar on the monitor, with `attempt`
+diagram. The lifelines come from the spec's own `Agent` and `System`: the agent
+(`Agent = ControllableCHAOS`, or `||| r : Role @ ControllableCHAOS(r)` for one lifeline per role)
+and the monitor, `ComplierGuard(Policy)`. A spec without them, or with an agent or system complier
+wouldn't admit, isn't drawn. Each allowed call is one bar on the monitor, with `attempt`
 coming in, `allow` going out and the call's `result` coming in, all on its left. `[]` is drawn as an
 external-choice fragment whose operands are offered together, and a result that decides where the
 policy goes becomes a fragment over the call's values. Only happy paths are drawn: denials are

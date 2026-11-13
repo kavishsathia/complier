@@ -5,8 +5,17 @@
 //   Deny(x, P)   = attempt.x -> deny.x -> P
 //
 // so Permit and Deny are expanded into those prefixes here. With a `Role` datatype, every event
-// also carries the role, as in the paper's encoding (README, fdr/README.md): Permit(r, x, P) is
+// also carries the role, as in the paper's encoding: Permit(r, x, P) is
 // attempt.r.x -> allow.r.x -> result.r.x?v : Returns(x) -> P(v).
+//
+// A spec defines its agent and system explicitly, and the lifelines come from them:
+//
+//   Agent  = ControllableCHAOS                          (one agent; with roles,
+//   Agent  = ||| r : Role @ ControllableCHAOS(r)          one per role)
+//   System = prioritise(Agent [| {|attempt, allow, deny, result, refuse|} |] ComplierGuard(Policy),
+//                       <{|attempt|}, {refuse}>)
+//
+// complier-fdr admits Agent and System only when they are these, so they're matched as written.
 //
 // The fragment is what policies are written in: datatypes of plain constructors, Returns, process
 // definitions with patterns, [], prefixes on the prelude's channels, if-then-else and lambdas.
@@ -60,12 +69,13 @@ export type Policy = {
   cons: Map<string, string>;
   returns: { pat: Pat; set: SetE; line: number }[];
   defs: Map<string, Clause[]>;
-  // The roles, if the spec declares a Role datatype; otherwise one agent.
+  // The roles, if the spec declares a Role datatype (Agent is one ControllableCHAOS per role);
+  // otherwise one agent.
   roles: string[] | null;
 };
 
 // Names the prelude defines.
-const RESERVED = new Set(["Permit", "Deny", "ControllableCHAOS", "Await", "System", "ComplierGuard", "ComplierHandshake"]);
+const RESERVED = new Set(["Permit", "Deny", "ControllableCHAOS", "Await", "ComplierGuard", "ComplierHandshake"]);
 export const CHANNELS = ["attempt", "allow", "deny", "result"];
 
 type Tok = { t: string; v?: string; line: number; col: number };
@@ -353,6 +363,20 @@ class Parser {
 
 const IGNORED = new Set(["assert", "channel", "transparent", "external", "print"]);
 
+// Agent and System as complier admits them, token by token.
+const words = (toks: Tok[]) => toks.map((t) => t.v ?? t.t);
+const PLAIN_AGENT = "ControllableCHAOS";
+const ROLE_AGENT = "||| r : Role @ ControllableCHAOS(r)";
+const SYSTEM = "prioritise(Agent [| {|attempt, allow, deny, result, refuse|} |] ComplierGuard(Policy), <{|attempt|}, {refuse}>)";
+const SYSTEMS = [
+  SYSTEM,
+  SYSTEM.replace("{refuse}>", "{|refuse|}>"),
+  "prioritise(ComplierGuard(Policy) [| {|attempt, allow, deny, result, refuse|} |] Agent, <{|attempt|}, {refuse}>)",
+  "prioritise(ComplierGuard(Policy) [| {|attempt, allow, deny, result, refuse|} |] Agent, <{|attempt|}, {|refuse|}>)",
+].map((x) => words(lex(x)).join(" "));
+// `{|` and `|}` lex as `{`,`|` and `|`,`}`; compare words, so spacing doesn't matter.
+const sameAs = (body: Tok[], src: string) => words(body).join(" ") === words(lex(src)).join(" ");
+
 export function parsePolicy(src: string): Policy {
   const toks = lex(src);
   // Items start at column 0.
@@ -365,11 +389,25 @@ export function parsePolicy(src: string): Policy {
   const cons = new Map<string, string>();
   const returns: Policy["returns"] = [];
   const defs = new Map<string, Clause[]>();
+  let agent: { body: Tok[]; line: number } | null = null;
+  let system: { body: Tok[]; line: number } | null = null;
 
   for (const item of items) {
     const first = item[0];
     const line = first.line;
     if (first.t === "id" && IGNORED.has(first.v!)) continue;
+    if (first.t === "id" && (first.v === "Agent" || first.v === "System")) {
+      if (item[1]?.t !== "=") fail(line, `${first.v} takes no parameters: ${first.v} = ...`);
+      const def = { body: item.slice(2), line };
+      if (first.v === "Agent") {
+        if (agent) fail(line, "Agent is defined twice");
+        agent = def;
+      } else {
+        if (system) fail(line, "System is defined twice");
+        system = def;
+      }
+      continue;
+    }
     const p = new Parser(item, line);
     if (first.t === "id" && first.v === "datatype") {
       p.i++;
@@ -441,5 +479,18 @@ export function parsePolicy(src: string): Policy {
   if (!types.has("Act")) fail(1, "declare the actions: datatype Act = ...");
   if (!types.has("Value")) fail(1, "declare what calls return: datatype Value = ...");
   if (!defs.has("Policy")) fail(1, "define Policy, the process complier enforces");
-  return { types, cons, returns, defs, roles: types.get("Role") ?? null };
+  const roles = types.get("Role") ?? null;
+  const want = roles ? ROLE_AGENT : PLAIN_AGENT;
+  if (!agent) fail(1, `define the agent explicitly: Agent = ${want}`);
+  const a = agent!;
+  // With roles, the bound variable may have any name: ||| v : Role @ ControllableCHAOS(v).
+  const w = words(a.body);
+  const roleAgent = w.length === 9 && /^[a-z]/.test(w[1]) && w[7] === w[1] && sameAs([...a.body.slice(0, 1), ...a.body.slice(2, 7), ...a.body.slice(8)], "||| : Role @ ControllableCHAOS( )");
+  if (roles ? !roleAgent : !sameAs(a.body, PLAIN_AGENT))
+    fail(a.line, `Agent must be ${want}${roles ? ", one ControllableCHAOS per role" : ", the most general agent"}: complier proves the policy against it`);
+  if (!system) fail(1, `define the system explicitly: System = ${SYSTEM}`);
+  const sys = system!;
+  if (!SYSTEMS.includes(words(sys.body).join(" ")))
+    fail(sys.line, `System must be ${SYSTEM}: complier admits only the agent against the guarded policy`);
+  return { types, cons, returns, defs, roles };
 }
