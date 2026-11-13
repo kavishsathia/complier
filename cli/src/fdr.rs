@@ -59,6 +59,10 @@ struct Output {
     error: Option<ProblemJson>,
     #[serde(default)]
     acts: Vec<String>,
+    // The spec's roles, if it declares `datatype Role`: then every event carries one
+    // (`attempt.writer.submit`).
+    #[serde(default)]
+    roles: Vec<String>,
     #[serde(default)]
     checks: Vec<Check>,
     automaton: Option<AutomatonJson>,
@@ -113,6 +117,7 @@ impl fmt::Display for Report {
 
 pub struct Compiled {
     pub acts: Vec<String>,
+    pub roles: Vec<String>,
     pub automaton: Automaton,
     pub report: Report,
 }
@@ -174,6 +179,7 @@ pub fn compile(spec: &Path) -> Result<std::result::Result<Compiled, Report>> {
     }
     Ok(Ok(Compiled {
         acts: o.acts,
+        roles: o.roles,
         automaton: Automaton { root: automaton.root, labels: automaton.states, edges },
         report,
     }))

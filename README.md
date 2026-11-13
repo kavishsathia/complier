@@ -41,7 +41,12 @@ Live demo and walkthrough: [complier.dev](https://www.complier.dev)
                       <{|attempt|}, {refuse}>)
   ```
 
-  At `machine up`, FDR checks that `Agent` is `ControllableCHAOS` and `System` is that
+  With several agents, the spec declares `datatype Role`, every event carries the role
+  (`attempt.writer.submit`), and each agent is its own `ControllableCHAOS`:
+  `Agent = ||| r : Role @ ControllableCHAOS(r)`. An agent's calls are attempted as its
+  `COMPLIER_ROLE`.
+
+  At `machine up`, FDR checks that `Agent` is `ControllableCHAOS` (one per role) and `System` is that
   composition (so every property is proven against the most general agent), that the policy
   answers every attempt it takes, can't leave an agent waiting, is deterministic, and passes the
   spec's own assertions, then compiles it into an automaton. The daemon only walks that automaton;

@@ -79,11 +79,15 @@ impl Env {
 
     // Runs one of complier's hooks as Claude Code would, with `input` on stdin; its stdout.
     fn hook(&self, machine: &str, which: &str, input: Value) -> String {
+        self.hook_as(machine, "writer", which, input)
+    }
+
+    fn hook_as(&self, machine: &str, role: &str, which: &str, input: Value) -> String {
         let mut child = Command::new(BIN)
             .env("HOME", &self.home)
             .env("PATH", &self.path)
             .env("COMPLIER_MACHINE", machine)
-            .env("COMPLIER_ROLE", "writer")
+            .env("COMPLIER_ROLE", role)
             .args(["hook", which])
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -105,10 +109,15 @@ impl Env {
     }
 
     fn attempt_with(&self, machine: &str, tool: &str, args: Value, result: std::result::Result<&str, &str>) -> (bool, String) {
+        self.attempt_as(machine, "writer", tool, args, result)
+    }
+
+    // As attempt_with, by the agent playing `role` (its COMPLIER_ROLE).
+    fn attempt_as(&self, machine: &str, role: &str, tool: &str, args: Value, result: std::result::Result<&str, &str>) -> (bool, String) {
         static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
         let id = format!("toolu_{}", NEXT.fetch_add(1, std::sync::atomic::Ordering::SeqCst));
         let pre = json!({ "hook_event_name": "PreToolUse", "tool_name": tool, "tool_input": args, "tool_use_id": id });
-        let stdout = self.hook(machine, "pre-tool-use", pre);
+        let stdout = self.hook_as(machine, role, "pre-tool-use", pre);
         if !stdout.trim().is_empty() {
             let decision: Value = serde_json::from_str(&stdout).unwrap();
             let d = &decision["hookSpecificOutput"];
@@ -119,7 +128,7 @@ impl Env {
             Ok(out) => json!({ "hook_event_name": "PostToolUse", "tool_name": tool, "tool_input": args, "tool_use_id": id, "tool_response": { "stdout": out, "stderr": "" } }),
             Err(e) => json!({ "hook_event_name": "PostToolUseFailure", "tool_name": tool, "tool_input": args, "tool_use_id": id, "error": e }),
         };
-        self.hook(machine, "post-tool-use", post);
+        self.hook_as(machine, role, "post-tool-use", post);
         (true, String::new())
     }
 
@@ -365,4 +374,34 @@ fn results_are_bound_and_decide_what_comes_next() {
     assert!(env.attempt("g", "mcp__fake__write-item", json!({ "id": "x" })).0);
     let results: Vec<String> = env.log("g").iter().filter(|e| e["kind"] == "result").map(|e| e["event"].as_str().unwrap().to_string()).collect();
     assert_eq!(results, ["result.check.small", "result.check.failed", "result.check.big", "result.write.done"]);
+}
+
+// With roles, each agent is its own ControllableCHAOS and acts as its COMPLIER_ROLE: a step is taken
+// only by the role the policy gives it, and a role the spec doesn't have is refused.
+#[test]
+fn with_roles_each_agent_takes_only_its_own_steps() {
+    let env = Env::new("roles");
+    let (ok, out) = env.machine_up("r", "roles.csp", &["gate.yaml"]);
+    assert!(ok, "{out}");
+    let peek = |role: &str, out: &str| env.attempt_as("r", role, "mcp__fake__peek", json!({}), Ok(out));
+    let write = |role: &str| env.attempt_as("r", role, "mcp__fake__write-item", json!({ "id": "x" }), Ok(""));
+    // The reviewer can't go first, and the writer can't do the reviewer's step.
+    let (ok, text) = peek("reviewer", "big");
+    assert!(!ok && text.contains("doesn't take check from reviewer"), "{text}");
+    let (ok, text) = write("reviewer");
+    assert!(!ok && text.contains("doesn't take write from reviewer"), "{text}");
+    let (ok, text) = write("editor");
+    assert!(!ok && text.contains("editor isn't a role"), "{text}");
+    assert!(write("writer").0);
+    let (ok, text) = peek("writer", "big");
+    assert!(!ok && text.contains("doesn't take check from writer"), "{text}");
+    // A small check sends it back to the writer; a big one ends the workflow.
+    assert!(peek("reviewer", "small").0);
+    assert!(!peek("reviewer", "big").0);
+    assert!(write("writer").0);
+    assert!(peek("reviewer", "big").0);
+    let log = env.log("r");
+    let events: Vec<String> = log.iter().filter(|e| e["kind"] == "result").map(|e| e["event"].as_str().unwrap().to_string()).collect();
+    assert_eq!(events, ["result.writer.write.done", "result.reviewer.check.small", "result.writer.write.done", "result.reviewer.check.big"]);
+    assert!(log.iter().any(|e| e["kind"] == "status" && e["status"] == "finished"), "{log:#?}");
 }

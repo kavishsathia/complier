@@ -11,6 +11,14 @@
 //   System = prioritise(Agent [| {|attempt, allow, deny, result, refuse|} |] ComplierGuard(Policy),
 //                       <{|attempt|}, {refuse}>)
 //
+// With roles (the spec declares `datatype Role`), every event carries the role that made it
+// (attempt.r.x, result.r.x.v, refuse.r), Permit and Deny take the role first, Permit(r, x, P), and
+// each agent is its own ControllableCHAOS:
+//
+//   Agent  = ||| r : Role @ ControllableCHAOS(r)
+//   System = prioritise(Agent [| {|attempt, allow, deny, result, refuse|} |] ComplierGuard(Policy),
+//                       <{|attempt|}, {|refuse|}>)
+//
 // It may also hold its own assertions (over `System`). complier-fdr appends the prelude, then:
 //
 //   1. admission: Agent is ControllableCHAOS and System is Agent against ComplierGuard(Policy) as
@@ -37,6 +45,7 @@
 #include <iostream>
 #include <map>
 #include <memory>
+#include <regex>
 #include <sstream>
 #include <string>
 #include <unordered_map>
@@ -54,11 +63,16 @@ enum ExitCode
     EXIT_INVARIANT = 6,
 };
 
-// What a spec must say about the agent and the system, verbatim.
+// What a spec must say about the agent and the system, verbatim: one agent, or one per role.
 const char* const SHAPE =
     "A spec defines its agent and system explicitly: Agent = ControllableCHAOS and "
     "System = prioritise(Agent [| {|attempt, allow, deny, result, refuse|} |] ComplierGuard(Policy), "
     "<{|attempt|}, {refuse}>).";
+const char* const ROLE_SHAPE =
+    "A spec with roles defines one agent per role, and the system, explicitly: "
+    "Agent = ||| r : Role @ ControllableCHAOS(r) and "
+    "System = prioritise(Agent [| {|attempt, allow, deny, result, refuse|} |] ComplierGuard(Policy), "
+    "<{|attempt|}, {|refuse|}>).";
 
 // The prelude every spec is loaded with: the paper's encoding, as CSPm.
 const char* const PRELUDE = R"csp(
@@ -82,6 +96,32 @@ ComplierSystem = prioritise(ControllableCHAOS [| {|attempt, allow, deny, result,
 -- What a well-formed policy may do: take an attempt, answer exactly it, and if it allowed the call,
 -- accept whatever the call returns.
 ComplierHandshake = STOP |~| SKIP |~| (|~| x:Act @ attempt.x -> (deny.x -> ComplierHandshake |~| allow.x -> ([] v : Returns(x) @ result.x.v -> ComplierHandshake)))
+)csp";
+
+// The prelude for a spec that declares `datatype Role`: the paper's encoding, where every event
+// carries the role that made it and each role is its own ControllableCHAOS.
+const char* const ROLE_PRELUDE = R"csp(
+-- complier prelude (with roles), appended to the spec by complier-fdr.
+external prioritise
+transparent normal
+channel attempt, allow, deny : Role.Act
+channel result : Role.Act.Value
+channel refuse : Role
+-- A call that is allowed runs, and its result is bound for the rest of the policy.
+Permit(r, x, P) = attempt.r.x -> allow.r.x -> result.r.x?v : Returns(x) -> P(v)
+Deny(r, x, P)   = attempt.r.x -> deny.r.x -> P
+-- The most general agent playing role r: it may attempt any action as r, or nothing, and is always
+-- refusable. An allowed call returns any value its action can return.
+ControllableCHAOS(r) = (STOP |~| (|~| x:Act @ attempt.r.x -> Await(r, x))) [] (refuse.r -> ControllableCHAOS(r))
+Await(r, x) = allow.r.x -> (|~| v : Returns(x) @ result.r.x.v -> ControllableCHAOS(r)) [] deny.r.x -> ControllableCHAOS(r)
+ComplierGuard(W) = W ||| RUN({|refuse|})
+-- The spec defines Agent and System itself; admission checks they are these: one agent per role,
+-- against the guarded policy. A refusal happens only when no attempt can.
+ComplierAgent = ||| r : Role @ ControllableCHAOS(r)
+ComplierSystem = prioritise(ComplierAgent [| {|attempt, allow, deny, result, refuse|} |] ComplierGuard(Policy), <{|attempt|}, {|refuse|}>)
+-- What a well-formed policy may do: take one attempt, answer exactly it, and if it allowed the call,
+-- accept whatever the call returns, before the next attempt (by any role).
+ComplierHandshake = STOP |~| SKIP |~| (|~| r:Role, x:Act @ attempt.r.x -> (deny.r.x -> ComplierHandshake |~| allow.r.x -> ([] v : Returns(x) @ result.r.x.v -> ComplierHandshake)))
 )csp";
 
 std::string json_escape(const std::string& text)
@@ -178,25 +218,37 @@ private:
             fail("load", "cannot read " + spec_path);
             return EXIT_LOAD_ERROR;
         }
+        std::stringstream source;
+        source << in.rdbuf();
+        // A spec has roles if it declares the datatype Role (at the start of a line).
+        static const std::regex role_decl("(^|\n)[ \t]*datatype[ \t]+Role\\b");
+        roles_declared_ = std::regex_search(source.str(), role_decl);
         std::stringstream text;
-        text << in.rdbuf() << "\n" << PRELUDE;
+        text << source.str() << "\n" << (roles_declared_ ? ROLE_PRELUDE : PRELUDE);
         try
         {
             warnings_ = session_->load_strings_as_file(spec_path, {{spec_path, text.str()}});
             acts_ = members("Act");
+            if (roles_declared_)
+                roles_ = members("Role");
         }
         catch (const FDR::Error& error)
         {
             std::string message = error.what();
             if (message.find("Agent is not in scope") != std::string::npos ||
                 message.find("System is not in scope") != std::string::npos)
-                message += ". " + std::string(SHAPE);
+                message += ". " + std::string(roles_declared_ ? ROLE_SHAPE : SHAPE);
             fail("load", message);
             return EXIT_LOAD_ERROR;
         }
         if (acts_.empty())
         {
             fail("load", "Act must have at least one value");
+            return EXIT_LOAD_ERROR;
+        }
+        if (roles_declared_ && roles_.empty())
+        {
+            fail("load", "Role must have at least one value");
             return EXIT_LOAD_ERROR;
         }
         for (const char* name : {"Policy", "Agent", "System"})
@@ -207,7 +259,7 @@ private:
             }
             catch (const FDR::Error&)
             {
-                fail("load", std::string("the spec must define ") + name + ". " + SHAPE);
+                fail("load", std::string("the spec must define ") + name + ". " + (roles_declared_ ? ROLE_SHAPE : SHAPE));
                 return EXIT_LOAD_ERROR;
             }
         }
@@ -303,7 +355,9 @@ private:
     int admit()
     {
         // Every check runs, so the report says everything that's wrong at once.
-        bool ok = equal("Agent is ControllableCHAOS, the most general agent", "Agent", "ControllableCHAOS");
+        bool ok = roles_declared_
+                      ? equal("Agent is one ControllableCHAOS per role, each the most general agent", "Agent", "ComplierAgent")
+                      : equal("Agent is ControllableCHAOS, the most general agent", "Agent", "ControllableCHAOS");
         ok = equal("System is Agent against the guarded policy, refusing only when no attempt can",
                    "System", "ComplierSystem") && ok;
         ok = check("every attempt the policy takes is answered with allow or deny, and every result an allowed call can return is accepted", "ComplierHandshake [FD= Policy") && ok;
@@ -392,7 +446,7 @@ private:
         if (!error_.empty())
             out << ",\"error\":{\"stage\":" << json_quoted(error_stage_) << ",\"message\":" << json_quoted(error_) << "}";
         out << ",\"warnings\":" << json_list(warnings_)
-            << ",\"acts\":" << json_list(acts_) << ",\"checks\":[";
+            << ",\"acts\":" << json_list(acts_) << ",\"roles\":" << json_list(roles_) << ",\"checks\":[";
         for (size_t i = 0; i < checks_.size(); ++i)
         {
             const Check& c = checks_[i];
@@ -412,7 +466,8 @@ private:
     }
 
     std::shared_ptr<FDR::Session> session_;
-    std::vector<std::string> warnings_, acts_, states_, transitions_;
+    std::vector<std::string> warnings_, acts_, roles_, states_, transitions_;
+    bool roles_declared_ = false;
     std::vector<Check> checks_;
     std::string error_stage_, error_;
 };
@@ -422,7 +477,9 @@ int usage()
     std::cerr << "usage: complier-fdr compile SPEC.csp [--max-states N]\n"
                  "  SPEC defines Act, Value, Returns(x) and Policy over attempt, allow, deny : Act and result : Act.Value,\n"
                  "  then Agent = ControllableCHAOS and System = prioritise(Agent [| {|attempt, allow, deny, result, refuse|} |]\n"
-                 "  ComplierGuard(Policy), <{|attempt|}, {refuse}>).\n";
+                 "  ComplierGuard(Policy), <{|attempt|}, {refuse}>).\n"
+                 "  With datatype Role, events carry the role (attempt.r.x), Agent = ||| r : Role @ ControllableCHAOS(r),\n"
+                 "  and System's refusals are {|refuse|}.\n";
     return EXIT_USAGE;
 }
 
