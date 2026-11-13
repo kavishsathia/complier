@@ -4,3 +4,7 @@ datatype Value = done | failed
 Returns(_) = {done, failed}
 
 Policy = Permit(other, \ _ @ STOP)
+
+Agent  = ControllableCHAOS
+System = prioritise(Agent [| {|attempt, allow, deny, result, refuse|} |] ComplierGuard(Policy),
+                    <{|attempt|}, {refuse}>)

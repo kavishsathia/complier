@@ -7,3 +7,7 @@ Returns(_)     = {done, failed}
 Policy = Permit(check, Checked)
 Checked(big) = Permit(write, \ _ @ Policy)
 Checked(_)   = Policy
+
+Agent  = ControllableCHAOS
+System = prioritise(Agent [| {|attempt, allow, deny, result, refuse|} |] ComplierGuard(Policy),
+                    <{|attempt|}, {refuse}>)

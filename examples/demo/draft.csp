@@ -9,3 +9,7 @@ Returns(_) = {done, failed}
 Policy   = Draft
 Draft    = Permit(draft, \ _ @ Recreate) [] Deny(other, Draft)
 Recreate = Permit(recreate, \ _ @ Draft) [] Deny(other, Recreate)
+
+Agent  = ControllableCHAOS
+System = prioritise(Agent [| {|attempt, allow, deny, result, refuse|} |] ComplierGuard(Policy),
+                    <{|attempt|}, {refuse}>)
