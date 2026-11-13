@@ -196,3 +196,15 @@ test("assertions and helper processes in a spec are skipped", () => {
   const d = draw(read("cli/tests/fixtures/unsafe.csp"));
   assert.equal(d.items[0].k, "state");
 });
+
+test("a helper that takes a process is unfolded where it's used, not drawn as a state", () => {
+  const d = draw(EXAMPLES[4].src);
+  assert.deepEqual(d.agents, ["writer", "reviewer"]);
+  const text = outline(d.items).join(" ");
+  assert.ok(!text.includes("Others"), text);
+  // Writing offers the writer's submit and both agents' other steps, side by side.
+  assert.match(text, /^\(Policy = Writing\) \[\] \{writer attempts submit: writer\.submit .*\{writer attempts other: writer\.other:done\|failed ↺Writing\} \{reviewer attempts other: reviewer\.other:done\|failed ↺Writing\}$/);
+  assert.match(text, /\{reviewer attempts review: reviewer\.review result \{approved: \(Approved\)/);
+  // Only processes are passed by name.
+  assert.throws(() => draw(spec("Policy = H(Policy(a))\nH(S) = S")), /pass Policy by name/);
+});

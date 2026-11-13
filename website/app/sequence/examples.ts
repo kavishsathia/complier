@@ -81,6 +81,46 @@ System = prioritise(Agent [| {|attempt, allow, deny, result, refuse|} |] Complie
                     <{|attempt|}, {|refuse|}>)
 `,
   },
+  {
+    name: "Writer and reviewer",
+    // examples/two-agents/review-gate.csp: two Claude Code agents, one ControllableCHAOS each.
+    src: `-- Two Claude Code agents, a writer and a reviewer, on one complier machine. Each is its own
+-- ControllableCHAOS, and every event carries the role that made it (each agent's COMPLIER_ROLE).
+-- The writer submits a draft; the reviewer's verdict decides what happens next: a rejection sends
+-- the work back to the writer, an approval lets the writer publish, and publishing ends the
+-- workflow. Only the writer submits and publishes, and only the reviewer reviews. Publishing before
+-- an approval is denied; acting out of turn (reviewing before anything is submitted, submitting
+-- while a draft is in review) is refused, and leaves the state as it was.
+datatype Role = writer | reviewer
+datatype Act = submit | review | publish | other
+datatype Value = done | failed | approved | rejected
+Returns(review) = {approved, rejected, failed}
+Returns(_)      = {done, failed}
+
+Policy = Writing
+
+-- Anything else either agent does (writing the draft, checking status, waiting) is \`other\`.
+Others(S) = Permit(writer, other, \\ _ @ S) [] Permit(reviewer, other, \\ _ @ S)
+
+Writing =
+     Permit(writer, submit, \\ v @ if v == done then InReview else Writing)
+  [] Deny(writer, publish, Writing)
+  [] Others(Writing)
+
+InReview =
+     Permit(reviewer, review, \\ v @ if v == approved then Approved else if v == rejected then Writing else InReview)
+  [] Deny(writer, publish, InReview)
+  [] Others(InReview)
+
+Approved =
+     Permit(writer, publish, \\ v @ if v == done then SKIP else Approved)
+  [] Others(Approved)
+
+Agent  = ||| r : Role @ ControllableCHAOS(r)
+System = prioritise(Agent [| {|attempt, allow, deny, result, refuse|} |] ComplierGuard(Policy),
+                    <{|attempt|}, {|refuse|}>)
+`,
+  },
 ];
 
 export const EXAMPLE = EXAMPLES[0].src;

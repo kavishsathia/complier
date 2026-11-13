@@ -32,7 +32,8 @@ const fail = (line: number, msg: string): never => {
 
 // A value in source: a constructor or a variable (lowercase either way), or a constant once
 // substituted.
-export type Val = { k: "name"; name: string } | { k: "con"; name: string };
+// A process name passed as an argument (Others(Writing)) is a value too: its name.
+export type Val = { k: "name"; name: string } | { k: "con"; name: string } | { k: "proc"; name: string };
 
 export type Cond =
   | { k: "bool"; v: boolean }
@@ -185,7 +186,13 @@ class Parser {
 
   pat(): Pat {
     if (this.eat("_")) return { k: "any" };
-    return { k: "var", name: this.lower("a pattern (a value, a variable or _)") };
+    // An uppercase parameter takes a process: Others(S) = ... S.
+    const tok = this.peek();
+    if (tok?.t === "id" && isUpper(tok.v!) && !KEYWORDS.has(tok.v!)) {
+      this.i++;
+      return { k: "var", name: tok.v! };
+    }
+    return { k: "var", name: this.lower("a pattern (a value, a variable, a process parameter or _)") };
   }
 
   val(): Val {
@@ -331,7 +338,14 @@ class Parser {
       this.i++;
       const args: Val[] = [];
       if (this.eat("(")) {
-        do args.push(this.val()); while (this.eat(","));
+        do {
+          const a = this.peek();
+          if (a?.t === "id" && isUpper(a.v!) && !KEYWORDS.has(a.v!)) {
+            this.i++;
+            if (this.is("(")) fail(line, `pass ${a.v} by name: a process argument can't take arguments of its own here`);
+            args.push({ k: "proc", name: a.v! });
+          } else args.push(this.val());
+        } while (this.eat(","));
         this.expect(")");
       }
       return { k: "call", name: tok.v!, args, line };
