@@ -90,10 +90,9 @@ claude --version`}</Code>
             <p>This downloads the build for your computer into <code>~/.complier</code>. There&apos;s nothing to compile:</p>
             <Code>{`curl -fsSL https://raw.githubusercontent.com/kavishsathia/complier/main/install.sh | sh`}</Code>
             <p>
-              Put it on your <code>PATH</code>, and add the same line to your shell&apos;s startup file (for example{" "}
-              <code>~/.zshrc</code>) so new terminals have it too:
+              It also puts complier on your <code>PATH</code>, in your shell&apos;s startup file. Open a new terminal
+              so it takes effect. Running it again updates complier to the latest release.
             </p>
-            <Code>{`export PATH="$HOME/.complier/bin:$PATH"`}</Code>
           </Step>
 
           <Step n={4} title="Check it works">

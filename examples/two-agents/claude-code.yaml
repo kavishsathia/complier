@@ -1,0 +1,36 @@
+# Claude Code's built-in tools as review-gate.csp's actions. Each step is one script in the shared
+# workspace, counted only when the script is the command being run (./tools/submit.sh, a path ending
+# in tools/submit.sh, or bash/sh tools/submit.sh), never when it's only mentioned (cat
+# tools/submit.sh). Anything else (writing the draft, reading files) is `other`. The review's
+# result is the verdict review.sh prints.
+service: claude-code
+
+translate:
+  tools: [Bash, Write, Edit]
+  schema:
+    command: optional<string>
+  rules:
+    submit:
+      when: >-
+        tool == 'Bash' && command.orValue('').matches('(^|[;&|]\\s*)((ba)?sh\\s+)?(\\S*/)?tools/submit\\.sh(\\s|$)')
+          && !command.orValue('').matches('(^|[;&|]\\s*)((ba)?sh\\s+)?(\\S*/)?tools/review\\.sh(\\s|$)')
+          && !command.orValue('').matches('(^|[;&|]\\s*)((ba)?sh\\s+)?(\\S*/)?tools/publish\\.sh(\\s|$)')
+      emit: submit
+    review:
+      when: >-
+        tool == 'Bash' && command.orValue('').matches('(^|[;&|]\\s*)((ba)?sh\\s+)?(\\S*/)?tools/review\\.sh(\\s|$)')
+          && !command.orValue('').matches('(^|[;&|]\\s*)((ba)?sh\\s+)?(\\S*/)?tools/submit\\.sh(\\s|$)')
+          && !command.orValue('').matches('(^|[;&|]\\s*)((ba)?sh\\s+)?(\\S*/)?tools/publish\\.sh(\\s|$)')
+      emit: review
+    publish:
+      when: >-
+        tool == 'Bash' && command.orValue('').matches('(^|[;&|]\\s*)((ba)?sh\\s+)?(\\S*/)?tools/publish\\.sh(\\s|$)')
+          && !command.orValue('').matches('(^|[;&|]\\s*)((ba)?sh\\s+)?(\\S*/)?tools/submit\\.sh(\\s|$)')
+          && !command.orValue('').matches('(^|[;&|]\\s*)((ba)?sh\\s+)?(\\S*/)?tools/review\\.sh(\\s|$)')
+      emit: publish
+  fallback:
+    emit: other
+  results:
+    review: "!ok ? 'failed' : (output.contains('APPROVED') ? 'approved' : 'rejected')"
+    default: "ok ? 'done' : 'failed'"
+hidden: [Read]

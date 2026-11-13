@@ -197,14 +197,23 @@ test("assertions and helper processes in a spec are skipped", () => {
   assert.equal(d.items[0].k, "state");
 });
 
-test("a helper that takes a process is unfolded where it's used, not drawn as a state", () => {
+test("the two-agent demo is the review gate in examples/two-agents, and the agents take turns", () => {
+  assert.equal(EXAMPLES[4].src, read("examples/two-agents/review-gate.csp"));
   const d = draw(EXAMPLES[4].src);
   assert.deepEqual(d.agents, ["writer", "reviewer"]);
   const text = outline(d.items).join(" ");
+  // While the writer has a draft, only the writer acts; in review, only the reviewer does.
+  assert.match(text, /^\(Policy = Writing\) \[\] \{writer attempts submit: writer\.submit .*\{writer attempts other: writer\.other:done\|failed ↺Writing\}$/);
+  assert.match(text, /\(InReview\) \[\] \{reviewer attempts review: reviewer\.review result \{approved: \(Approved\)/);
+  assert.ok(!/\(Writing\)[^(]*reviewer attempts other/.test(text), text);
+});
+
+test("a helper that takes a process is unfolded where it's used, not drawn as a state", () => {
+  const roles = "datatype Role = writer | reviewer\ndatatype Act = a | other\ndatatype Value = done | failed\nReturns(_) = {done, failed}\nAgent = ||| r : Role @ ControllableCHAOS(r)\nSystem = prioritise(Agent [| {|attempt, allow, deny, result, refuse|} |] ComplierGuard(Policy), <{|attempt|}, {|refuse|}>)\n";
+  const d = draw(roles + "Policy = Permit(writer, a, \\ _ @ Policy) [] Others(Policy)\nOthers(S) = Permit(writer, other, \\ _ @ S) [] Permit(reviewer, other, \\ _ @ S)");
+  const text = outline(d.items).join(" ");
   assert.ok(!text.includes("Others"), text);
-  // Writing offers the writer's submit and both agents' other steps, side by side.
-  assert.match(text, /^\(Policy = Writing\) \[\] \{writer attempts submit: writer\.submit .*\{writer attempts other: writer\.other:done\|failed ↺Writing\} \{reviewer attempts other: reviewer\.other:done\|failed ↺Writing\}$/);
-  assert.match(text, /\{reviewer attempts review: reviewer\.review result \{approved: \(Approved\)/);
+  assert.match(text, /\{writer attempts other: writer\.other:done\|failed ↺Policy\} \{reviewer attempts other: reviewer\.other:done\|failed ↺Policy\}/);
   // Only processes are passed by name.
   assert.throws(() => draw(spec("Policy = H(Policy(a))\nH(S) = S")), /pass Policy by name/);
 });
