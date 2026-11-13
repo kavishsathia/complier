@@ -46,12 +46,33 @@ ComplierGuard(W) = W ||| RUN({refuse})
 ComplierSystem = prioritise(ControllableCHAOS [| {|attempt, allow, deny, result, refuse|} |] ComplierGuard(Policy), <{|attempt|}, {refuse}>)
 ```
 
+With more than one agent, the spec declares `datatype Role` and each agent is its own
+`ControllableCHAOS`. Every event carries the role that made it, and `Permit`/`Deny` take the role
+first:
+
+```csp
+datatype Role = writer | reviewer
+...
+Policy = Permit(writer, submit, \ _ @ Permit(reviewer, review, \ _ @ Policy))
+
+Agent  = ||| r : Role @ ControllableCHAOS(r)
+System = prioritise(Agent [| {|attempt, allow, deny, result, refuse|} |] ComplierGuard(Policy),
+                    <{|attempt|}, {|refuse|}>)
+```
+
+The prelude for such a spec has `channel attempt, allow, deny : Role.Act`, `result : Role.Act.Value`
+and `refuse : Role`, `ControllableCHAOS(r)` for each role, and `ComplierAgent = ||| r : Role @
+ControllableCHAOS(r)`. Admission checks `Agent` against `ComplierAgent`. The daemon takes each
+call as `attempt.<COMPLIER_ROLE>.<action>`, so an agent can take only the steps the policy gives
+its role, and a role the spec doesn't list is refused. Exchanges are still one at a time: while
+one agent's call is running, the others are refused and their Stop hooks wait.
+
 Those names (and anything starting with `Complier`) are reserved. A spec without `Agent` or
 `System` doesn't load. A policy is admitted only if FDR shows that:
 
 | check | assertion |
 | --- | --- |
-| the agent is the most general one | `ControllableCHAOS [FD= Agent` and `Agent [FD= ControllableCHAOS` |
+| the agent is the most general one (one per role, with roles) | `ControllableCHAOS [FD= Agent` and `Agent [FD= ControllableCHAOS` (`ComplierAgent` with roles) |
 | the system is that agent against the guarded policy | `ComplierSystem [FD= System` and `System [FD= ComplierSystem` |
 | every attempt the policy takes is answered with allow or deny, and every result it can return is accepted | `ComplierHandshake [FD= Policy` |
 | no agent is left waiting for a verdict | `System :[deadlock free [F]]` |

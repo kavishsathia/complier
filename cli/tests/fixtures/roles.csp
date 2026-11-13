@@ -1,0 +1,16 @@
+-- Two agents, one ControllableCHAOS each: the writer writes, then the reviewer checks it. A `big`
+-- check ends the workflow; anything else sends it back to the writer. Each step belongs to one role.
+datatype Role = writer | reviewer
+datatype Act = check | write
+datatype Value = done | failed | big | small
+Returns(check) = {big, small, failed}
+Returns(_)     = {done, failed}
+
+Policy = Permit(writer, write, \ _ @ Review)
+Review = Permit(reviewer, check, Checked)
+Checked(big) = SKIP
+Checked(_)   = Policy
+
+Agent  = ||| r : Role @ ControllableCHAOS(r)
+System = prioritise(Agent [| {|attempt, allow, deny, result, refuse|} |] ComplierGuard(Policy),
+                    <{|attempt|}, {|refuse|}>)

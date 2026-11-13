@@ -71,7 +71,7 @@ class Builder {
   // Values ----------------------------------------------------------------------------------------
 
   value(v: Val, env: Env, line: number): string {
-    if (v.k === "con") return v.name;
+    if (v.k === "con" || v.k === "proc") return v.name;
     const bound = env.get(v.name);
     if (bound !== undefined) return bound;
     if (this.policy.cons.has(v.name)) return v.name;
@@ -141,6 +141,8 @@ class Builder {
   head(p: Proc, env: Env): { p: Proc; env: Env } {
     for (;;) {
       if (p.k === "if") p = this.cond(p.c, env, 0) ? p.then : p.else;
+      // A process parameter stands for the process passed in.
+      else if (p.k === "call" && !p.args.length && env.has(p.name)) p = { ...p, name: env.get(p.name)! };
       else if (p.k === "apply") {
         const arg = this.value(p.arg, env, p.line);
         const f: Fn = p.fn;
@@ -172,6 +174,9 @@ class Builder {
         const args = p.args.map((a) => this.value(a, env, p.line));
         const key = `${p.name}(${args.join(",")})`;
         const { clause, env: bound } = this.resolve(p.name, args, p.line);
+        // A process that takes a process (Others(Writing)) is a helper, not a state: the monitor is
+        // still where it was, offering the helper's branches alongside its own.
+        if (p.args.some((a) => a.k === "proc")) return this.walk(clause.body, path, at, bound);
         if (path.includes(key)) return [{ k: "loop", label: clause.head }];
         const rest = this.walk(clause.body, [...path, key], clause.head, bound);
         if (!rest) return null;
@@ -393,7 +398,7 @@ function subst(p: Proc, env: Env): Proc {
     case "if":
       return { ...p, c: c(p.c), then: subst(p.then, env), else: subst(p.else, env) };
     case "call":
-      return { ...p, args: p.args.map(v) };
+      return { ...p, name: !p.args.length && env.has(p.name) ? env.get(p.name)! : p.name, args: p.args.map(v) };
     case "apply": {
       const fn: Fn = p.fn.k === "lambda" ? { ...p.fn, body: subst(p.fn.body, without(p.fn.pat.k === "var" ? [p.fn.pat.name] : [])) } : p.fn;
       return { ...p, fn, arg: v(p.arg) };

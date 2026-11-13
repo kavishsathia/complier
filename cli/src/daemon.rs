@@ -107,6 +107,8 @@ enum Status {
 // An allowed call whose result hasn't come back yet.
 struct Pending {
     action: String,
+    // The action as the policy's events name it: `x`, or `r.x` with roles.
+    event: String,
     tool_use_id: String,
     // The unit that translated the call, which also translates its result; none for `machine act`.
     translator: Option<Arc<Translator>>,
@@ -122,6 +124,9 @@ struct Machine {
     automaton: Automaton,
     state: usize,
     acts: Vec<String>,
+    // The spec's roles; empty if it has none. With roles, every event carries the agent's role, and
+    // each agent is its own ControllableCHAOS.
+    roles: Vec<String>,
     pending: Option<Pending>,
     status: Status,
     log: File,
@@ -211,13 +216,21 @@ impl Machine {
         &self.automaton.edges[self.state]
     }
 
-    // The actions the agent would be allowed to take now: attempts W offers and would allow.
-    fn next(&self) -> Vec<String> {
+    // The action x as the policy's events name it for this role: `x`, or `role.x` with roles.
+    fn key(&self, role: &str, x: &str) -> String {
+        if self.roles.is_empty() { x.to_string() } else { format!("{role}.{x}") }
+    }
+
+    // The actions this role's agent would be allowed to take now: its attempts W offers and would
+    // allow.
+    fn next(&self, role: &str) -> Vec<String> {
+        let mine = if self.roles.is_empty() { String::new() } else { format!("{role}.") };
         self.edges()
             .iter()
             .filter_map(|(event, &after)| {
-                let x = event.strip_prefix("attempt.")?;
-                self.automaton.edges[after].contains_key(&format!("allow.{x}")).then(|| x.to_string())
+                let key = event.strip_prefix("attempt.")?;
+                let x = key.strip_prefix(mine.as_str())?;
+                self.automaton.edges[after].contains_key(&format!("allow.{key}")).then(|| x.to_string())
             })
             .collect()
     }
@@ -244,26 +257,30 @@ impl Machine {
             v => format!("{x}.{v}"),
         };
         self.running()?;
+        let key = self.key(role, x);
         let verdict = if let Some(p) = &self.pending {
-            Verdict::Refused(format!("the result of {} hasn't come back yet", p.action))
+            Verdict::Refused(format!("the result of {} hasn't come back yet", p.event))
+        } else if !self.roles.is_empty() && !self.roles.iter().any(|r| r == role) {
+            Verdict::Refused(format!("{role} isn't a role of the spec (its Role lists {})", self.roles.join(", ")))
         } else if !self.acts.iter().any(|a| a == x) {
             Verdict::Refused(format!("{x} isn't an action of the spec (its Act doesn't list it)"))
         } else {
-            match self.edges().get(&format!("attempt.{x}")).copied() {
-                None => Verdict::Refused(format!("the policy doesn't take {x} now")),
+            match self.edges().get(&format!("attempt.{key}")).copied() {
+                None if self.roles.is_empty() => Verdict::Refused(format!("the policy doesn't take {x} now")),
+                None => Verdict::Refused(format!("the policy doesn't take {x} from {role} now")),
                 Some(taken) => {
                     let answers = &self.automaton.edges[taken];
-                    match (answers.get(&format!("allow.{x}")), answers.get(&format!("deny.{x}"))) {
+                    match (answers.get(&format!("allow.{key}")), answers.get(&format!("deny.{key}"))) {
                         (Some(&next), None) => {
                             self.state = next;
-                            self.pending = Some(Pending { action: x.to_string(), tool_use_id: tool_use_id.to_string(), translator });
+                            self.pending = Some(Pending { action: x.to_string(), event: key.clone(), tool_use_id: tool_use_id.to_string(), translator });
                             Verdict::Allowed
                         }
                         (None, Some(&next)) => {
                             self.state = next;
                             Verdict::Denied
                         }
-                        _ => bail!("FDR's automaton gives attempt.{x} no single verdict (state {taken}); this policy shouldn't have been admitted"),
+                        _ => bail!("FDR's automaton gives attempt.{key} no single verdict (state {taken}); this policy shouldn't have been admitted"),
                     }
                 }
             }
@@ -281,7 +298,7 @@ impl Machine {
     // The pending call's result came back as `value`: W follows result.x.value.
     fn result(&mut self, value: &str) -> Result<()> {
         let Some(p) = self.pending.take() else { bail!("no call is waiting for a result") };
-        let event = format!("result.{}.{value}", p.action);
+        let event = format!("result.{}.{value}", p.event);
         match self.edges().get(&event).copied() {
             Some(next) => {
                 self.state = next;
@@ -297,14 +314,15 @@ impl Machine {
         }
     }
 
-    // What the agent may do now, for its Stop hook.
-    fn catch_up(&self) -> Value {
-        json!({ "happened": [], "next": self.next() })
+    // What this role's agent may do now, for its Stop hook.
+    fn catch_up(&self, role: &str) -> Value {
+        json!({ "happened": [], "next": self.next(role) })
     }
 
-    // Whether the agent has nothing it would be allowed to do yet.
-    fn waiting(&self) -> bool {
-        self.status == Status::Running && self.pending.is_none() && self.next().is_empty()
+    // Whether this role's agent has nothing it would be allowed to do yet. With roles, an agent waits
+    // while another agent's call is running or it's another role's turn.
+    fn waiting(&self, role: &str) -> bool {
+        self.status == Status::Running && (self.pending.is_none() || !self.roles.is_empty()) && self.next(role).is_empty()
     }
 
     // Ends the machine once the policy can take no more attempts or results: finished if it terminated.
@@ -420,10 +438,10 @@ fn respond(request: Request, daemon: &Daemon) -> Result<Value> {
                 })
                 .collect())
         }
-        Request::MachineInfo { machine, role: _ } => {
+        Request::MachineInfo { machine, role } => {
             let all = machines.lock().unwrap();
             let m = all.get(&machine).ok_or_else(|| anyhow!("no machine named {machine}"))?;
-            Ok(json!({ "status": m.status, "units": m.units, "next": m.next() }))
+            Ok(json!({ "status": m.status, "units": m.units, "roles": m.roles, "next": m.next(&role) }))
         }
         Request::Act { machine, role, event, value } => {
             let mut all = machines.lock().unwrap();
@@ -443,8 +461,8 @@ fn respond(request: Request, daemon: &Daemon) -> Result<Value> {
                 if m.status != Status::Running && m.status != Status::Finished && m.told_ended.insert(role.clone()) {
                     return Ok(json!({ "happened": [], "ended": m.status, "reason": m.ended }));
                 }
-                if !m.waiting() {
-                    return Ok(m.catch_up());
+                if !m.waiting(&role) {
+                    return Ok(m.catch_up(&role));
                 }
             }
             std::thread::sleep(std::time::Duration::from_millis(250));
@@ -536,6 +554,7 @@ fn machine_up(daemon: &Daemon, name: String, spec: &Path, units: Vec<PathBuf>) -
         state: compiled.automaton.root,
         automaton: compiled.automaton,
         acts: compiled.acts,
+        roles: compiled.roles,
         pending: None,
         status: Status::Running,
         log,
@@ -672,6 +691,7 @@ mod tests {
             state: 0,
             automaton,
             acts: ["check_time", "edit", "push"].map(String::from).to_vec(),
+            roles: Vec::new(),
             pending: None,
             status: Status::Running,
             log: File::create(log).unwrap(),
@@ -683,17 +703,17 @@ mod tests {
     #[test]
     fn an_allowed_call_waits_for_its_result_and_the_result_decides() {
         let mut m = machine();
-        assert_eq!(m.next(), ["check_time"]);
+        assert_eq!(m.next("dev"), ["check_time"]);
         assert_eq!(m.act("dev", "check_time", &Value::Null, "t1", None).unwrap(), Verdict::Allowed);
         // While the result is outstanding, nothing else is taken.
         assert!(matches!(m.act("dev", "edit", &Value::Null, "t2", None).unwrap(), Verdict::Refused(r) if r.contains("hasn't come back")));
-        assert!(!m.waiting());
+        assert!(!m.waiting("dev"));
         // A failed reading sends the policy back to the start.
         m.result("failed").unwrap();
         assert_eq!(m.state, 0);
         m.act("dev", "check_time", &Value::Null, "t3", None).unwrap();
         m.result("ok").unwrap();
-        assert_eq!(m.next(), ["edit"]);
+        assert_eq!(m.next("dev"), ["edit"]);
         // Denied: answered and the state moves along deny; refused: not taken, state kept.
         assert_eq!(m.act("dev", "push", &Value::Null, "t4", None).unwrap(), Verdict::Denied);
         assert!(matches!(m.act("dev", "check_time", &Value::Null, "t5", None).unwrap(), Verdict::Refused(r) if r.contains("doesn't take check_time")));
@@ -703,6 +723,46 @@ mod tests {
         m.result("done").unwrap();
         assert!(m.status == Status::Deadlocked);
         assert!(m.act("dev", "edit", &Value::Null, "t8", None).is_err());
+    }
+
+    // normal(Policy) with roles, for: Permit(writer, submit, \ _ @ Permit(reviewer, review, \ _ @ STOP)).
+    fn two_agents() -> Machine {
+        let t = [
+            (0, "attempt.writer.submit", 1),
+            (1, "allow.writer.submit", 2),
+            (2, "result.writer.submit.done", 3),
+            (3, "attempt.reviewer.review", 4),
+            (4, "allow.reviewer.review", 5),
+            (5, "result.reviewer.review.done", 6),
+        ];
+        let mut m = machine();
+        m.automaton = Automaton::from_transitions(vec![String::new(); 7], 0, &t);
+        m.acts = ["submit", "review"].map(String::from).to_vec();
+        m.roles = ["writer", "reviewer"].map(String::from).to_vec();
+        m
+    }
+
+    #[test]
+    fn with_roles_each_agent_acts_as_its_own_role() {
+        let mut m = two_agents();
+        assert_eq!(m.next("writer"), ["submit"]);
+        assert!(m.next("reviewer").is_empty());
+        // The reviewer waits for its turn; the writer has something to do.
+        assert!(m.waiting("reviewer") && !m.waiting("writer"));
+        // The same action from the wrong role, or from a role the spec doesn't have, is refused.
+        assert!(matches!(m.act("reviewer", "submit", &Value::Null, "t1", None).unwrap(), Verdict::Refused(r) if r.contains("from reviewer")));
+        assert!(matches!(m.act("editor", "submit", &Value::Null, "t2", None).unwrap(), Verdict::Refused(r) if r.contains("isn't a role")));
+        assert_eq!(m.state, 0);
+        assert_eq!(m.act("writer", "submit", &Value::Null, "t3", None).unwrap(), Verdict::Allowed);
+        // While the writer's call runs, the reviewer is refused and waits.
+        assert!(matches!(m.act("reviewer", "review", &Value::Null, "t4", None).unwrap(), Verdict::Refused(r) if r.contains("writer.submit")));
+        assert!(m.waiting("reviewer"));
+        m.result("done").unwrap();
+        assert_eq!(m.next("reviewer"), ["review"]);
+        assert!(m.waiting("writer") && !m.waiting("reviewer"));
+        assert_eq!(m.act("reviewer", "review", &Value::Null, "t5", None).unwrap(), Verdict::Allowed);
+        m.result("done").unwrap();
+        assert!(m.status == Status::Deadlocked);
     }
 
     #[test]

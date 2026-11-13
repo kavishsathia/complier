@@ -1,4 +1,4 @@
-// The frame the three get-started pages share: the site's header and footer, the page title, and
+// The frame the get-started pages share: the site's header and footer, the page title, and
 // tabs between Install, Short run and Long run.
 
 import { Geist, Geist_Mono } from "next/font/google";
@@ -18,6 +18,7 @@ const PAGES = [
   { href: "/get-started", label: "1. Install" },
   { href: "/get-started/short", label: "2. Short run" },
   { href: "/get-started/long", label: "3. Long run" },
+  { href: "/get-started/two-agents", label: "4. Two agents" },
 ];
 
 export default function Shell({ current, title, lede, children }: { current: string; title: string; lede: string; children: React.ReactNode }) {
