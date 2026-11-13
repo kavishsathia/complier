@@ -1,0 +1,34 @@
+{
+  "description": "A writer and a reviewer, two Claude Code sessions on one machine, taking turns.",
+  "workspace": "~/complier-demos/two-agents",
+  "prepare": [
+    "complier machine down review-gate >/dev/null 2>&1 || true",
+    "complier machine up review-gate \"$DEMO\""
+  ],
+  "windows": [
+    { "title": "machine log", "dir": "$DEMO", "run": "complier machine log review-gate --follow" },
+    {
+      "title": "writer",
+      "dir": "$DEMO/workspace",
+      "run": "COMPLIER_MACHINE=review-gate COMPLIER_ROLE=writer claude --plugin-dir ~/.complier/plugin 'You are the writer: follow WRITER.md.'"
+    },
+    {
+      "title": "reviewer",
+      "dir": "$DEMO/workspace",
+      "run": "COMPLIER_MACHINE=review-gate COMPLIER_ROLE=reviewer claude --plugin-dir ~/.complier/plugin 'You are the reviewer: follow REVIEWER.md.'"
+    }
+  ],
+  "setup": [
+    { "title": "Copy the demo", "text": "cp -R ~/.complier/examples/two-agents ~/two-agents" },
+    { "title": "Start the machine", "text": "complier machine up review-gate ~/two-agents" },
+    { "title": "Watch it", "text": "complier machine log review-gate --follow" },
+    {
+      "title": "Start the writer (in ~/two-agents/workspace)",
+      "text": "COMPLIER_MACHINE=review-gate COMPLIER_ROLE=writer claude --plugin-dir ~/.complier/plugin 'You are the writer: follow WRITER.md.'"
+    },
+    {
+      "title": "Start the reviewer (in ~/two-agents/workspace)",
+      "text": "COMPLIER_MACHINE=review-gate COMPLIER_ROLE=reviewer claude --plugin-dir ~/.complier/plugin 'You are the reviewer: follow REVIEWER.md.'"
+    }
+  ]
+}

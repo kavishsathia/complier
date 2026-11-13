@@ -1,9 +1,11 @@
 // complier's workflow launcher: a Spotlight-style panel for the workflows saved on this computer.
 //
 // ⌃⌥Space (or opening the app) shows a floating search bar over whatever you're doing. Type to find
-// a workflow in ~/.complier/workflows, move with ↑/↓, and copy what you need to use it: ↩ copies
-// the whole setup, ⌘1–⌘9 copy one command each. Esc or clicking elsewhere hides it. It only reads:
-// applying a workflow stays in Claude Code, which asks you first.
+// a workflow in ~/.complier/workflows, or a demo in ~/.complier/examples, move with ↑/↓, and copy
+// what you need to use it: ↩ copies the whole setup, ⌘1–⌘9 copy one command each. A demo with a
+// launch.json also launches: ⌘↩ copies it to a fresh folder, runs its prepare commands (starting
+// its machine) and opens one Terminal window per entry in `windows`. Esc or clicking elsewhere hides
+// it. Saved workflows are never applied from here: that stays in Claude Code, which asks you first.
 
 import AppKit
 import Carbon.HIToolbox
@@ -17,8 +19,19 @@ struct Snippet: Identifiable {
     let text: String
 }
 
+// A demo's launch.json.
+struct Launch: Decodable {
+    struct Window: Decodable { let title: String; let dir: String; let run: String }
+    struct Step: Decodable { let title: String; let text: String }
+    let description: String
+    let workspace: String
+    let prepare: [String]
+    let windows: [Window]
+    let setup: [Step]
+}
+
 struct Workflow: Identifiable {
-    var id: String { name }
+    var id: String { (launch == nil ? "workflow:" : "demo:") + name }
     let name: String
     let description: String
     let noticed: String
@@ -26,10 +39,13 @@ struct Workflow: Identifiable {
     let steps: [String]
     let sessions: Int
     let spec: String
+    var launch: Launch? = nil
+    var source: URL? = nil
 
     // What to copy to use it, in order. Applying happens inside Claude Code, which asks first.
     var setup: [Snippet] {
-        [
+        if let launch { return launch.setup.map { Snippet(title: $0.title, text: $0.text) } }
+        return [
             Snippet(title: "Start Claude Code with complier", text: "claude --plugin-dir ~/.complier/plugin"),
             Snippet(title: "Ask Claude to apply it", text: "Apply the complier workflow \(name) to this session."),
             Snippet(title: "Release it early, from your own terminal", text: "complier workflow release \(name)"),
@@ -41,6 +57,24 @@ enum Store {
     static let home = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".complier")
 
     static func load() -> [Workflow] {
+        saved() + demos()
+    }
+
+    // ~/.complier/examples/<name>/launch.json: demos that come with complier.
+    static func demos() -> [Workflow] {
+        let dir = home.appendingPathComponent("examples")
+        let names = (try? FileManager.default.contentsOfDirectory(atPath: dir.path)) ?? []
+        return names.sorted().compactMap { name in
+            let folder = dir.appendingPathComponent(name)
+            guard let data = try? Data(contentsOf: folder.appendingPathComponent("launch.json")),
+                  let launch = try? JSONDecoder().decode(Launch.self, from: data) else { return nil }
+            let spec = specText(folder)
+            return Workflow(name: name, description: launch.description, noticed: "", created: "",
+                            steps: actions(spec), sessions: 0, spec: spec, launch: launch, source: folder)
+        }
+    }
+
+    static func saved() -> [Workflow] {
         let dir = home.appendingPathComponent("workflows")
         let names = (try? FileManager.default.contentsOfDirectory(atPath: dir.path)) ?? []
         let bound = boundSessions()
@@ -116,6 +150,85 @@ func matches(_ w: Workflow, _ query: String) -> Bool {
     return words.allSatisfy { hay.contains($0) }
 }
 
+// MARK: - Launching a demo
+
+struct LaunchError: Error { let message: String }
+
+enum Launcher {
+    static let demos = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("complier-demos")
+
+    static func expand(_ path: String, demo: String) -> String {
+        var p = path.replacingOccurrences(of: "$DEMO", with: demo)
+        if p.hasPrefix("~/") { p = FileManager.default.homeDirectoryForCurrentUser.path + p.dropFirst(1) }
+        return p
+    }
+
+    static func quote(_ s: String) -> String { "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'" }
+
+    // Copies the demo to a fresh folder, runs its prepare commands, then opens its windows.
+    static func run(_ launch: Launch, from source: URL) -> Result<Int, LaunchError> {
+        let fm = FileManager.default
+        let demo = expand(launch.workspace, demo: "")
+        // Only ever replace a folder under ~/complier-demos.
+        guard URL(fileURLWithPath: demo).standardized.path.hasPrefix(demos.path + "/") else {
+            return .failure(LaunchError(message: "its workspace must be under ~/complier-demos"))
+        }
+        do {
+            try fm.createDirectory(at: demos, withIntermediateDirectories: true)
+            if fm.fileExists(atPath: demo) { try fm.removeItem(atPath: demo) }
+            try fm.copyItem(at: source, to: URL(fileURLWithPath: demo))
+        } catch {
+            return .failure(LaunchError(message: error.localizedDescription))
+        }
+        // In a login shell, so complier and claude are on PATH as in your terminal.
+        let script = "set -e\nexport DEMO=\(quote(demo))\n" + launch.prepare.joined(separator: "\n")
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/bin/zsh")
+        p.arguments = ["-lic", script]
+        let out = Pipe()
+        p.standardOutput = out
+        p.standardError = out
+        do { try p.run() } catch { return .failure(LaunchError(message: error.localizedDescription)) }
+        p.waitUntilExit()
+        if p.terminationStatus != 0 {
+            let text = String(data: out.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+            let last = text.split(separator: "\n").last.map(String.init) ?? "exit \(p.terminationStatus)"
+            return .failure(LaunchError(message: last))
+        }
+        // One .command file per window: Terminal opens each in a new window, in a login shell. All
+        // are written before any opens, so a failure never leaves half a demo running.
+        let dir = URL(fileURLWithPath: demo).appendingPathComponent(".launch")
+        var files: [URL] = []
+        do {
+            try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+            for (i, w) in launch.windows.enumerated() {
+                let file = dir.appendingPathComponent("\(i + 1)-\(w.title.replacingOccurrences(of: " ", with: "-")).command")
+                let body = """
+                #!/bin/zsh -il
+                export DEMO=\(quote(demo))
+                printf '\\e]0;%s\\a' \(quote(w.title))
+                cd \(quote(expand(w.dir, demo: demo)))
+                \(w.run)
+
+                """
+                try body.write(to: file, atomically: false, encoding: .utf8)
+                try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: file.path)
+                files.append(file)
+            }
+        } catch {
+            return .failure(LaunchError(message: error.localizedDescription))
+        }
+        for file in files {
+            let open = Process()
+            open.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+            open.arguments = ["-a", "Terminal", file.path]
+            try? open.run()
+            open.waitUntilExit()
+        }
+        return .success(launch.windows.count)
+    }
+}
+
 // MARK: - The panel's view
 
 final class Model: ObservableObject {
@@ -152,6 +265,22 @@ final class Model: ObservableObject {
         copy(text, label: "Copied the setup for \(w.name)")
     }
 
+    func launch() {
+        guard let w = current, let launch = w.launch, let source = w.source else { return }
+        copied = "Starting \(w.name)…"
+        DispatchQueue.global().async {
+            let result = Launcher.run(launch, from: source)
+            DispatchQueue.main.async {
+                switch result {
+                case .success(let n): self.copied = "Launched \(w.name): \(n) terminal\(n == 1 ? "" : "s")"
+                case .failure(let e): self.copied = "Couldn't launch \(w.name): \(e.message)"
+                }
+                let shown = self.copied
+                DispatchQueue.main.asyncAfter(deadline: .now() + 4) { if self.copied == shown { self.copied = nil } }
+            }
+        }
+    }
+
     func copyOne(_ i: Int) {
         guard let w = current, w.setup.indices.contains(i) else { return }
         copy(w.setup[i].text, label: "Copied: \(w.setup[i].title)")
@@ -171,6 +300,11 @@ struct LauncherView: View {
                     .textFieldStyle(.plain)
                     .font(.system(size: 22, weight: .regular))
                     .focused($focused)
+                    .onKeyPress(keys: [.return], phases: .down) { press in
+                        guard press.modifiers.contains(.command) else { return .ignored }
+                        model.launch()
+                        return .handled
+                    }
                     .onSubmit { model.copyAll() }
                     .onChange(of: model.query) { model.selected = 0 }
                     .onKeyPress(.upArrow) { model.move(-1); return .handled }
@@ -216,7 +350,13 @@ struct LauncherView: View {
             VStack(spacing: 2) {
                 ForEach(Array(model.results.enumerated()), id: \.element.id) { i, w in
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(w.name).font(.system(size: 14, weight: .semibold))
+                        HStack(spacing: 6) {
+                            Text(w.name).font(.system(size: 14, weight: .semibold))
+                            if w.launch != nil {
+                                Text("demo").font(.system(size: 10, weight: .semibold)).padding(.horizontal, 5).padding(.vertical, 1)
+                                    .background((i == model.selected ? Color.white : Color.accentColor).opacity(0.25), in: Capsule())
+                            }
+                        }
                         Text(w.description).font(.system(size: 12)).foregroundStyle(i == model.selected ? .white.opacity(0.85) : .secondary).lineLimit(2)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -249,8 +389,26 @@ struct LauncherView: View {
                             .background(.quaternary, in: Capsule())
                     }
                     Spacer()
-                    Text(w.sessions > 0 ? "applied to \(w.sessions) session\(w.sessions == 1 ? "" : "s")" : "not applied")
-                        .font(.system(size: 11)).foregroundStyle(w.sessions > 0 ? .green : .secondary)
+                    if w.launch == nil {
+                        Text(w.sessions > 0 ? "applied to \(w.sessions) session\(w.sessions == 1 ? "" : "s")" : "not applied")
+                            .font(.system(size: 11)).foregroundStyle(w.sessions > 0 ? .green : .secondary)
+                    }
+                }
+                if let launch = w.launch {
+                    Button(action: { model.launch() }) {
+                        HStack {
+                            Image(systemName: "play.fill")
+                            Text("Launch: opens \(launch.windows.map(\.title).joined(separator: ", "))")
+                            Spacer()
+                            Text("⌘↩").font(.system(size: 11, design: .monospaced)).opacity(0.8)
+                        }
+                        .font(.system(size: 12.5, weight: .semibold))
+                        .padding(10)
+                        .frame(maxWidth: .infinity)
+                        .foregroundStyle(.white)
+                        .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 8))
+                    }
+                    .buttonStyle(.plain)
                 }
                 ForEach(Array(w.setup.enumerated()), id: \.element.id) { i, s in
                     VStack(alignment: .leading, spacing: 4) {
@@ -279,8 +437,9 @@ struct LauncherView: View {
             if let c = model.copied {
                 Label(c, systemImage: "checkmark.circle.fill").foregroundStyle(.green)
             } else {
+                if model.current?.launch != nil { Text("⌘↩ launch").foregroundStyle(.secondary) }
                 Text("↩ copy setup").foregroundStyle(.secondary)
-                Text("⌘1–⌘3 copy one").foregroundStyle(.secondary)
+                Text("⌘1–⌘\(max(1, model.current?.setup.count ?? 3)) copy one").foregroundStyle(.secondary)
                 Text("↑↓ choose").foregroundStyle(.secondary)
                 Text("esc close").foregroundStyle(.secondary)
             }
@@ -374,6 +533,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }, 1, &spec, Unmanaged.passUnretained(self).toOpaque(), nil)
         let id = EventHotKeyID(signature: OSType(0x636D706C), id: 1) // 'cmpl'
         RegisterEventHotKey(UInt32(kVK_Space), UInt32(controlKey | optionKey), id, GetApplicationEventTarget(), 0, &hotKey)
+    }
+}
+
+// `ComplierWorkflows --launch <demo>` launches a demo without the panel, for testing and scripts.
+if let i = CommandLine.arguments.firstIndex(of: "--launch"), CommandLine.arguments.count > i + 1 {
+    let name = CommandLine.arguments[i + 1]
+    guard let demo = Store.demos().first(where: { $0.name == name }), let launch = demo.launch, let source = demo.source else {
+        FileHandle.standardError.write("no demo named \(name) in ~/.complier/examples\n".data(using: .utf8)!)
+        exit(1)
+    }
+    switch Launcher.run(launch, from: source) {
+    case .success(let n): print("launched \(name): \(n) terminal(s)"); exit(0)
+    case .failure(let e): FileHandle.standardError.write("couldn't launch \(name): \(e.message)\n".data(using: .utf8)!); exit(1)
     }
 }
 
