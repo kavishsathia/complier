@@ -86,8 +86,7 @@ npm run typecheck
 npm test             # the stepper's and sequence diagrams' tests; set FDR_HOME to also compare traces with FDR's
 ```
 
-The `/playground` runs entirely in the browser. The `/progress` deck's live agent demos also need
-`DEMO_PASSWORD` and `OPENAI_API_KEY` in the environment.
+The `/playground` runs entirely in the browser.
 
 The `/stepper` runs plain CSP and shows the rule behind every transition. Besides prefix, `[]`,
 `|~|`, `;`, guards and `[| {..} |]`, it has:

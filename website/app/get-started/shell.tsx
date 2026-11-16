@@ -60,9 +60,6 @@ export default function Shell({ current, title, lede, children }: { current: str
           <Link href="/stepper" prefetch={false}>
             Stepper
           </Link>
-          <Link href="/progress" prefetch={false}>
-            Research
-          </Link>
         </nav>
       </footer>
     </div>

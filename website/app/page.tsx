@@ -140,9 +140,6 @@ export default function Home() {
           <Link href="/stepper" prefetch={false}>
             Stepper
           </Link>
-          <Link href="/progress" prefetch={false}>
-            Research
-          </Link>
         </nav>
       </footer>
     </div>

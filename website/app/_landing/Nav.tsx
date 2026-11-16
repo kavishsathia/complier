@@ -68,11 +68,6 @@ export default function Nav({ repo }: { repo: string }) {
             Get started
           </Link>
         </li>
-        <li className="nav-wide">
-          <Link href="/progress" prefetch={false} onClick={close}>
-            Research
-          </Link>
-        </li>
       </ul>
       <a href={repo} className="nav-gh" aria-label="complier on GitHub">
         <svg viewBox="0 0 16 16" width="20" height="20" aria-hidden="true">
