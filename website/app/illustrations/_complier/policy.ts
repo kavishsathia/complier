@@ -152,6 +152,11 @@ export function attempt(policy: Policy, s: PState, role: string | null, act: str
   if (!policy.types.get("Act")!.includes(act)) return { k: "refused", reason: `${act} isn't an action of the spec (its Act doesn't list it)` };
   const hs = heads(policy, s);
   if (hs.some((h) => "done" in h)) return { k: "refused", reason: "the policy has finished" };
+  const waiting = hs.find((h): h is Exclude<Head, { done: true }> => !("done" in h) && h.pre.chan === "result");
+  if (waiting) {
+    const f = waiting.pre.fields[policy.roles ? 1 : 0];
+    return { k: "refused", reason: `the result of ${f?.k === "out" ? value(policy, f.v, waiting.env) : "the last call"} hasn't come back yet` };
+  }
   const want = key(policy.roles ? role : null, act);
   const taken = hs.find((h): h is Exclude<Head, { done: true }> => !("done" in h) && h.pre.chan === "attempt" && fieldsAre(policy, h, want));
   if (!taken) return { k: "refused", reason: policy.roles ? `the policy doesn't take ${act} from ${role} now` : `the policy doesn't take ${act} now` };

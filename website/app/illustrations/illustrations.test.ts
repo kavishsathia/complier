@@ -40,7 +40,8 @@ test("order desk: accept is allowed and its result returns the policy to Desk", 
   const a = decide(m, start(), null, "accept_order", { id: 1, reason: "fits" });
   assert.deepEqual(a.verdict, { k: "allowed", action: "accept", event: "accept.1" });
   // Until the result comes back, the policy takes no other attempt.
-  assert.equal(decide(m, a.state, null, "reject_order", { id: 2 }).verdict.k, "refused");
+  const early = decide(m, a.state, null, "reject_order", { id: 2 }).verdict;
+  assert.deepEqual(early, { k: "refused", action: "reject", event: "reject.2", reason: "the result of accept hasn't come back yet" });
   const after = finish(m, a.state, null, "accept", true, "Done.");
   assert.equal(decide(m, after, null, "reject_order", { id: 2 }).verdict.k, "allowed");
 });
@@ -60,7 +61,7 @@ test("order desk: calls outside the unit's domain or tools are refused, state ke
   const m = machine(DESK_UNIT, DESK_POLICY);
   const s = start();
   const noId = decide(m, s, null, "accept_order", { reason: "?" });
-  assert.equal(noId.verdict.k, "refused");
+  assert.deepEqual(noId.verdict, { k: "refused", reason: "the call is outside the unit's domain (its assumption is false)" });
   assert.equal(noId.state, s);
   assert.equal(decide(m, s, null, "delete_order", { id: 1 }).verdict.k, "refused");
   assert.equal(decide(m, s, null, "accept_order", { id: "1" }).verdict.k, "refused");

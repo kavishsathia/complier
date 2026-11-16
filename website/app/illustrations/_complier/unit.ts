@@ -238,7 +238,7 @@ export function translate(unit: Unit, tool: string, args: Record<string, unknown
     return { k: "refused", reason: `the call's arguments don't fit the unit's schema: ${(e as Error).message}` };
   }
   try {
-    if (evaluate(unit.assumption, vars) !== true) return { k: "refused", reason: `${tool} is outside the unit's domain (its assumption doesn't hold)` };
+    if (evaluate(unit.assumption, vars) !== true) return { k: "refused", reason: "the call is outside the unit's domain (its assumption is false)" };
     const matched = unit.rules.filter((r) => {
       const v = evaluate(r.when, vars);
       if (typeof v !== "boolean") throw new CelError(`rule ${r.name} isn't a bool`);
