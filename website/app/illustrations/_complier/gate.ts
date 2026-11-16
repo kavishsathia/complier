@@ -13,7 +13,7 @@ export type LoadErrors = { unit?: SpecError; policy?: SpecError };
 export function load(unitSrc: string, policySrc: string): { ok: true; machine: Machine } | { ok: false; errors: LoadErrors } {
   const u = loadUnit(unitSrc);
   const p = loadPolicy(policySrc);
-  if (!u.ok || !p.ok) return { ok: false, errors: { unit: u.ok ? undefined : u.error, policy: p.ok ? undefined : p.error } };
+  if (!("unit" in u) || !("policy" in p)) return { ok: false, errors: { unit: "error" in u ? u.error : undefined, policy: "error" in p ? p.error : undefined } };
   try {
     // Unfold the start once, so a policy that can't be walked is an error now rather than at a call.
     offered(p.policy, start(), p.policy.roles?.[0] ?? null);
@@ -66,5 +66,5 @@ export function finish(m: Machine, state: PState, role: string | null, action: s
 export function told(tool: string, v: Verdict) {
   return v.k === "denied"
     ? `Denied by complier: ${v.reason} (${tool} is ${v.event}). Nothing changed.`
-    : `Refused by complier: ${v.reason}. Nothing changed.`;
+    : `Refused by complier: ${"reason" in v ? v.reason : "not allowed"}. Nothing changed.`;
 }

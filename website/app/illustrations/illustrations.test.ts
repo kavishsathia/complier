@@ -12,7 +12,7 @@ import { POLICY as PAIR_POLICY, UNIT as PAIR_UNIT } from "./_pair/spec.ts";
 
 const machine = (unit: string, policy: string): Machine => {
   const m = load(unit, policy);
-  assert.ok(m.ok, JSON.stringify(!m.ok && m.errors));
+  if (!("machine" in m)) throw new Error(JSON.stringify(m.errors));
   return m.machine;
 };
 
@@ -91,11 +91,11 @@ test("two agents: an unknown role is refused", () => {
 
 test("edits are checked: syntax errors name their line", () => {
   const badPolicy = load(DESK_UNIT, DESK_POLICY.replace("Agent  = ControllableCHAOS\n", ""));
-  assert.ok(!badPolicy.ok && badPolicy.errors.policy?.message.includes("Agent"));
+  assert.ok("errors" in badPolicy && badPolicy.errors.policy?.message.includes("Agent"));
   const badUnit = load(DESK_UNIT.replace("emit: reject", "emit: 'not an event'"), DESK_POLICY);
-  assert.ok(!badUnit.ok && badUnit.errors.unit && badUnit.errors.unit.line > 1);
+  assert.ok("errors" in badUnit && badUnit.errors.unit && badUnit.errors.unit.line > 1);
   const badCel = load(DESK_UNIT.replace("when: tool == 'accept_order'", "when: tool =="), DESK_POLICY);
-  assert.ok(!badCel.ok && /accept\.when/.test(badCel.errors.unit!.message));
+  assert.ok("errors" in badCel && /accept\.when/.test(badCel.errors.unit!.message));
 });
 
 test("an action the policy's Act doesn't list is refused", () => {

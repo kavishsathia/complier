@@ -1,0 +1,756 @@
+/* The illustrations page. Built on the landing's tokens and pieces (.game, .game-meter, .game-call,
+   .tabs, .editor, .btn); this file only lays out the order desk around them. */
+
+.il-head {
+  padding: 64px 0 8px;
+}
+
+.il-head h1 {
+  font-size: clamp(2.4rem, 5.4vw, 4.3rem);
+  line-height: 1.02;
+  letter-spacing: -0.045em;
+  font-weight: 750;
+}
+
+.il-head + .section {
+  padding-top: 40px;
+}
+
+.il {
+  position: relative;
+  outline: none;
+}
+
+.il:focus-visible {
+  outline: 2px solid var(--purple-ink);
+  outline-offset: 3px;
+}
+
+.il-body {
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+  height: clamp(640px, 86vh, 820px);
+  height: clamp(640px, 86dvh, 820px);
+}
+
+/* ---- the desk ---- */
+
+.il-desk {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  border-right: 1px solid var(--line);
+}
+
+.il-desk > header {
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--line);
+  background: var(--sunk);
+}
+
+.il-eyebrow {
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+.il-stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-top: 10px;
+}
+
+.il-stats .game-meter {
+  display: grid;
+  gap: 2px;
+  margin-top: 0;
+  background: var(--raised);
+  transition: background 0.3s;
+}
+
+.il-stats .game-meter.is-breached {
+  background: var(--red-wash);
+}
+
+.il-stats strong {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  font-size: clamp(2rem, 4vw, 2.75rem);
+  font-weight: 750;
+  line-height: 1.05;
+  letter-spacing: -0.04em;
+  font-variant-numeric: tabular-nums;
+  transition: color 0.3s;
+}
+
+.il-stats .is-breached strong {
+  color: var(--red-ink);
+}
+
+.il-stats s {
+  font-size: 0.55em;
+  color: var(--ink-3);
+}
+
+.il-table {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow: auto;
+}
+
+.il table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.il th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 10px 10px 8px;
+  border-bottom: 1px solid var(--line);
+  background: var(--raised);
+  text-align: left;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+.il th:first-child,
+.il td:first-child {
+  padding-left: 18px;
+}
+
+.il td {
+  padding: 10px;
+  border-bottom: 1px solid var(--line);
+  vertical-align: top;
+  transition:
+    background 0.4s,
+    box-shadow 0.4s;
+}
+
+.il-id,
+.il-qty {
+  font-variant-numeric: tabular-nums;
+}
+
+.il-id,
+.il-note {
+  color: var(--ink-3);
+}
+
+.il-note {
+  font-size: 0.92rem;
+}
+
+.il-note.is-long {
+  font-size: 0.8rem;
+  line-height: 1.45;
+}
+
+.il-name {
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.il tr.is-accepted td {
+  background: var(--mint-wash);
+}
+
+.il tr.is-accepted td:first-child {
+  box-shadow: inset 4px 0 0 var(--mint-ink);
+}
+
+.il tr.is-rejected td {
+  background: var(--sunk);
+}
+
+.il tr.is-rejected td:first-child {
+  box-shadow: inset 4px 0 0 var(--ink-3);
+}
+
+.il tr.is-double td {
+  background: var(--red-wash);
+}
+
+.il tr.is-double td:first-child {
+  box-shadow: inset 4px 0 0 var(--red-ink);
+}
+
+.il tr.is-active td {
+  box-shadow:
+    inset 0 2px 0 var(--purple),
+    inset 0 -2px 0 var(--purple);
+}
+
+.il tr.is-active td:first-child {
+  box-shadow:
+    inset 2px 0 0 var(--purple),
+    inset 0 2px 0 var(--purple),
+    inset 0 -2px 0 var(--purple);
+}
+
+.il tr.is-active td:last-child {
+  box-shadow:
+    inset -2px 0 0 var(--purple),
+    inset 0 2px 0 var(--purple),
+    inset 0 -2px 0 var(--purple);
+}
+
+.il-times {
+  font-weight: 700;
+  color: var(--red-ink);
+}
+
+.il-by {
+  white-space: nowrap;
+}
+
+.il-tag {
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  margin-right: 4px;
+  border-radius: 6px;
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.il-tag.is-A {
+  background: var(--purple-wash);
+  color: var(--purple-ink);
+}
+
+.il-tag.is-B {
+  background: var(--amber-wash);
+  color: var(--amber-ink);
+}
+
+/* ---- the agent, and the specification above it ---- */
+
+.il-side {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.il-agent {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.il-agent > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--line);
+  background: var(--sunk);
+}
+
+.il-task {
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--line);
+  font-size: 0.92rem;
+  line-height: 1.45;
+  color: var(--ink-2);
+}
+
+.il-log {
+  flex: 1 1 0;
+  min-height: 0;
+  margin: 0;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow-y: auto;
+  list-style: none;
+  background: var(--paper);
+}
+
+.il-log > li {
+  flex: none;
+  animation: il-arrive 0.35s ease-out;
+}
+
+@keyframes il-arrive {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+
+.il-log code {
+  background: none;
+  border: 0;
+  padding: 0;
+  font-size: 0.86rem;
+  font-weight: 600;
+}
+
+.il-log .game-detail {
+  font-size: 0.86rem;
+  line-height: 1.45;
+}
+
+.game-call.il-accept_order,
+.game-call.il-send {
+  border-left-color: var(--mint-ink);
+}
+
+.game-call.il-reject_order,
+.game-call.il-reject {
+  border-left-color: var(--ink-3);
+}
+
+.game-call.il-set_minimum_inventory {
+  border-left-color: var(--red-ink);
+  background: var(--red-wash);
+}
+
+.game-call.il-read code {
+  color: var(--ink-2);
+}
+
+/* A call complier stopped: it never ran. */
+.game-call.is-denied,
+.game-call.is-refused {
+  border-left-color: var(--purple-ink);
+  background: var(--purple-wash);
+}
+
+.game-call.is-denied code,
+.game-call.is-refused code {
+  color: var(--ink-3);
+  text-decoration: line-through;
+}
+
+.il-chip.is-denied,
+.il-chip.is-refused {
+  background: var(--raised);
+  color: var(--purple-ink);
+  box-shadow: inset 0 0 0 1px var(--line-2);
+}
+
+.il-event {
+  justify-self: start;
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  color: var(--mint-ink);
+  font-weight: 600;
+}
+
+.is-denied .il-event,
+.is-refused .il-event {
+  color: var(--purple-ink);
+}
+
+.il-thinking {
+  display: flex;
+  gap: 5px;
+  padding: 6px 2px;
+}
+
+.il-thinking span {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--purple);
+  animation: il-blink 1s infinite;
+}
+
+.il-thinking span:nth-child(2) {
+  animation-delay: 0.15s;
+}
+
+.il-thinking span:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+@keyframes il-blink {
+  50% {
+    opacity: 0.2;
+  }
+}
+
+/* Two agents: their logs side by side. */
+.il-pair {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  flex: 1 1 0;
+  min-height: 0;
+}
+
+.il-one {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background: var(--paper);
+}
+
+.il-one + .il-one {
+  border-left: 1px solid var(--line);
+}
+
+.il-one > .game-who {
+  display: flex;
+  align-items: center;
+  padding: 10px 14px 0;
+}
+
+.il-pair .il-log {
+  padding: 8px 10px 12px;
+}
+
+.il-pair code {
+  overflow-wrap: anywhere;
+}
+
+.il-error {
+  margin: 8px 14px 0;
+  font-size: 0.86rem;
+}
+
+/* ---- the complier switch ---- */
+
+.il-switch {
+  flex: none;
+  padding: 0 14px 0 8px;
+}
+
+.il-track {
+  position: relative;
+  width: 36px;
+  height: 22px;
+  border-radius: 999px;
+  background: var(--sunk);
+  box-shadow: inset 0 0 0 1.5px var(--line-2);
+  transition: background 0.2s;
+}
+
+.il-thumb {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--ink-3);
+  transition:
+    transform 0.2s,
+    background 0.2s;
+}
+
+.il-switch.is-on .il-track {
+  background: var(--mint);
+  box-shadow: inset 0 0 0 1.5px var(--ink);
+}
+
+.il-switch.is-on .il-thumb {
+  background: var(--ink);
+  transform: translateX(14px);
+}
+
+/* ---- the specification: slides down when complier is on ---- */
+
+.il-pane {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transition:
+    grid-template-rows 0.4s ease,
+    opacity 0.3s ease;
+}
+
+.il-pane.is-open {
+  grid-template-rows: 1fr;
+  opacity: 1;
+}
+
+.il-pane-inner {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  background: #fdfcfa;
+}
+
+.il-pane.is-open .il-pane-inner {
+  border-bottom: 1px solid var(--line);
+}
+
+.il-pane-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 4px 12px;
+  padding: 8px 12px 0 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+.il-pane-bar > strong {
+  padding-bottom: 10px;
+}
+
+.il-editor {
+  height: 260px;
+  overflow-y: auto;
+}
+
+.il-editor .editor {
+  margin: 0;
+  font-size: 12.5px;
+  --lh: 20px;
+  --gutter: 40px;
+}
+
+.il-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  border-top: 1px solid var(--line);
+  background: var(--sunk);
+  font-size: 0.82rem;
+  line-height: 1.4;
+  color: var(--ink-2);
+}
+
+.il-status.is-bad {
+  color: var(--red-ink);
+}
+
+/* ---- controls ---- */
+
+.il-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 12px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--line);
+  background: var(--raised);
+}
+
+.il-scrub {
+  display: flex;
+  flex: 1 0 100%;
+  gap: 3px;
+}
+
+.il-scrub button {
+  flex: 1;
+  height: 8px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: var(--line);
+  cursor: pointer;
+}
+
+.il-scrub button.is-past {
+  background: var(--purple-btn);
+}
+
+.il-scrub button.is-on {
+  background: var(--purple-ink);
+}
+
+.il-play {
+  min-width: 104px;
+}
+
+.il-hint {
+  flex: 1;
+  font-size: 0.82rem;
+  color: var(--ink-3);
+}
+
+.il-password {
+  flex: 1;
+}
+
+.il-password input {
+  width: 100%;
+  max-width: 16rem;
+  min-height: 40px;
+  padding: 0 12px;
+  border: 1px solid var(--line-2);
+  border-radius: 10px;
+  background: var(--raised);
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.95rem;
+}
+
+.il-reset {
+  margin-left: auto;
+}
+
+/* The play/pause mark that flashes over the illustration. */
+.il-flash {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  display: grid;
+  place-items: center;
+  width: 88px;
+  height: 88px;
+  border-radius: 50%;
+  background: var(--ink);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  animation: il-flash 0.8s ease-out forwards;
+}
+
+.il-flash svg {
+  width: 40px;
+  height: 40px;
+  fill: var(--mint);
+}
+
+@keyframes il-flash {
+  from {
+    opacity: 0.9;
+    transform: translate(-50%, -50%) scale(0.9);
+  }
+  to {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(1.15);
+  }
+}
+
+/* ---- narrower screens: the desk above the agent ---- */
+
+@media (max-width: 1000px) {
+  .il-body {
+    grid-template-columns: minmax(0, 1fr);
+    height: auto;
+  }
+
+  .il-desk {
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .il-table {
+    flex: none;
+    overflow-x: auto;
+  }
+
+  .il-log {
+    flex: none;
+    height: 320px;
+  }
+
+  .il-pair {
+    flex: none;
+  }
+
+  .il-pair .il-log {
+    height: 360px;
+  }
+}
+
+@media (max-width: 1000px), (pointer: coarse) {
+  .il-play,
+  .il-reset,
+  .il-password input {
+    min-height: 44px;
+  }
+
+  .il-scrub button {
+    height: 12px;
+  }
+}
+
+@media (max-width: 760px) {
+  .il-head {
+    padding-top: 40px;
+  }
+
+  .il-desk > header,
+  .il-agent > header {
+    padding: 12px;
+  }
+
+  .il th:first-child,
+  .il td:first-child {
+    padding-left: 12px;
+  }
+
+  .il td {
+    padding: 8px;
+    font-size: 0.92rem;
+  }
+
+  /* The note column carries the long operations notice; give it room to wrap. */
+  .il-note {
+    min-width: 11rem;
+  }
+
+  .il-name {
+    white-space: normal;
+  }
+
+  .il-pair {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .il-one + .il-one {
+    border-left: 0;
+    border-top: 1px solid var(--line);
+  }
+
+  .il-pair .il-log {
+    height: 260px;
+  }
+
+  .il-editor {
+    height: 300px;
+  }
+
+  .il-editor .editor {
+    font-size: 16px;
+    --lh: 24px;
+  }
+
+  .il-hint {
+    display: none;
+  }
+
+  .il-controls {
+    padding: 12px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .il-log > li,
+  .il-flash,
+  .il-thinking span {
+    animation: none;
+  }
+
+  .il-pane,
+  .il td,
+  .il-thumb {
+    transition: none;
+  }
+}
