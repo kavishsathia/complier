@@ -2,9 +2,9 @@
 
 import { useCallback, useMemo, useState } from "react";
 import { load } from "../_complier/gate";
-import { Controls, Flash, SpecPane, Switch, Thinking, useFollow, usePassword, usePlayback, VerdictChip } from "../kit";
+import { Controls, Flash, post, SpecPane, Switch, Thinking, useFollow, usePassword, usePlayback, VerdictChip } from "../kit";
 import { initial, type AgentName, type Step } from "./model";
-import { AGENTS, finished, first, tick, type Frame } from "./run";
+import { AGENTS, finished, first, tick, type Ask, type Frame } from "./run";
 import { POLICY, UNIT } from "./spec";
 
 const FIRST = first(initial);
@@ -40,7 +40,18 @@ export default function PairIllustration() {
   const [password, setPassword] = usePassword();
 
   const machine = complier && "machine" in loaded ? loaded.machine : undefined;
-  const more = useCallback((f: Frame) => tick(f, machine, password, () => setPassword(null)), [machine, password, setPassword]);
+  const more = useCallback(
+    (f: Frame) => {
+      // The model's next call for one agent, from the password-gated route.
+      const ask: Ask = async (messages) => {
+        const { message, error } = await post("/api/demo2", { messages }, password, () => setPassword(null));
+        if (error || !message) throw new Error(error ?? "no reply");
+        return message;
+      };
+      return tick(f, machine, ask);
+    },
+    [machine, password, setPassword],
+  );
 
   const run = usePlayback(FIRST, more, finished, !!errors || !password);
   const { frames, view, last, busy } = run;

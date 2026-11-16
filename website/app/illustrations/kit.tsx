@@ -102,9 +102,10 @@ export function usePlayback<F>(first: F, more: (last: F) => Promise<F[]>, done: 
   return { frames, view, last, playing, busy, error, flash, reset, seek, toggle, onKeyDown, finished };
 }
 
-// The presenter's password, remembered in this browser. The demo routes refuse requests
-// without it.
+// The presenter's password, remembered in this browser and shared by both illustrations on the
+// page. The demo routes refuse requests without it.
 const KEY = "demo:password";
+const listeners = new Set<(p: string | null) => void>();
 
 export function usePassword() {
   const [password, setPassword] = useState<string | null>(null);
@@ -112,13 +113,17 @@ export function usePassword() {
     try {
       setPassword(localStorage.getItem(KEY));
     } catch {}
+    listeners.add(setPassword);
+    return () => {
+      listeners.delete(setPassword);
+    };
   }, []);
   const save = useCallback((p: string | null) => {
     try {
       if (p) localStorage.setItem(KEY, p);
       else localStorage.removeItem(KEY);
     } catch {}
-    setPassword(p);
+    for (const l of listeners) l(p);
   }, []);
   return [password, save] as const;
 }
@@ -283,7 +288,7 @@ export function Controls({
             <svg aria-hidden="true" viewBox="0 0 16 16" width="14" height="14">
               <path d={playing ? "M4 2.5h3v11H4zM9 2.5h3v11H9z" : "M4 2.5v11l9-5.5z"} fill="currentColor" />
             </svg>
-            {playing ? (busy ? "Pause" : "Pause") : view === 0 ? "Start" : "Play"}
+            {playing ? "Pause" : view === 0 ? "Start" : "Play"}
           </button>
           <span className="il-hint">{view === 0 && !playing ? "Space to start" : "Space play/pause · ← → step while paused"}</span>
         </>

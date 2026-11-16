@@ -4,11 +4,13 @@
 
 import { decide, finish, start, told, type Machine } from "../_complier/gate.ts";
 import type { PState } from "../_complier/policy.ts";
-import { post } from "../kit";
 import { next, reject, send, type AgentName, type Desk, type Step } from "./model.ts";
 
-type Message = Record<string, unknown>;
+export type Message = Record<string, unknown>;
 type ToolCall = { id: string; function: { name: string; arguments: string } };
+
+// One turn of the model for one agent: its conversation so far in, its next message out.
+export type Ask = (messages: Message[]) => Promise<Message & { tool_calls?: ToolCall[] }>;
 
 export const AGENTS: AgentName[] = ["A", "B"];
 
@@ -42,7 +44,7 @@ export const first = (desk: Desk): Frame => ({
 
 export const finished = (f: Frame) => AGENTS.every((a) => f.done[a]);
 
-export async function tick(f: Frame, machine: Machine | undefined, password: string | null, forget: () => void): Promise<Frame[]> {
+export async function tick(f: Frame, machine: Machine | undefined, ask: Ask): Promise<Frame[]> {
   const out: Frame[] = [];
   let { desk, state } = f;
   // Under complier the run starts from the policy's initial state.
@@ -115,11 +117,7 @@ export async function tick(f: Frame, machine: Machine | undefined, password: str
 
   await Promise.all(
     AGENTS.filter((a) => !done[a]).map(async (agent) => {
-      const { message, error } = (await post("/api/demo2", { messages: convo[agent] }, password, forget)) as {
-        message?: Message & { tool_calls?: ToolCall[] };
-        error?: string;
-      };
-      if (error || !message) throw new Error(error ?? "no reply");
+      const message = await ask(convo[agent]);
       const msgs = [...convo[agent], message];
       for (const t of message.tool_calls ?? []) {
         const content = perform(agent, t.function.name, JSON.parse(t.function.arguments || "{}"));
@@ -129,7 +127,8 @@ export async function tick(f: Frame, machine: Machine | undefined, password: str
     }),
   );
 
-  // Carry the agents' conversations on the last frame of the tick.
-  if (out.length) out[out.length - 1] = { ...out[out.length - 1], convo: { ...convo }, done: { ...done } };
+  // Carry the agents' conversations, and the policy's state once every allowed call's result has
+  // come back, on the last frame of the tick: the next tick starts from it.
+  if (out.length) out[out.length - 1] = { ...out[out.length - 1], state, convo: { ...convo }, done: { ...done } };
   return out;
 }

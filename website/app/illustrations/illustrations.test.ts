@@ -8,6 +8,8 @@ import { compile, evaluate, none, some } from "./_complier/cel.ts";
 import { decide, finish, load, start, type Machine } from "./_complier/gate.ts";
 import { offered } from "./_complier/policy.ts";
 import { POLICY as DESK_POLICY, UNIT as DESK_UNIT } from "./_desk/spec.ts";
+import { initial as pairDesk } from "./_pair/model.ts";
+import { finished, first, tick, type Ask, type Frame } from "./_pair/run.ts";
 import { POLICY as PAIR_POLICY, UNIT as PAIR_UNIT } from "./_pair/spec.ts";
 
 const machine = (unit: string, policy: string): Machine => {
@@ -103,4 +105,38 @@ test("an action the policy's Act doesn't list is refused", () => {
   const r = decide(m, start(), null, "reject_order", { id: 1 });
   assert.equal(r.verdict.k, "refused");
   assert.match(r.verdict.k === "refused" ? r.verdict.reason : "", /isn't an action/);
+});
+
+// A scripted agent for the two-agent run: reads, then sends what it read if it fits, and reads
+// again after a refusal. Both agents ask at once each tick, as the page does.
+const scripted: Ask = async (messages) => {
+  const last = [...messages].reverse().find((m) => m.role === "tool") as { content: string } | undefined;
+  const m = last && /customer (.+?), quantity (\d+),.*Current inventory: (\d+)\. Minimum inventory: (\d+)\./.exec(last.content);
+  const call = (name: string, args: object) => ({ role: "assistant", tool_calls: [{ id: String(Math.random()), function: { name, arguments: JSON.stringify(args) } }] });
+  if (!m) return call("next_order", {});
+  const [, name, q, inv, min] = m;
+  return Number(inv) - Number(q) >= Number(min) ? call("send_to_recipient", { name, quantity: Number(q), reason: "fits" }) : call("reject_order", { name, reason: "low" });
+};
+
+async function runPair(withComplier: boolean) {
+  const m = withComplier ? machine(PAIR_UNIT, PAIR_POLICY) : undefined;
+  let frames: Frame[] = [first(pairDesk)];
+  for (let i = 0; i < 40 && !finished(frames[frames.length - 1]); i++) frames = [...frames, ...(await tick(frames[frames.length - 1], m, scripted))];
+  return frames;
+}
+
+test("two agents without complier: both read the same order and ship it twice", async () => {
+  const frames = await runPair(false);
+  const last = frames[frames.length - 1];
+  assert.ok(finished(last));
+  assert.ok(last.desk.orders.some((o) => o.shipped > 1));
+});
+
+test("two agents with complier: the run finishes, every order once, reads refused while one is held", async () => {
+  const frames = await runPair(true);
+  const last = frames[frames.length - 1];
+  assert.ok(finished(last), "the run finishes");
+  assert.ok(last.desk.orders.every((o) => o.status !== "pending" && o.shipped <= 1));
+  assert.ok(last.desk.inventory >= last.desk.minimum);
+  assert.ok(frames.some((f) => f.step?.verdict?.k === "refused" && f.step.call === "next_order()"));
 });
