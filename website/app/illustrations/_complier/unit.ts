@@ -29,7 +29,8 @@ export type Unit = {
   hidden: string[];
 };
 
-const EVENT = /^[a-z_][A-Za-z0-9_]*$/;
+// A fixed CSP event, as the CLI checks it: a name, then dotted parts (accept.15).
+const EVENT = /^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z0-9_]+)*$/;
 const IDENT = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
 class Fail extends Error {
