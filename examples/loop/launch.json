@@ -1,0 +1,33 @@
+{
+  "description": "One Claude Code session kept working in rounds for 30 minutes: edit, check in Chrome, commit, push, watch CI, notify.",
+  "workspace": "~/complier-demos/loop",
+  "prepare": [
+    "complier machine down loop >/dev/null 2>&1 || true",
+    "pkill -f 'http.server 8799' >/dev/null 2>&1 || true",
+    "git clone -q https://github.com/kavishsathia/complier-loop-test \"$DEMO/site\"",
+    "cd \"$DEMO/site\"",
+    "git remote remove origin",
+    "if gh repo view complier-loop-demo >/dev/null 2>&1; then git remote add origin \"$(gh repo view complier-loop-demo --json sshUrl -q .sshUrl)\"; git push -q --force -u origin main; else gh repo create complier-loop-demo --private --source . --push >/dev/null; fi",
+    "complier machine up loop .complier/loop"
+  ],
+  "windows": [
+    { "title": "page server", "dir": "$DEMO/site", "run": "python3 -m http.server 8799" },
+    { "title": "machine log", "dir": "$DEMO/site", "run": "complier machine log loop --follow" },
+    {
+      "title": "agent",
+      "dir": "$DEMO/site",
+      "run": "COMPLIER_MACHINE=loop COMPLIER_ROLE=dev claude --chrome --plugin-dir ~/.complier/plugin \"$(cat .complier/loop/prompt.md)\""
+    }
+  ],
+  "setup": [
+    { "title": "Copy the page", "text": "git clone https://github.com/kavishsathia/complier-loop-test ~/loop-long && cd ~/loop-long" },
+    { "title": "Give it its own GitHub repo, with CI", "text": "git remote remove origin && gh repo create loop-long --private --source . --push" },
+    { "title": "Serve the page (in ~/loop-long)", "text": "python3 -m http.server 8799" },
+    { "title": "Start the machine (in ~/loop-long)", "text": "complier machine up loop .complier/loop" },
+    { "title": "Watch it", "text": "complier machine log loop --follow" },
+    {
+      "title": "Start Claude Code (in ~/loop-long)",
+      "text": "COMPLIER_MACHINE=loop COMPLIER_ROLE=dev claude --chrome --plugin-dir ~/.complier/plugin \"$(cat .complier/loop/prompt.md)\""
+    }
+  ]
+}
