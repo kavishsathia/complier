@@ -1,10 +1,21 @@
 import { decide, finish, load, start, told, type Machine } from "../../illustrations/_complier/gate";
 import type { PState } from "../../illustrations/_complier/policy";
-import { apply, nextPending, type Call, type Desk, type Step } from "../../illustrations/_desk/model";
+import { apply, initial, nextPending, type Call, type Desk, type Step } from "../../illustrations/_desk/model";
 import { complete, show, SYSTEM, tools, type Message } from "./agent";
 import { authorised, denied } from "./auth";
 
 // One step of the order-desk agent: given the desk, decide the first pending order.
+
+const STATUSES = ["pending", "accepted", "rejected"];
+
+function sameOrders(desk: Desk | undefined): boolean {
+  if (!desk || !Number.isInteger(desk.inventory) || !Number.isInteger(desk.minimum) || !Array.isArray(desk.orders)) return false;
+  if (desk.orders.length !== initial.orders.length) return false;
+  return desk.orders.every((o, i) => {
+    const want = initial.orders[i];
+    return o.id === want.id && o.name === want.name && o.quantity === want.quantity && o.note === want.note && STATUSES.includes(o.status);
+  });
+}
 
 // Runs the agent until it accepts or rejects the order in front of it. With a unit and a
 // policy, complier decides every call first: the unit names its action and the policy allows,
@@ -13,6 +24,9 @@ export async function POST(request: Request) {
   if (!authorised(request)) return denied();
   const body: { desk: Desk; unit?: string; policy?: string; state?: PState } = await request.json();
   let { desk, state } = body;
+  // The unit names each accept by the quantity of the desk's order, so the desk must be the
+  // illustration's six orders: their ids, customers, quantities and notes can't change.
+  if (!sameOrders(desk)) return Response.json({ error: "The desk's orders aren't the illustration's orders" }, { status: 400 });
   let machine: Machine | undefined;
   if (body.unit !== undefined && body.policy !== undefined) {
     const loaded = load(body.unit, body.policy);
