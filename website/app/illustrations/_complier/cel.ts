@@ -1,8 +1,8 @@
 // The CEL the illustrations' translation units are written in: literals, field access, the
-// optional methods (hasValue, value, orValue), comparisons, `in`, &&, ||, !, ?: and a few string
-// and list methods. An expression is parsed once and evaluated per call; anything outside this
-// is a compile error that names it, and a type mismatch at runtime is an evaluation error, which
-// complier turns into a refusal.
+// optional methods (hasValue, value, orValue), comparisons, `in`, &&, ||, !, ?:, a few string
+// and list methods, and regex.extract. An expression is parsed once and evaluated per call;
+// anything outside this is a compile error that names it, and a type mismatch at runtime is an
+// evaluation error, which complier turns into a refusal.
 
 export class CelError extends Error {}
 
@@ -341,6 +341,24 @@ export function evaluate(e: Expr, vars: Record<string, CelValue>): CelValue {
           throw new CelError(`int() of ${kind(args[0])}`);
       }
       throw new CelError(`undeclared function '${n.name}'`);
+    }
+    // cel-java's regex extension: regex.extract(target, pattern) is the first capture group of
+    // the first match (the whole match without a group), or optional.none() without a match.
+    if (n.of.k === "id" && n.of.name === "regex" && !("regex" in vars)) {
+      const args = n.args.map(ev);
+      if (n.name !== "extract") throw new CelError(`undeclared function 'regex.${n.name}'`);
+      const target = want<string>(args[0], "string", "regex.extract");
+      const pattern = want<string>(args[1], "string", "regex.extract");
+      let re: RegExp;
+      try {
+        re = new RegExp(pattern);
+      } catch {
+        throw new CelError(`regex.extract: invalid pattern ${pattern}`);
+      }
+      const m = re.exec(target);
+      if (!m) return none();
+      if (m.length > 2) throw new CelError("regex.extract: the pattern may have at most one capture group");
+      return some(m.length === 2 ? (m[1] ?? "") : m[0]);
     }
     const o = ev(n.of);
     const args = n.args.map(ev);
