@@ -1,0 +1,19 @@
+-- Sequential pipeline: a parser, an extractor and a summariser work on a document in turn. A stage
+-- hands over only once its call succeeded; a failed one is retried by the same agent.
+include "patterns.csp"
+datatype Role = parser | extractor | summariser
+datatype Act = parse | extract | summarise
+datatype Value = done | failed
+Returns(_) = {done, failed}
+
+Stage(r, x) = Permit(r, x, \ v @ if v == done then SKIP else Stage(r, x))
+
+Policy = Pipeline(<Stage(parser, parse), Stage(extractor, extract), Stage(summariser, summarise)>)
+
+-- Each stage acts only once the stage before it has succeeded.
+assert Before({result.parser.parse.done}, {|attempt.extractor|}) [T= Policy
+assert Before({result.extractor.extract.done}, {|attempt.summariser|}) [T= Policy
+
+Agent  = ||| r : Role @ ControllableCHAOS(r)
+System = prioritise(Agent [| {|attempt, allow, deny, result, refuse|} |] ComplierGuard(Policy),
+                    <{|attempt|}, {|refuse|}>)

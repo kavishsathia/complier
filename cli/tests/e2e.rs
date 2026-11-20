@@ -607,3 +607,21 @@ fn a_held_call_by_hand_waits_and_prints_its_verdict() {
         assert!(ok && out.contains("write held") && out.contains("write allowed"), "{out}");
     });
 }
+
+// Every example of the pattern library (patterns/examples) is proven and starts, its own
+// assertions (the pattern's guarantee) included.
+#[test]
+fn the_pattern_library_examples_are_admitted() {
+    let env = Env::new("patterns");
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../patterns/examples");
+    let mut specs: Vec<PathBuf> = std::fs::read_dir(&dir).unwrap().map(|e| e.unwrap().path()).filter(|p| p.extension().is_some_and(|e| e == "csp")).collect();
+    specs.sort();
+    assert_eq!(specs.len(), 8);
+    for spec in specs {
+        let name = spec.file_stem().unwrap().to_str().unwrap().to_string();
+        let (ok, out) = env.complier(&["machine", "up", &name, "--spec", spec.to_str().unwrap()]);
+        assert!(ok, "{name}: {out}");
+        let policy = env.log(&name).into_iter().find(|e| e["kind"] == "policy").unwrap();
+        assert!(policy["report"].as_str().unwrap().contains("the spec's own assertion"), "{name}: {policy}");
+    }
+}

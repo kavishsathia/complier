@@ -1,0 +1,21 @@
+-- Advisor: the developer edits and commits as it likes, and may ask the advisor at any point. Its
+-- ask waits until the advisor has answered, then runs (and reads the answer). The advisor acts only
+-- when asked, and only to answer.
+include "patterns.csp"
+datatype Role = developer | advisor
+datatype Act = edit | ask | answer | commit
+datatype Value = done | failed
+Returns(_) = {done, failed}
+
+Work = Permit(developer, edit, \ _ @ Work)
+    [] Consult(developer, ask, advisor, answer, \ _ @ Work)
+    [] Step(developer, commit)
+
+Policy = Work
+
+-- The advisor answers only when asked, once per question.
+assert Alternate({|attempt.developer.ask|}, {|attempt.advisor.answer|}) [T= Policy
+
+Agent  = ||| r : Role @ ControllableCHAOS(r)
+System = prioritise(Agent [| {|attempt, allow, deny, result, refuse|} |] ComplierGuard(Policy),
+                    <{|attempt|}, {|refuse|}>)

@@ -1,0 +1,20 @@
+-- Hierarchical decomposition: the writer's research call hands the research to an assistant, and
+-- waits. The assistant hands the search to a searcher in turn, then summarises what it found. Once
+-- the assistant is done, the writer's call returns and the writer writes the report.
+include "patterns.csp"
+datatype Role = writer | assistant | searcher
+datatype Act = research | search | browse | summarise | write
+datatype Value = done | failed
+Returns(_) = {done, failed}
+
+Assistant = Delegate(assistant, search, Step(searcher, browse), \ _ @ Step(assistant, summarise))
+
+Policy = Delegate(writer, research, Assistant, \ _ @ Step(writer, write))
+
+-- A delegated call runs only once the work below it is done.
+assert Before({|result.assistant.summarise|}, {|allow.writer.research|}) [T= Policy
+assert Before({|result.searcher.browse|}, {|allow.assistant.search|}) [T= Policy
+
+Agent  = ||| r : Role @ ControllableCHAOS(r)
+System = prioritise(Agent [| {|attempt, allow, deny, result, refuse|} |] ComplierGuard(Policy),
+                    <{|attempt|}, {|refuse|}>)

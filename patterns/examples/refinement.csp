@@ -1,0 +1,17 @@
+-- Iterative refinement: the writer drafts; then, at most twice, the critic critiques and the editor
+-- revises. A good critique ends it early; after two revisions it ends anyway.
+include "patterns.csp"
+datatype Role = writer | critic | editor
+datatype Act = draft | critique | revise
+datatype Value = done | failed | good | needs_work
+Returns(critique) = {good, needs_work, failed}
+Returns(_)        = {done, failed}
+
+Policy = Refinement(2, Step(writer, draft), Judgement(critic, critique, {good}), Step(editor, revise))
+
+-- The editor revises at most twice.
+assert AtMost(2, {|attempt.editor.revise|}) [T= Policy
+
+Agent  = ||| r : Role @ ControllableCHAOS(r)
+System = prioritise(Agent [| {|attempt, allow, deny, result, refuse|} |] ComplierGuard(Policy),
+                    <{|attempt|}, {|refuse|}>)

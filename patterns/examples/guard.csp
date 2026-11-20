@@ -1,0 +1,19 @@
+-- Guard: the agent drafts emails freely, but every send is put to the judge before it runs. An
+-- approved send goes out; anything else is denied, and the agent carries on. The agent never calls
+-- the judge: its send is what wakes it.
+include "patterns.csp"
+datatype Role = agent | judge
+datatype Act = draft | send | review
+datatype Value = done | failed | approve | reject
+Returns(review) = {approve, reject, failed}
+Returns(_)      = {done, failed}
+
+Policy = Permit(agent, draft, \ _ @ Policy)
+      [] Guard(agent, send, Judgement(judge, review, {approve}), \ _ @ Policy, Policy)
+
+-- Every send that runs was approved by the judge, each by its own approval.
+assert Alternate({result.judge.review.approve}, {allow.agent.send}) [T= Policy
+
+Agent  = ||| r : Role @ ControllableCHAOS(r)
+System = prioritise(Agent [| {|attempt, allow, deny, result, refuse|} |] ComplierGuard(Policy),
+                    <{|attempt|}, {|refuse|}>)

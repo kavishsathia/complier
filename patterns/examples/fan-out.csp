@@ -1,0 +1,19 @@
+-- Parallel fan-out/gather: three reviewers look at a pull request at the same time, and the
+-- summariser writes the review once all three are done.
+include "patterns.csp"
+datatype Role = security | style | performance | summariser
+datatype Act = review | summarise
+datatype Value = done | failed
+Returns(_) = {done, failed}
+
+Policy = FanOut(<Step(security, review), Step(style, review), Step(performance, review)>,
+                Step(summariser, summarise))
+
+-- The summariser acts only once every reviewer's review has come back.
+assert Before({|result.security.review|}, {|attempt.summariser|}) [T= Policy
+assert Before({|result.style.review|}, {|attempt.summariser|}) [T= Policy
+assert Before({|result.performance.review|}, {|attempt.summariser|}) [T= Policy
+
+Agent  = ||| r : Role @ ControllableCHAOS(r)
+System = prioritise(Agent [| {|attempt, allow, deny, result, refuse|} |] ComplierGuard(Policy),
+                    <{|attempt|}, {|refuse|}>)

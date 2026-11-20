@@ -1,0 +1,25 @@
+-- Coordinator/dispatcher: a coordinator routes each request to billing or support, whose specialist
+-- handles it; then the coordinator routes the next one, or closes the desk. The routing call's
+-- result names the specialist.
+include "patterns.csp"
+datatype Role = coordinator | billing | support
+datatype Act = route | refund | troubleshoot | close
+datatype Value = done | failed | to_billing | to_support
+Returns(route) = {to_billing, to_support, failed}
+Returns(_)     = {done, failed}
+
+Route(Handle) = Permit(coordinator, route, \ v @ if v == failed then Route(Handle) else Handle(v))
+             [] Step(coordinator, close)
+
+Specialist(to_billing) = Step(billing, refund)
+Specialist(to_support) = Step(support, troubleshoot)
+
+Policy = Dispatcher(Route, Specialist)
+
+-- A specialist acts only on a request routed to it.
+assert Before({result.coordinator.route.to_billing}, {|attempt.billing|}) [T= Policy
+assert Before({result.coordinator.route.to_support}, {|attempt.support|}) [T= Policy
+
+Agent  = ||| r : Role @ ControllableCHAOS(r)
+System = prioritise(Agent [| {|attempt, allow, deny, result, refuse|} |] ComplierGuard(Policy),
+                    <{|attempt|}, {|refuse|}>)

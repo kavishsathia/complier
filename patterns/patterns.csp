@@ -65,3 +65,19 @@ Consult(r, x, a, y, K) = Hold(r, x, Step(a, y), K)
 -- result v carries on as K(v); if not, it's denied, and the policy carries on as P. r never calls
 -- the judge: its attempt is what wakes it.
 Guard(r, x, Judge, K, P) = attempt.r.x -> Judge(allow.r.x -> result.r.x?v : Returns(x) -> K(v), deny.r.x -> P)
+
+-- Properties, for a spec's own assertions about its policy (assert Before(E, B) [T= Policy). Each
+-- is a process whose traces are exactly the ones with the property, and which may end at any point;
+-- FDR checks the policy has no other trace.
+
+-- No event in B happens before some event in E has.
+Before(E, B) = SKIP [] ([] x : diff(Events, B) @ x -> (if member(x, E) then Anything else Before(E, B)))
+
+-- Events in E happen at most n times.
+AtMost(n, E) = SKIP [] ([] x : diff(Events, E) @ x -> AtMost(n, E)) [] (n > 0 & ([] x : E @ x -> AtMost(n - 1, E)))
+
+-- Events in E and in B take turns, starting with E: each B answers the E just before it.
+Alternate(E, B) = SKIP [] ([] x : diff(Events, union(E, B)) @ x -> Alternate(E, B)) [] ([] x : E @ x -> Answering(E, B))
+Answering(E, B) = SKIP [] ([] x : diff(Events, union(E, B)) @ x -> Answering(E, B)) [] ([] x : B @ x -> Alternate(E, B))
+
+Anything = SKIP [] ([] x : Events @ x -> Anything)

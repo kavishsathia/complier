@@ -1,0 +1,17 @@
+-- Generator/critic: the writer drafts and the critic reviews, until the critic passes a draft; only
+-- then may the writer publish.
+include "patterns.csp"
+datatype Role = writer | critic
+datatype Act = draft | review | publish
+datatype Value = done | failed | pass | fail
+Returns(review) = {pass, fail, failed}
+Returns(_)      = {done, failed}
+
+Policy = GeneratorCritic(Step(writer, draft), Judgement(critic, review, {pass})) ; Step(writer, publish)
+
+-- Nothing is published before the critic has passed a draft.
+assert Before({result.critic.review.pass}, {|attempt.writer.publish|}) [T= Policy
+
+Agent  = ||| r : Role @ ControllableCHAOS(r)
+System = prioritise(Agent [| {|attempt, allow, deny, result, refuse|} |] ComplierGuard(Policy),
+                    <{|attempt|}, {|refuse|}>)
