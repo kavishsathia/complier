@@ -3,7 +3,7 @@
   "workspace": "~/complier-demos/fan-out",
   "prepare": [
     "complier machine down fan-out >/dev/null 2>&1 || true",
-    "cd \"$DEMO/workspace\" && git init -q -b main && git add -A && git -c user.name=planner -c user.email=planner@complier.invalid commit -qm 'The task and its data'",
+    "(cd \"$DEMO/workspace\" && git init -q -b main && git add -A && git -c user.name=planner -c user.email=planner@complier.invalid commit -qm 'The task and its data')",
     "complier machine up fan-out \"$DEMO\""
   ],
   "windows": [

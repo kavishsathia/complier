@@ -35,6 +35,11 @@ impl Env {
 
     // With extra environment for the daemon, which proves units and translates calls.
     fn with(name: &str, extra: &[(&str, &str)]) -> Self {
+        Self::started_in(name, extra, None)
+    }
+
+    // With the daemon started from the folder `cwd` instead of the test's.
+    fn started_in(name: &str, extra: &[(&str, &str)], cwd: Option<&Path>) -> Self {
         let home = std::env::temp_dir().join(format!("complier-e2e-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&home);
         let path = home.join("empty-path");
@@ -48,6 +53,9 @@ impl Env {
         up.env("HOME", &home).env("PATH", &path);
         for (k, v) in extra {
             up.env(k, v);
+        }
+        if let Some(cwd) = cwd {
+            up.current_dir(cwd);
         }
         let daemon = up.arg("up").stdout(Stdio::null()).spawn().unwrap();
         let socket = home.join(".complier/daemon.sock");
@@ -624,4 +632,16 @@ fn the_pattern_library_examples_are_admitted() {
         let policy = env.log(&name).into_iter().find(|e| e["kind"] == "policy").unwrap();
         assert!(policy["report"].as_str().unwrap().contains("the spec's own assertion"), "{name}: {policy}");
     }
+}
+
+// A daemon started from a folder that's later removed (as a demo's is, when the launcher launches it
+// again) still proves units: the JVM behind the CEL backend can't start in a removed folder.
+#[test]
+fn the_daemon_still_proves_units_after_the_folder_it_started_in_is_removed() {
+    let gone = std::env::temp_dir().join(format!("complier-e2e-started-here-{}", std::process::id()));
+    std::fs::create_dir_all(&gone).unwrap();
+    let env = Env::started_in("gone", &[], Some(&gone));
+    std::fs::remove_dir_all(&gone).unwrap();
+    let (ok, out) = env.machine_up("g", "gate.csp", &["gate.yaml"]);
+    assert!(ok, "{out}");
 }

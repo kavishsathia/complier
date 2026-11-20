@@ -496,6 +496,10 @@ impl Daemon {
 pub fn serve() -> Result<()> {
     let path = socket()?;
     std::fs::create_dir_all(dir()?.join("machines"))?;
+    // The daemon outlives whatever folder it was started from, which may be removed (a demo's, when
+    // it's launched again); the JVM it starts for the CEL backend can't run in a removed folder.
+    // Requests carry absolute paths, so it works from its own.
+    std::env::set_current_dir(dir()?)?;
     if path.exists() {
         if UnixStream::connect(&path).is_ok() {
             bail!("a complier daemon is already running");
