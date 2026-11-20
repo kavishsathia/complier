@@ -172,7 +172,13 @@ enum MachineCommand {
         event: String,
     },
     /// Give the result of an action attempted with `act`, as the value the policy binds (e.g. done).
-    Result { name: String, value: String },
+    Result {
+        name: String,
+        value: String,
+        /// Whose call it is, when agents in several roles have calls in flight.
+        #[arg(long)]
+        role: Option<String>,
+    },
     /// List running machines.
     Ls,
     /// Print a machine's event log.
@@ -385,15 +391,21 @@ fn machine(command: MachineCommand) -> Result<()> {
             println!("machine {name} down");
         }
         MachineCommand::Act { name, role, event } => {
-            let out = daemon::request(&daemon::Request::Act { machine: name, role, event: event.clone(), value: serde_json::Value::Null }, false)?;
+            let mut out = daemon::request(&daemon::Request::Act { machine: name.clone(), role: role.clone(), event: event.clone(), value: serde_json::Value::Null }, false)?;
+            // A held call waits, as an agent's tool call would, until the policy answers it.
+            if out["verdict"] == "held" {
+                println!("{event} held; the policy answers it once other agents have acted (waiting…)");
+                out = daemon::request(&daemon::Request::Verdict { machine: name, role }, false)?;
+            }
             let state = out["state"].as_str().unwrap_or("?");
             match out["verdict"].as_str() {
                 Some("allowed") => println!("{event} allowed; the policy is now at {state}"),
-                _ => bail!("{event} {}: {}", out["verdict"].as_str().unwrap_or("?"), out["reason"].as_str().unwrap_or("")),
+                _ => bail!("{event} {}: {}", out["verdict"].as_str().unwrap_or("?"), out["reason"].as_str().unwrap_or("").replace("the call", &event)),
             }
         }
-        MachineCommand::Result { name, value } => {
-            let request = daemon::Request::Result { machine: name, role: String::new(), tool_use_id: String::new(), ok: true, output: String::new(), error: String::new(), value: Some(value) };
+        MachineCommand::Result { name, value, role } => {
+            let role = role.unwrap_or_default();
+            let request = daemon::Request::Result { machine: name, role, tool_use_id: String::new(), ok: true, output: String::new(), error: String::new(), value: Some(value) };
             let out = daemon::request(&request, false)?;
             println!("{} returned {}; the policy is now at {}", out["action"].as_str().unwrap_or("?"), out["value"].as_str().unwrap_or("?"), out["state"].as_str().unwrap_or("?"));
         }
@@ -434,8 +446,29 @@ fn hook_stop() -> Result<()> {
     if next.is_empty() {
         return Ok(());
     }
+    // Other agents' calls the policy holds until it can answer them: what this agent is acting on.
+    let held: Vec<String> = delivery["held"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|h| {
+            let what = h["event"].as_str().unwrap_or("?");
+            match h["tool"].as_str().filter(|t| !t.is_empty()) {
+                Some(tool) => {
+                    let args = h["arguments"].to_string();
+                    let args = if args.chars().count() > 4000 { format!("{}…", args.chars().take(4000).collect::<String>()) } else { args };
+                    format!("{}'s {what} ({tool} with {args})", h["role"].as_str().unwrap_or("?"))
+                }
+                None => format!("{}'s {what}", h["role"].as_str().unwrap_or("?")),
+            }
+        })
+        .collect();
+    let holding = match held.as_slice() {
+        [] => String::new(),
+        calls => format!(" The policy is holding {} until it can answer: the call waits on what you do now.", calls.join("; ")),
+    };
     let reason = format!(
-        "complier: machine {machine}'s policy hasn't finished, so you're not done yet. It now lets you: {}. Continue with the workflow.",
+        "complier: machine {machine}'s policy hasn't finished, so you're not done yet. It now lets you: {}.{holding} Continue with the workflow.",
         next.join(", ")
     );
     let _ = role;
@@ -496,6 +529,7 @@ fn log(name: &str, follow: bool) -> Result<()> {
         match kind.as_str() {
             "admission" => println!("{time}  admitted {}", text("unit")),
             "result" => println!("{time}  result   {:<48} → {}", text("event"), text("state")),
+            "act" if text("outcome") == "held" => println!("{time}  act      {event:<48} held, until the policy answers"),
             "policy" => println!("{time}  policy   {} ({} states, compiled by FDR)", text("spec"), entry["states"]),
             "warning" => println!("{time}  warning  {}", text("warning")),
             "status" => println!("{time}  status   {:<48} {}", text("status"), text("reason")),

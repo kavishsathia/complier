@@ -532,3 +532,78 @@ fn with_roles_each_agent_takes_only_its_own_steps() {
     assert_eq!(events, ["result.writer.write.done", "result.reviewer.check.small", "result.writer.write.done", "result.reviewer.check.big"]);
     assert!(log.iter().any(|e| e["kind"] == "status" && e["status"] == "finished"), "{log:#?}");
 }
+
+// A held call: the writer's write is put to the judge before it runs. Its pre-tool-use hook waits
+// while the judge acts; the judge is told what the writer is trying to do; the judge's verdict
+// becomes the writer's allow or deny.
+#[test]
+fn a_guarded_call_waits_for_the_judge_and_takes_its_verdict() {
+    let env = Env::new("guard");
+    let (ok, out) = env.machine_up("g", "guarded.csp", &["gate.yaml"]);
+    assert!(ok, "{out}");
+    let stop = |role: &str| env.hook_as("g", role, "stop", json!({ "hook_event_name": "Stop" }));
+    std::thread::scope(|s| {
+        // The writer's write is held: its hook doesn't answer until the judge has checked.
+        let writer = s.spawn(|| env.attempt_as("g", "writer", "mcp__fake__write-item", json!({ "id": "draft-1" }), Ok("")));
+        std::thread::sleep(Duration::from_millis(500));
+        assert!(!writer.is_finished(), "the write waits for the judge");
+        // The judge's stop is turned back with its step and the call it's judging.
+        let told = stop("judge");
+        assert!(told.contains("check") && told.contains("writer's write") && told.contains("draft-1"), "{told}");
+        // A writer can't attempt anything else meanwhile, and the judge's small check denies it.
+        assert!(env.attempt_as("g", "judge", "mcp__fake__peek", json!({}), Ok("small")).0);
+        let (ok, text) = writer.join().unwrap();
+        assert!(!ok && text.contains("denied"), "{text}");
+    });
+    std::thread::scope(|s| {
+        let writer = s.spawn(|| env.attempt_as("g", "writer", "mcp__fake__write-item", json!({ "id": "draft-2" }), Ok("")));
+        std::thread::sleep(Duration::from_millis(300));
+        assert!(env.attempt_as("g", "judge", "mcp__fake__peek", json!({}), Ok("big")).0);
+        assert!(writer.join().unwrap().0, "a big check lets the write run");
+    });
+    let log = env.log("g");
+    let verdicts: Vec<String> = log.iter().filter(|e| e["kind"] == "verdict").map(|e| format!("{}", e["outcome"].as_str().unwrap())).collect();
+    assert_eq!(verdicts, ["denied", "allowed"]);
+    assert!(log.iter().any(|e| e["kind"] == "status" && e["status"] == "finished"), "{log:#?}");
+}
+
+// Concurrent agents, by hand: both branches of a fan-out have calls in flight at once, and the
+// gatherer's turn comes only when both are done. `machine act` waits on a held call as a hook does.
+#[test]
+fn fanned_out_agents_act_at_the_same_time_and_the_gather_waits_for_all() {
+    let env = Env::new("fanout");
+    let (ok, out) = env.machine_up("f", "fanout.csp", &[]);
+    assert!(ok, "{out}");
+    let act = |role: &str, x: &str| env.complier(&["machine", "act", "f", "--role", role, x]);
+    assert!(act("left", "write").0);
+    let (ok, out) = act("right", "write");
+    assert!(ok, "the right branch writes while the left's call runs: {out}");
+    let (ok, out) = act("gatherer", "check");
+    assert!(!ok && out.contains("doesn't take check from gatherer") && out.contains("haven't come back"), "{out}");
+    let (ok, out) = env.complier(&["machine", "result", "f", "done"]);
+    assert!(!ok && out.contains("--role"), "{out}");
+    assert!(env.complier(&["machine", "result", "f", "--role", "right", "done"]).0);
+    assert!(!act("gatherer", "check").0, "the left branch isn't done yet");
+    assert!(env.complier(&["machine", "result", "f", "--role", "left", "done"]).0);
+    assert!(act("gatherer", "check").0);
+    let (ok, out) = env.complier(&["machine", "result", "f", "big"]);
+    assert!(ok, "{out}");
+    assert!(env.log("f").iter().any(|e| e["kind"] == "status" && e["status"] == "finished"));
+}
+
+// The pattern library's held call by hand: `machine act` says it's held, waits, then prints the
+// verdict the judge's check gave it.
+#[test]
+fn a_held_call_by_hand_waits_and_prints_its_verdict() {
+    let env = Env::new("held");
+    let (ok, out) = env.machine_up("h", "guarded.csp", &[]);
+    assert!(ok, "{out}");
+    std::thread::scope(|s| {
+        let writer = s.spawn(|| env.complier(&["machine", "act", "h", "--role", "writer", "write"]));
+        std::thread::sleep(Duration::from_millis(500));
+        assert!(env.complier(&["machine", "act", "h", "--role", "judge", "check"]).0);
+        assert!(env.complier(&["machine", "result", "h", "--role", "judge", "big"]).0);
+        let (ok, out) = writer.join().unwrap();
+        assert!(ok && out.contains("write held") && out.contains("write allowed"), "{out}");
+    });
+}

@@ -4,7 +4,7 @@
       { "hooks": [{ "type": "command", "command": "complier hook session-start" }] }
     ],
     "PreToolUse": [
-      { "hooks": [{ "type": "command", "command": "complier hook pre-tool-use" }] }
+      { "hooks": [{ "type": "command", "command": "complier hook pre-tool-use", "timeout": 3600 }] }
     ],
     "PostToolUse": [
       { "hooks": [{ "type": "command", "command": "complier hook post-tool-use" }] }

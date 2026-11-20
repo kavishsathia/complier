@@ -1,0 +1,15 @@
+-- The pattern library's Guard, for gate.yaml's tools: the writer's write is held until the judge
+-- checks it, and runs only if the judge's check saw `big`; otherwise it's denied and the writer may
+-- try again. The writer never calls the judge: its attempt is what gives the judge its turn.
+include "patterns.csp"
+datatype Role = writer | judge
+datatype Act = check | write
+datatype Value = done | failed | big | small
+Returns(check) = {big, small, failed}
+Returns(_)     = {done, failed}
+
+Policy = Guard(writer, write, Judgement(judge, check, {big}), \ _ @ SKIP, Policy)
+
+Agent  = ||| r : Role @ ControllableCHAOS(r)
+System = prioritise(Agent [| {|attempt, allow, deny, result, refuse|} |] ComplierGuard(Policy),
+                    <{|attempt|}, {|refuse|}>)

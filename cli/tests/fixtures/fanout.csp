@@ -1,0 +1,14 @@
+-- The pattern library's FanOut: two writers write at the same time, and the gatherer checks once
+-- both are done.
+include "patterns.csp"
+datatype Role = left | right | gatherer
+datatype Act = check | write
+datatype Value = done | failed | big | small
+Returns(check) = {big, small, failed}
+Returns(_)     = {done, failed}
+
+Policy = FanOut(<Step(left, write), Step(right, write)>, Step(gatherer, check))
+
+Agent  = ||| r : Role @ ControllableCHAOS(r)
+System = prioritise(Agent [| {|attempt, allow, deny, result, refuse|} |] ComplierGuard(Policy),
+                    <{|attempt|}, {|refuse|}>)

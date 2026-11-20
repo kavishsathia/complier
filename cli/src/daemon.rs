@@ -10,7 +10,11 @@
 // - otherwise the attempt is refused, and W stays where it was.
 // An allowed call runs, and the harness sends its result here afterwards (`result`). The unit turns
 // it into a value v, and the machine follows W's result.x.v edge (FDR proved W accepts every value x
-// can return). Until then, W takes no other attempt.
+// can return). Until then, W takes no other attempt from that agent.
+// With roles, agents act at the same time: each role has at most one call in flight, and W may take
+// other roles' attempts meanwhile. W may also take an attempt and answer it only later, once other
+// agents have acted (a held call, as the pattern library's Hold and Guard do): the agent's call waits
+// here until W offers its allow or deny, which the daemon then takes at once.
 // Only an allowed call may run. Nothing else moves a machine: complier observes the world only
 // through the results of calls it allowed.
 // Clients talk to it over a Unix socket, one JSON request and one JSON response per line.
@@ -79,7 +83,8 @@ pub enum Request {
         value: Option<String>,
     },
     // The agent attempts the action `event` directly, as its hook would after translating a call
-    // (its value only goes in the log).
+    // (its value goes in the log, and is shown to other agents while the call is held). A held
+    // attempt's answer comes back as verdict `held`; `Verdict` then waits for the real one.
     Act {
         machine: String,
         role: String,
@@ -87,6 +92,8 @@ pub enum Request {
         #[serde(default)]
         value: Value,
     },
+    // Waits for the policy's answer to this role's held attempt.
+    Verdict { machine: String, role: String },
     // The agent is stopping: wait while there's nothing it would be allowed to do, then report.
     Stop { machine: String, role: String },
 }
@@ -105,6 +112,7 @@ enum Status {
 }
 
 // An allowed call whose result hasn't come back yet.
+#[derive(Clone)]
 struct Pending {
     action: String,
     // The action as the policy's events name it: `x`, or `r.x` with roles.
@@ -127,12 +135,27 @@ struct Machine {
     // The spec's roles; empty if it has none. With roles, every event carries the agent's role, and
     // each agent is its own ControllableCHAOS.
     roles: Vec<String>,
-    pending: Option<Pending>,
+    // Each role's allowed call whose result hasn't come back yet (the key is the agent's role).
+    // Without roles, at most one call is in flight at a time.
+    running: BTreeMap<String, Pending>,
+    // Each role's attempt the policy has taken but not answered yet, by role.
+    held: BTreeMap<String, Held>,
     status: Status,
     log: File,
     // Why the machine left Running, and which agents have been told.
     ended: String,
     told_ended: BTreeSet<String>,
+}
+
+// An attempt the policy has taken and will answer once other agents have acted. The agent's call
+// waits for `verdict`; meanwhile the call is shown to the agents whose turn it is.
+struct Held {
+    call: Pending,
+    // The event as the log shows it, with its value (`publish.p1`).
+    shown: String,
+    tool: String,
+    arguments: Value,
+    verdict: Option<Verdict>,
 }
 
 // One admitted unit: the service it covers, its proven translation (if it translates anything),
@@ -184,12 +207,21 @@ fn service_tool<'a>(name: &'a str, server: &str) -> Option<&'a str> {
 }
 
 // What the policy did with an attempt.
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 enum Verdict {
     Allowed,
     Denied,
     // The policy didn't take the attempt; its state is unchanged.
     Refused(String),
+    // The policy took the attempt and will answer it once other agents have acted.
+    Held,
+}
+
+// What the agent who made a call is waiting for.
+pub struct Call<'a> {
+    pub tool: &'a str,
+    pub arguments: &'a Value,
+    pub tool_use_id: &'a str,
 }
 
 impl Machine {
@@ -221,8 +253,8 @@ impl Machine {
         if self.roles.is_empty() { x.to_string() } else { format!("{role}.{x}") }
     }
 
-    // The actions this role's agent would be allowed to take now: its attempts W offers and would
-    // allow.
+    // The actions this role's agent may take now: its attempts W offers and wouldn't deny. Most are
+    // allowed at once; a held one is answered once other agents have acted.
     fn next(&self, role: &str) -> Vec<String> {
         let mine = if self.roles.is_empty() { String::new() } else { format!("{role}.") };
         self.edges()
@@ -230,8 +262,17 @@ impl Machine {
             .filter_map(|(event, &after)| {
                 let key = event.strip_prefix("attempt.")?;
                 let x = key.strip_prefix(mine.as_str())?;
-                self.automaton.edges[after].contains_key(&format!("allow.{key}")).then(|| x.to_string())
+                (!self.automaton.edges[after].contains_key(&format!("deny.{key}"))).then(|| x.to_string())
             })
+            .collect()
+    }
+
+    // Other roles' calls the policy is holding for its verdict, for the agents acting meanwhile.
+    fn holding(&self, role: &str) -> Vec<Value> {
+        self.held
+            .iter()
+            .filter(|(r, h)| *r != role && h.verdict.is_none())
+            .map(|(r, h)| json!({ "role": r, "event": h.shown, "tool": h.tool, "arguments": h.arguments }))
             .collect()
     }
 
@@ -249,8 +290,13 @@ impl Machine {
         }
     }
 
-    // The agent attempts `x`. Err only if the machine can't take attempts at all.
+    // The agent attempts `x`, outside any harness call. Err only if the machine can't take attempts.
     fn act(&mut self, role: &str, x: &str, value: &Value, tool_use_id: &str, translator: Option<Arc<Translator>>) -> Result<Verdict> {
+        self.attempt(role, x, value, Call { tool: "", arguments: &Value::Null, tool_use_id }, translator)
+    }
+
+    // The agent attempts `x`, for `call`. Err only if the machine can't take attempts at all.
+    fn attempt(&mut self, role: &str, x: &str, value: &Value, call: Call, translator: Option<Arc<Translator>>) -> Result<Verdict> {
         let shown = match value {
             Value::Null => x.to_string(),
             Value::String(v) => format!("{x}.{v}"),
@@ -258,8 +304,23 @@ impl Machine {
         };
         self.running()?;
         let key = self.key(role, x);
-        let verdict = if let Some(p) = &self.pending {
+        // A held attempt whose verdict nobody collected (its agent went away) is over.
+        if self.held.get(role).is_some_and(|h| h.verdict.is_some()) {
+            self.held.remove(role);
+        }
+        // Calls of other roles still in flight, which the policy may be waiting for.
+        let others = self.running.values().filter(|p| self.roles.is_empty() || !p.event.starts_with(&format!("{role}."))).map(|p| p.event.clone()).collect::<Vec<_>>();
+        let busy = |reason: String| match others.as_slice() {
+            [] => reason,
+            [event] => format!("{reason} (the result of {event} hasn't come back yet)"),
+            events => format!("{reason} (the results of {} haven't come back yet)", events.join(", ")),
+        };
+        let verdict = if let (true, Some(p)) = (self.roles.is_empty(), self.running.values().next()) {
             Verdict::Refused(format!("the result of {} hasn't come back yet", p.event))
+        } else if let Some(p) = self.running.get(role).filter(|_| !self.roles.is_empty()) {
+            Verdict::Refused(format!("the result of {} hasn't come back yet", p.event))
+        } else if let Some(h) = self.held.get(role) {
+            Verdict::Refused(format!("{} is still waiting for the policy's verdict", h.call.event))
         } else if !self.roles.is_empty() && !self.roles.iter().any(|r| r == role) {
             Verdict::Refused(format!("{role} isn't a role of the spec (its Role lists {})", self.roles.join(", ")))
         } else if !self.acts.iter().any(|a| a == x) {
@@ -267,18 +328,27 @@ impl Machine {
         } else {
             match self.edges().get(&format!("attempt.{key}")).copied() {
                 None if self.roles.is_empty() => Verdict::Refused(format!("the policy doesn't take {x} now")),
-                None => Verdict::Refused(format!("the policy doesn't take {x} from {role} now")),
+                None => Verdict::Refused(busy(format!("the policy doesn't take {x} from {role} now"))),
                 Some(taken) => {
+                    let pending = Pending { action: x.to_string(), event: key.clone(), tool_use_id: call.tool_use_id.to_string(), translator };
                     let answers = &self.automaton.edges[taken];
                     match (answers.get(&format!("allow.{key}")), answers.get(&format!("deny.{key}"))) {
                         (Some(&next), None) => {
                             self.state = next;
-                            self.pending = Some(Pending { action: x.to_string(), event: key.clone(), tool_use_id: tool_use_id.to_string(), translator });
+                            self.running.insert(role.to_string(), pending);
                             Verdict::Allowed
                         }
                         (None, Some(&next)) => {
                             self.state = next;
                             Verdict::Denied
+                        }
+                        // Taken, and answered only once other agents have acted (FDR proved the
+                        // answer comes before this role's next attempt).
+                        (None, None) if !self.roles.is_empty() => {
+                            self.state = taken;
+                            let held = Held { call: pending, shown: shown.clone(), tool: call.tool.to_string(), arguments: call.arguments.clone(), verdict: None };
+                            self.held.insert(role.to_string(), held);
+                            Verdict::Held
                         }
                         _ => bail!("FDR's automaton gives attempt.{key} no single verdict (state {taken}); this policy shouldn't have been admitted"),
                     }
@@ -289,20 +359,59 @@ impl Machine {
             Verdict::Allowed => ("allowed", String::new()),
             Verdict::Denied => ("denied", format!("the policy denied {x}")),
             Verdict::Refused(reason) => ("refused", reason.clone()),
+            Verdict::Held => ("held", "the policy answers it once other agents have acted".to_string()),
         };
         self.record(json!({ "kind": "act", "role": role, "event": shown, "outcome": outcome, "reason": reason, "state": self.show() }));
+        self.settle();
         self.check_end();
         Ok(verdict)
     }
 
-    // The pending call's result came back as `value`: W follows result.x.value.
+    // Answers every held attempt the policy now answers: W's allow or deny for it is the daemon's to
+    // take, so it takes it at once, and the waiting call learns its verdict.
+    fn settle(&mut self) {
+        loop {
+            let answered = self.held.iter().filter(|(_, h)| h.verdict.is_none()).find_map(|(role, h)| {
+                let edges = self.edges();
+                let allow = edges.get(&format!("allow.{}", h.call.event)).map(|&next| (Verdict::Allowed, next));
+                let deny = edges.get(&format!("deny.{}", h.call.event)).map(|&next| (Verdict::Denied, next));
+                allow.or(deny).map(|(verdict, next)| (role.clone(), verdict, next))
+            });
+            let Some((role, verdict, next)) = answered else { return };
+            self.state = next;
+            let h = self.held.get_mut(&role).unwrap();
+            h.verdict = Some(verdict.clone());
+            let (event, call) = (h.shown.clone(), h.call.clone());
+            if verdict == Verdict::Allowed {
+                self.running.insert(role.clone(), call);
+            }
+            let outcome = if verdict == Verdict::Allowed { "allowed" } else { "denied" };
+            self.record(json!({ "kind": "verdict", "role": role, "event": event, "outcome": outcome, "reason": if outcome == "denied" { "the policy denied it" } else { "" }, "state": self.show() }));
+        }
+    }
+
+    // The result of the one call in flight came back as `value`.
+    #[cfg(test)]
     fn result(&mut self, value: &str) -> Result<()> {
-        let Some(p) = self.pending.take() else { bail!("no call is waiting for a result") };
+        match self.running.keys().collect::<Vec<_>>().as_slice() {
+            [role] => {
+                let role = (*role).clone();
+                self.result_of(&role, value)
+            }
+            [] => bail!("no call is waiting for a result"),
+            _ => bail!("several calls are waiting for their results"),
+        }
+    }
+
+    // The result of `role`'s call came back as `value`: W follows result.x.value.
+    fn result_of(&mut self, role: &str, value: &str) -> Result<()> {
+        let Some(p) = self.running.remove(role) else { bail!("no call is waiting for a result") };
         let event = format!("result.{}.{value}", p.event);
         match self.edges().get(&event).copied() {
             Some(next) => {
                 self.state = next;
                 self.record(json!({ "kind": "result", "event": event, "state": self.show() }));
+                self.settle();
                 self.check_end();
                 Ok(())
             }
@@ -314,15 +423,16 @@ impl Machine {
         }
     }
 
-    // What this role's agent may do now, for its Stop hook.
+    // What this role's agent may do now, and the other agents' calls held for a verdict meanwhile,
+    // for its Stop hook.
     fn catch_up(&self, role: &str) -> Value {
-        json!({ "happened": [], "next": self.next(role) })
+        json!({ "happened": [], "next": self.next(role), "held": self.holding(role) })
     }
 
     // Whether this role's agent has nothing it would be allowed to do yet. With roles, an agent waits
     // while another agent's call is running or it's another role's turn.
     fn waiting(&self, role: &str) -> bool {
-        self.status == Status::Running && (self.pending.is_none() || !self.roles.is_empty()) && self.next(role).is_empty()
+        self.status == Status::Running && (self.running.is_empty() || !self.roles.is_empty()) && self.next(role).is_empty()
     }
 
     // Ends the machine once the policy can take no more attempts or results: finished if it terminated.
@@ -421,7 +531,7 @@ fn respond(request: Request, daemon: &Daemon) -> Result<Value> {
         Request::Ping => Ok(json!("pong")),
         Request::MachineUp { name, spec, units } => machine_up(daemon, name, &spec, units),
         Request::Call { machine, role, tool, arguments, tool_use_id } => call(daemon, &machine, &role, &tool, &arguments, &tool_use_id),
-        Request::Result { machine, role: _, tool_use_id, ok, output, error, value } => result(daemon, &machine, &tool_use_id, ok, &output, &error, value),
+        Request::Result { machine, role, tool_use_id, ok, output, error, value } => result(daemon, &machine, &role, &tool_use_id, ok, &output, &error, value),
         Request::MachineDown { name } => {
             let mut all = machines.lock().unwrap();
             let mut machine = all.remove(&name).ok_or_else(|| anyhow!("no machine named {name}"))?;
@@ -446,12 +556,12 @@ fn respond(request: Request, daemon: &Daemon) -> Result<Value> {
         Request::Act { machine, role, event, value } => {
             let mut all = machines.lock().unwrap();
             let m = all.get_mut(&machine).ok_or_else(|| anyhow!("no machine named {machine}"))?;
-            let verdict = match m.act(&role, &event, &value, "", None)? {
-                Verdict::Allowed => json!({ "verdict": "allowed" }),
-                Verdict::Denied => json!({ "verdict": "denied", "reason": format!("the policy denied {event}") }),
-                Verdict::Refused(reason) => json!({ "verdict": "refused", "reason": reason }),
-            };
-            Ok(json!({ "state": m.show(), "verdict": verdict["verdict"], "reason": verdict["reason"] }))
+            let verdict = m.act(&role, &event, &value, "", None)?;
+            Ok(verdict_json(&verdict, &event, m.show()))
+        }
+        Request::Verdict { machine, role } => {
+            let (verdict, state) = wait_verdict(daemon, &machine, &role)?;
+            Ok(verdict_json(&verdict, "the call", state))
         }
         Request::Stop { machine, role } => loop {
             {
@@ -467,6 +577,37 @@ fn respond(request: Request, daemon: &Daemon) -> Result<Value> {
             }
             std::thread::sleep(std::time::Duration::from_millis(250));
         },
+    }
+}
+
+fn verdict_json(verdict: &Verdict, event: &str, state: String) -> Value {
+    let (verdict, reason) = match verdict {
+        Verdict::Allowed => ("allowed", String::new()),
+        Verdict::Denied => ("denied", format!("the policy denied {event}")),
+        Verdict::Refused(reason) => ("refused", reason.clone()),
+        Verdict::Held => ("held", "the policy answers it once other agents have acted".to_string()),
+    };
+    json!({ "state": state, "verdict": verdict, "reason": reason })
+}
+
+// Waits until the policy answers this role's held attempt, and collects the answer.
+fn wait_verdict(daemon: &Daemon, machine: &str, role: &str) -> Result<(Verdict, String)> {
+    loop {
+        {
+            let mut all = daemon.machines.lock().unwrap();
+            let m = all.get_mut(machine).ok_or_else(|| anyhow!("machine {machine} went away while {role}'s call waited for its verdict"))?;
+            let Some(h) = m.held.get(role) else { bail!("{role} has no call waiting for a verdict") };
+            if let Some(verdict) = h.verdict.clone() {
+                m.held.remove(role);
+                return Ok((verdict, m.show()));
+            }
+            if m.status != Status::Running {
+                m.held.remove(role);
+                let status = serde_json::to_value(&m.status)?.as_str().unwrap_or("?").to_string();
+                return Ok((Verdict::Refused(format!("the machine is {status} ({})", m.ended)), m.show()));
+            }
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
     }
 }
 
@@ -494,24 +635,43 @@ fn call(daemon: &Daemon, machine: &str, role: &str, name: &str, args: &Value, to
         Ok(event) => event,
         Err(e) => return deny(format!("couldn't translate this {tool} call: {e}")),
     };
-    let mut all = daemon.machines.lock().unwrap();
-    let m = all.get_mut(machine).ok_or_else(|| anyhow!("no machine named {machine}"))?;
-    match m.act(role, &event.channel, &event.value, tool_use_id, Some(translator))? {
+    let verdict = {
+        let mut all = daemon.machines.lock().unwrap();
+        let m = all.get_mut(machine).ok_or_else(|| anyhow!("no machine named {machine}"))?;
+        m.attempt(role, &event.channel, &event.value, Call { tool: name, arguments: args, tool_use_id }, Some(translator))?
+    };
+    // A held call waits here, its agent's tool call with it, until the policy answers.
+    let verdict = match verdict {
+        Verdict::Held => wait_verdict(daemon, machine, role)?.0,
+        verdict => verdict,
+    };
+    match verdict {
         Verdict::Allowed => Ok(json!({ "allow": true, "event": translate::show(&event) })),
         Verdict::Denied => deny(format!("the policy denied this {tool} call ({}).", event.channel)),
         Verdict::Refused(reason) => deny(format!("refused this {tool} call ({}): {reason}.", event.channel)),
+        Verdict::Held => unreachable!("wait_verdict returns the answer"),
     }
 }
 
-// A call finished. If it's the call the machine is waiting for, its result is translated into a
+// A call finished. If it's a call the machine is waiting for, its result is translated into a
 // value and the policy follows result.x.value; results of calls complier didn't mediate are ignored.
-fn result(daemon: &Daemon, machine: &str, tool_use_id: &str, ok: bool, output: &str, error: &str, value: Option<String>) -> Result<Value> {
-    let (action, translator) = {
+// A result given by hand (`value`) is for the one call in flight, or the given role's.
+fn result(daemon: &Daemon, machine: &str, role: &str, tool_use_id: &str, ok: bool, output: &str, error: &str, value: Option<String>) -> Result<Value> {
+    let (key, action, translator) = {
         let all = daemon.machines.lock().unwrap();
         let m = all.get(machine).ok_or_else(|| anyhow!("no machine named {machine}"))?;
-        match &m.pending {
-            Some(p) if p.tool_use_id == tool_use_id || value.is_some() => (p.action.clone(), p.translator.clone()),
-            _ => return Ok(json!({ "ignored": true })),
+        let matches = |r: &String, p: &Pending| match value {
+            Some(_) => role.is_empty() || r == role,
+            None => p.tool_use_id == tool_use_id,
+        };
+        let matching: Vec<(&String, &Pending)> = m.running.iter().filter(|(r, p)| matches(r, p)).collect();
+        match matching.as_slice() {
+            [(r, p)] => ((*r).clone(), p.action.clone(), p.translator.clone()),
+            [] => return Ok(json!({ "ignored": true })),
+            several => {
+                let events: Vec<&str> = several.iter().map(|(_, p)| p.event.as_str()).collect();
+                bail!("several calls are waiting for their results ({}); say whose with --role", events.join(", "))
+            }
         }
     };
     let value = match (value, translator) {
@@ -522,7 +682,7 @@ fn result(daemon: &Daemon, machine: &str, tool_use_id: &str, ok: bool, output: &
                 let mut all = daemon.machines.lock().unwrap();
                 let m = all.get_mut(machine).ok_or_else(|| anyhow!("no machine named {machine}"))?;
                 let reason = format!("couldn't translate the result of {action}: {e}");
-                m.pending = None;
+                m.running.remove(&key);
                 m.set(Status::Broken, &reason);
                 bail!("{reason}")
             }
@@ -531,7 +691,7 @@ fn result(daemon: &Daemon, machine: &str, tool_use_id: &str, ok: bool, output: &
     };
     let mut all = daemon.machines.lock().unwrap();
     let m = all.get_mut(machine).ok_or_else(|| anyhow!("no machine named {machine}"))?;
-    m.result(&value)?;
+    m.result_of(&key, &value)?;
     Ok(json!({ "action": action, "value": value, "state": m.show() }))
 }
 
@@ -555,7 +715,8 @@ fn machine_up(daemon: &Daemon, name: String, spec: &Path, units: Vec<PathBuf>) -
         automaton: compiled.automaton,
         acts: compiled.acts,
         roles: compiled.roles,
-        pending: None,
+        running: BTreeMap::new(),
+        held: BTreeMap::new(),
         status: Status::Running,
         log,
         ended: String::new(),
@@ -692,7 +853,8 @@ mod tests {
             automaton,
             acts: ["check_time", "edit", "push"].map(String::from).to_vec(),
             roles: Vec::new(),
-            pending: None,
+            running: BTreeMap::new(),
+            held: BTreeMap::new(),
             status: Status::Running,
             log: File::create(log).unwrap(),
             ended: String::new(),
@@ -763,6 +925,85 @@ mod tests {
         assert_eq!(m.act("reviewer", "review", &Value::Null, "t5", None).unwrap(), Verdict::Allowed);
         m.result("done").unwrap();
         assert!(m.status == Status::Deadlocked);
+    }
+
+    // normal(Policy) for the pattern library's Guard(w, go, Judgement(j, look, {done}), \ _ @ SKIP, Policy):
+    // the writer's go is taken and answered after the judge's look: done allows it, failed denies it.
+    fn guarded() -> Machine {
+        let t = [
+            (0, "attempt.w.go", 1),
+            (1, "attempt.j.look", 2),
+            (2, "allow.j.look", 3),
+            (3, "result.j.look.done", 4),
+            (3, "result.j.look.failed", 7),
+            (4, "allow.w.go", 5),
+            (5, "result.w.go.done", 6),
+            (7, "deny.w.go", 0),
+        ];
+        let mut m = machine();
+        m.automaton = Automaton::from_transitions(vec![String::new(); 8], 0, &t);
+        m.acts = ["go", "look"].map(String::from).to_vec();
+        m.roles = ["w", "j"].map(String::from).to_vec();
+        m
+    }
+
+    #[test]
+    fn a_held_attempt_is_answered_once_the_policy_offers_its_verdict() {
+        let mut m = guarded();
+        assert_eq!(m.next("w"), ["go"]);
+        let args = json!({ "id": "p1" });
+        let call = Call { tool: "mcp__fake__go", arguments: &args, tool_use_id: "t1" };
+        assert_eq!(m.attempt("w", "go", &Value::Null, call, None).unwrap(), Verdict::Held);
+        // The judge may act now, and is shown the call it's acting on; the writer may not.
+        assert_eq!(m.next("j"), ["look"]);
+        assert_eq!(m.holding("j"), [json!({ "role": "w", "event": "go", "tool": "mcp__fake__go", "arguments": { "id": "p1" } })]);
+        assert!(m.holding("w").is_empty());
+        assert!(matches!(m.act("w", "go", &Value::Null, "t2", None).unwrap(), Verdict::Refused(r) if r.contains("still waiting")));
+        assert_eq!(m.act("j", "look", &Value::Null, "t3", None).unwrap(), Verdict::Allowed);
+        assert_eq!(m.held["w"].verdict, None);
+        // The judge's result decides: failed is a deny, and the writer may try again.
+        m.result_of("j", "failed").unwrap();
+        assert_eq!(m.held["w"].verdict, Some(Verdict::Denied));
+        assert_eq!(m.state, 0);
+        assert_eq!(m.act("w", "go", &Value::Null, "t4", None).unwrap(), Verdict::Held);
+        m.act("j", "look", &Value::Null, "t5", None).unwrap();
+        m.result_of("j", "done").unwrap();
+        assert_eq!(m.held["w"].verdict, Some(Verdict::Allowed));
+        // Allowed after the hold, the writer's call runs and its result is bound as usual.
+        assert!(m.running.contains_key("w"));
+        m.result_of("w", "done").unwrap();
+        assert_eq!(m.state, 6);
+    }
+
+    // normal(Policy) for Step(a, x) ||| Step(b, y): either may go first, and both may be in flight.
+    #[test]
+    fn with_roles_agents_have_calls_in_flight_at_the_same_time() {
+        let mut t = Vec::new();
+        // States are (a's progress, b's progress), each 0 (idle) .. 3 (done): 4 * a + b.
+        for a in 0..4 {
+            for b in 0..4 {
+                let s = 4 * a + b;
+                let step = ["attempt", "allow", "result"];
+                if a < 3 {
+                    t.push((s, if a == 2 { "result.a.x.done".to_string() } else { format!("{}.a.x", step[a]) }, s + 4));
+                }
+                if b < 3 {
+                    t.push((s, if b == 2 { "result.b.y.done".to_string() } else { format!("{}.b.y", step[b]) }, s + 1));
+                }
+            }
+        }
+        let t: Vec<(usize, &str, usize)> = t.iter().map(|(f, e, to)| (*f, e.as_str(), *to)).collect();
+        let mut m = machine();
+        m.automaton = Automaton::from_transitions(vec![String::new(); 16], 0, &t);
+        m.acts = ["x", "y"].map(String::from).to_vec();
+        m.roles = ["a", "b"].map(String::from).to_vec();
+        assert_eq!(m.act("a", "x", &Value::Null, "t1", None).unwrap(), Verdict::Allowed);
+        assert_eq!(m.act("b", "y", &Value::Null, "t2", None).unwrap(), Verdict::Allowed);
+        assert!(matches!(m.act("a", "x", &Value::Null, "t3", None).unwrap(), Verdict::Refused(r) if r.contains("hasn't come back")));
+        assert!(m.result("done").is_err(), "two calls are in flight");
+        m.result_of("b", "done").unwrap();
+        m.result_of("a", "done").unwrap();
+        assert_eq!(m.state, 15);
     }
 
     #[test]
