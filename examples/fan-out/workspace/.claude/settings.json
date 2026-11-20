@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(./tools/assign.sh)",
+      "Bash(./tools/submit.sh)",
+      "Bash(./tools/status.sh)",
+      "Bash(./tools/choose.sh:*)",
+      "Bash(git worktree:*)",
+      "Bash(git status:*)",
+      "Bash(git log:*)",
+      "Bash(python3:*)",
+      "Bash(cd:*)",
+      "Bash(ls:*)",
+      "Bash(head:*)",
+      "Bash(wc:*)",
+      "Bash(cat:*)",
+      "Write",
+      "Edit"
+    ]
+  }
+}
