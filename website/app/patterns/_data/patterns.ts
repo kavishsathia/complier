@@ -22,11 +22,13 @@ export type Pattern = {
   enforced: string;
   // The library process, as a spec writes it, and what its arguments are.
   call: string;
+  // The library definitions behind it (patterns/patterns.csp), by name.
+  defines: string[];
   args: string;
   // The guarantee the example's own assertion states, in words.
   guarantee: string;
-  // The animation's stage: where each agent sits (viewBox 720 x 300, the machine below), and which
-  // agents hand work to which.
+  // The animation's stage: where each agent sits (its centre, in a 720 x 250 area above the machine;
+  // no two share a column, as calls travel straight down), and which agents hand work to which.
   nodes: Node[];
   links: [string, string][];
   steps: Step[];
@@ -35,6 +37,7 @@ export type Pattern = {
 export const PATTERNS: Pattern[] = [
   {
     slug: "pipeline",
+    defines: ["Pipeline"],
     name: "Sequential pipeline",
     short: "Each agent picks up where the one before it left off.",
     what: "Agents work on the same job in a fixed order: a parser turns a document into text, an extractor pulls the data out of it, and a summariser writes it up. Each stage hands over to the next once its part is done.",
@@ -65,6 +68,7 @@ export const PATTERNS: Pattern[] = [
   },
   {
     slug: "dispatcher",
+    defines: ["Dispatcher"],
     name: "Coordinator/dispatcher",
     short: "One agent decides who handles each request.",
     what: "A coordinator reads each request and routes it to the specialist that handles that kind: billing for refunds, support for faults. The specialist does the work, and the coordinator moves on to the next request.",
@@ -73,9 +77,9 @@ export const PATTERNS: Pattern[] = [
     args: "Route is the coordinator's turn: Route(Handle) either hands the request on, by carrying on as Handle(d), or ends. Specialist(d) is the phase of the specialist d names. Once it ends, the coordinator routes again.",
     guarantee: "Billing acts only after a request was routed to billing, and support only after one was routed to support.",
     nodes: [
-      { role: "coordinator", x: 360, y: 70 },
-      { role: "billing", x: 190, y: 175 },
-      { role: "support", x: 530, y: 175 },
+      { role: "coordinator", x: 360, y: 60 },
+      { role: "billing", x: 170, y: 180 },
+      { role: "support", x: 550, y: 180 },
     ],
     links: [
       ["coordinator", "billing"],
@@ -98,6 +102,7 @@ export const PATTERNS: Pattern[] = [
   },
   {
     slug: "fan-out",
+    defines: ["FanOut"],
     name: "Parallel fan-out/gather",
     short: "Several agents work at once; one gathers their results.",
     what: "Independent pieces of work go to agents that run at the same time, here a security, a style and a performance review of one pull request, and one more agent gathers them once they're all in.",
@@ -106,10 +111,10 @@ export const PATTERNS: Pattern[] = [
     args: "FanOut takes a sequence of branches, phases that run at the same time, and a gathering phase that starts once every branch has ended. Step(r, x) is a phase of one call.",
     guarantee: "The summariser acts only once every reviewer's review has come back.",
     nodes: [
-      { role: "security", x: 140, y: 50 },
-      { role: "style", x: 140, y: 135 },
-      { role: "performance", x: 140, y: 220 },
-      { role: "summariser", x: 560, y: 135 },
+      { role: "security", x: 100, y: 60 },
+      { role: "style", x: 285, y: 60 },
+      { role: "performance", x: 470, y: 60 },
+      { role: "summariser", x: 640, y: 175 },
     ],
     links: [
       ["security", "summariser"],
@@ -131,6 +136,7 @@ export const PATTERNS: Pattern[] = [
   },
   {
     slug: "hierarchy",
+    defines: ["Hold", "Delegate"],
     name: "Hierarchical decomposition",
     short: "An agent hands part of its task down, and waits for it.",
     what: "A writer needs research, so it hands that to an assistant, which hands the searching to a searcher in turn and summarises what comes back. Each level waits for the level below it, and carries on with the result.",
@@ -139,9 +145,9 @@ export const PATTERNS: Pattern[] = [
     args: "Delegate(r, x, Sub, K) holds r's call x while Sub, the agents below it, works; when Sub ends, the call runs and its result v carries on as K(v). Sub may delegate in turn: here Assistant is Delegate(assistant, search, Step(searcher, browse), ...).",
     guarantee: "The writer's research call runs only once the assistant has summarised, and the assistant's search only once the searcher has browsed.",
     nodes: [
-      { role: "writer", x: 360, y: 40 },
-      { role: "assistant", x: 360, y: 135 },
-      { role: "searcher", x: 360, y: 230 },
+      { role: "writer", x: 150, y: 50 },
+      { role: "assistant", x: 360, y: 130 },
+      { role: "searcher", x: 570, y: 210 },
     ],
     links: [
       ["writer", "assistant"],
@@ -163,6 +169,7 @@ export const PATTERNS: Pattern[] = [
   },
   {
     slug: "generator-critic",
+    defines: ["Judgement", "GeneratorCritic"],
     name: "Generator/critic",
     short: "One agent drafts, another checks, until it passes.",
     what: "A writer drafts and a critic checks the draft against its criteria. A failing draft goes back to the writer with the critic's feedback; a passing one moves on, here to publishing.",
@@ -195,6 +202,7 @@ export const PATTERNS: Pattern[] = [
   },
   {
     slug: "refinement",
+    defines: ["Refinement"],
     name: "Iterative refinement",
     short: "Critique and revise, a bounded number of times.",
     what: "A writer drafts, then a critic and an editor take turns improving it: the critic says what to change, the editor revises. It stops when the critic is satisfied, or after a set number of rounds.",
@@ -228,6 +236,7 @@ export const PATTERNS: Pattern[] = [
   },
   {
     slug: "advisor",
+    defines: ["Hold", "Consult"],
     name: "Advisor",
     short: "An agent can ask another agent for advice.",
     what: "A developer works as it likes, and when it's unsure it asks a more experienced agent. It waits for the answer, reads it, and decides what to do; the advisor never does the work itself.",
@@ -254,6 +263,7 @@ export const PATTERNS: Pattern[] = [
   },
   {
     slug: "guard",
+    defines: ["Judgement", "Guard"],
     name: "Guard",
     short: "An agent's call wakes a judge, whose verdict decides it.",
     what: "An agent drafts and sends emails. It doesn't ask anyone before sending: it just sends. But every send is put to a judge first, which reads what's about to go out and approves it or not.",

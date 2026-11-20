@@ -539,7 +539,7 @@ fn with_roles_each_agent_takes_only_its_own_steps() {
 #[test]
 fn a_guarded_call_waits_for_the_judge_and_takes_its_verdict() {
     let env = Env::new("guard");
-    let (ok, out) = env.machine_up("g", "guarded.csp", &["gate.yaml"]);
+    let (ok, out) = env.machine_up("g", "patterns/guarded.csp", &["gate.yaml"]);
     assert!(ok, "{out}");
     let stop = |role: &str| env.hook_as("g", role, "stop", json!({ "hook_event_name": "Stop" }));
     std::thread::scope(|s| {
@@ -572,7 +572,7 @@ fn a_guarded_call_waits_for_the_judge_and_takes_its_verdict() {
 #[test]
 fn fanned_out_agents_act_at_the_same_time_and_the_gather_waits_for_all() {
     let env = Env::new("fanout");
-    let (ok, out) = env.machine_up("f", "fanout.csp", &[]);
+    let (ok, out) = env.machine_up("f", "patterns/fanout.csp", &[]);
     assert!(ok, "{out}");
     let act = |role: &str, x: &str| env.complier(&["machine", "act", "f", "--role", role, x]);
     assert!(act("left", "write").0);
@@ -596,7 +596,7 @@ fn fanned_out_agents_act_at_the_same_time_and_the_gather_waits_for_all() {
 #[test]
 fn a_held_call_by_hand_waits_and_prints_its_verdict() {
     let env = Env::new("held");
-    let (ok, out) = env.machine_up("h", "guarded.csp", &[]);
+    let (ok, out) = env.machine_up("h", "patterns/guarded.csp", &[]);
     assert!(ok, "{out}");
     std::thread::scope(|s| {
         let writer = s.spawn(|| env.complier(&["machine", "act", "h", "--role", "writer", "write"]));
