@@ -28,6 +28,9 @@ struct Launch: Decodable {
     let prepare: [String]
     let windows: [Window]
     let setup: [Step]
+    // Open the windows as panes of one tmux window, laid out by the spec's topology, if tmux is
+    // installed (else as Terminal windows).
+    var tmux: Bool? = nil
 }
 
 struct Workflow: Identifiable {
@@ -150,6 +153,154 @@ func matches(_ w: Workflow, _ query: String) -> Bool {
     return words.allSatisfy { hay.contains($0) }
 }
 
+// MARK: - A spec's topology
+
+// Which roles lead and which form the team, read from the pattern library process a spec's policy is
+// built with: the lead gets the big pane. Patterns with a lead put it in one argument and its team in
+// another; following the spec's own definitions from those arguments says which roles each holds.
+// Patterns that only sequence work (Pipeline, GeneratorCritic, Refinement) have no lead, so a policy
+// built from them alone gives every agent an equal pane, and one wrapped around a lead pattern (a
+// Pipeline whose stage is a FanOut) leaves the lead pattern to decide.
+struct Topology: Equatable {
+    var pattern: String?
+    var lead: [String]
+    var team: [String]
+
+    static let leading = ["FanOut", "Dispatcher", "Delegate", "Hold", "Consult", "Guard"]
+
+    static func of(_ spec: String) -> Topology {
+        let roles = roleNames(spec)
+        let defs = definitions(spec)
+        // The definitions the policy reaches, nearest first.
+        var reached: [String] = []
+        var queue = ["Policy"]
+        while !queue.isEmpty {
+            let name = queue.removeFirst()
+            guard !reached.contains(name), let body = defs[name] else { continue }
+            reached.append(name)
+            queue += identifiers(body).filter { defs[$0] != nil }
+        }
+        let all = rolesIn("Policy", roles, defs)
+        for name in reached {
+            guard let (pattern, args) = firstCall(in: defs[name]!, of: leading) else { continue }
+            let arg = { (i: Int) in args.indices.contains(i) ? rolesIn(args[i], roles, defs) : [] }
+            var lead: [String]
+            var team: [String]
+            switch pattern {
+            case "FanOut":
+                team = arg(0)
+                lead = all.filter { !team.contains($0) }
+            case "Dispatcher":
+                lead = arg(0)
+                team = arg(1)
+            case "Consult":
+                lead = arg(0)
+                team = arg(2)
+            default: // Delegate, Hold: (r, x, Sub, K); Guard: (r, x, Judge, K, P)
+                lead = arg(0)
+                team = arg(2)
+            }
+            team = team.filter { !lead.contains($0) }
+            // Roles the pattern doesn't place are team members too.
+            team += roles.filter { !lead.contains($0) && !team.contains($0) }
+            return Topology(pattern: pattern, lead: roles.filter(lead.contains), team: roles.filter(team.contains))
+        }
+        return Topology(pattern: nil, lead: [], team: roles)
+    }
+
+    // `datatype Role = writer | reviewer`.
+    static func roleNames(_ spec: String) -> [String] {
+        for line in spec.split(separator: "\n") {
+            let t = line.trimmingCharacters(in: .whitespaces)
+            guard t.hasPrefix("datatype Role"), let eq = t.firstIndex(of: "=") else { continue }
+            return t[t.index(after: eq)...].split(separator: "|").map { $0.trimmingCharacters(in: .whitespaces) }
+        }
+        return []
+    }
+
+    // Each process the spec defines, by name, with every clause of it (`Specialist(a) = ...` and
+    // `Specialist(b) = ...` are one), comments left out. A definition runs on over indented lines.
+    static func definitions(_ spec: String) -> [String: String] {
+        let head = try! NSRegularExpression(pattern: #"^([A-Za-z_][A-Za-z0-9_']*)\s*(\([^=]*\))?\s*=(?!=)(.*)$"#)
+        let keywords = ["datatype", "channel", "assert", "include", "nametype", "subtype", "transparent", "external"]
+        var defs: [String: String] = [:]
+        var current: String?
+        for raw in spec.split(separator: "\n", omittingEmptySubsequences: false) {
+            var line = String(raw)
+            if let c = line.range(of: "--") { line = String(line[..<c.lowerBound]) }
+            if line.trimmingCharacters(in: .whitespaces).isEmpty { continue }
+            if line.first!.isWhitespace {
+                if let c = current { defs[c, default: ""] += " " + line }
+                continue
+            }
+            current = nil
+            if keywords.contains(where: { line.hasPrefix($0 + " ") }) { continue }
+            let ns = line as NSString
+            guard let m = head.firstMatch(in: line, range: NSRange(location: 0, length: ns.length)) else { continue }
+            let name = ns.substring(with: m.range(at: 1))
+            defs[name, default: ""] += " " + ns.substring(with: m.range(at: 3))
+            current = name
+        }
+        return defs
+    }
+
+    static func identifiers(_ text: String) -> [String] {
+        let re = try! NSRegularExpression(pattern: #"[A-Za-z_][A-Za-z0-9_']*"#)
+        let ns = text as NSString
+        return re.matches(in: text, range: NSRange(location: 0, length: ns.length)).map { ns.substring(with: $0.range) }
+    }
+
+    // The roles an expression mentions, directly or through the processes it uses, in order.
+    static func rolesIn(_ expr: String, _ roles: [String], _ defs: [String: String]) -> [String] {
+        var found: [String] = []
+        var seen: Set<String> = []
+        func walk(_ text: String) {
+            for id in identifiers(text) {
+                if roles.contains(id) { if !found.contains(id) { found.append(id) } }
+                else if let body = defs[id], seen.insert(id).inserted { walk(body) }
+            }
+        }
+        walk(expr)
+        return found
+    }
+
+    // The first call in `text` to one of `names`, with its arguments split at the top level.
+    static func firstCall(in text: String, of names: [String]) -> (String, [String])? {
+        let chars = Array(text)
+        var best: (Int, String)?
+        for name in names {
+            var from = text.startIndex
+            while let r = text.range(of: name + "(", range: from..<text.endIndex) {
+                let at = text.distance(from: text.startIndex, to: r.lowerBound)
+                let before = at > 0 ? chars[at - 1] : " "
+                if !(before.isLetter || before.isNumber || before == "_") {
+                    if best == nil || at < best!.0 { best = (at, name) }
+                    break
+                }
+                from = r.upperBound
+            }
+        }
+        guard let (at, name) = best else { return nil }
+        var args: [String] = []
+        var depth = 0
+        var arg = ""
+        var i = at + name.count + 1
+        while i < chars.count {
+            let c = chars[i]
+            let next = i + 1 < chars.count ? chars[i + 1] : " "
+            if c == "-" && next == ">" { arg += "->"; i += 2; continue }
+            if "(<{[".contains(c) { depth += 1 }
+            if ")>}]".contains(c) {
+                if depth == 0 { args.append(arg); return (name, args.map { $0.trimmingCharacters(in: .whitespaces) }) }
+                depth -= 1
+            }
+            if c == "," && depth == 0 { args.append(arg); arg = "" } else { arg.append(c) }
+            i += 1
+        }
+        return nil
+    }
+}
+
 // MARK: - Launching a demo
 
 struct LaunchError: Error { let message: String }
@@ -218,6 +369,19 @@ enum Launcher {
         } catch {
             return .failure(LaunchError(message: error.localizedDescription))
         }
+        if launch.tmux == true, hasTmux() {
+            let panes = zip(launch.windows, files).map { w, file in Pane(title: w.title, file: file.path, role: role(of: w.run)) }
+            let name = URL(fileURLWithPath: demo).lastPathComponent
+            let script = dir.appendingPathComponent("panes.command")
+            do {
+                try Panes.script(session: "complier-\(name)", panes: panes, topology: Topology.of(Store.specText(source)), size: terminalSize())
+                    .write(to: script, atomically: false, encoding: .utf8)
+                try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: script.path)
+            } catch {
+                return .failure(LaunchError(message: error.localizedDescription))
+            }
+            files = [script]
+        }
         for file in files {
             let open = Process()
             open.executableURL = URL(fileURLWithPath: "/usr/bin/open")
@@ -225,7 +389,103 @@ enum Launcher {
             try? open.run()
             open.waitUntilExit()
         }
-        return .success(launch.windows.count)
+        return .success(files.count)
+    }
+
+    // The role an agent's window runs as: its COMPLIER_ROLE.
+    static func role(of run: String) -> String? {
+        guard let r = run.range(of: #"COMPLIER_ROLE=([A-Za-z0-9_]+)"#, options: .regularExpression) else { return nil }
+        return String(run[r].dropFirst("COMPLIER_ROLE=".count))
+    }
+
+    static func hasTmux() -> Bool {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/bin/zsh")
+        p.arguments = ["-lc", "command -v tmux >/dev/null"]
+        p.standardOutput = FileHandle.nullDevice
+        p.standardError = FileHandle.nullDevice
+        guard (try? p.run()) != nil else { return false }
+        p.waitUntilExit()
+        return p.terminationStatus == 0
+    }
+
+    // Terminal's window, sized to most of the screen, in rows and columns of its default font.
+    static func terminalSize() -> (rows: Int, cols: Int) {
+        let f = NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 860)
+        return (rows: max(24, Int((f.height - 60) / 14.5)), cols: max(80, Int((f.width - 20) / 7.2)))
+    }
+}
+
+// MARK: - Panes in tmux
+
+struct Pane { let title: String; let file: String; let role: String? }
+
+// One tmux window holding a demo's windows as panes. With a lead (the spec's topology says who), the
+// lead's pane takes the left side, with the panes that aren't agents (the machine's log) in a strip
+// under it, and the team shares the right side in equal panes. Without one, the agents sit side by
+// side in equal columns over that strip. The script runs in the Terminal window it lays out, so tmux
+// sizes the panes to that window.
+enum Panes {
+    static func script(session: String, panes: [Pane], topology: Topology, size: (rows: Int, cols: Int)) -> String {
+        let q = Launcher.quote
+        let lead = topology.lead.compactMap { r in panes.first { $0.role == r } }
+        let agents = panes.filter { $0.role != nil && !lead.map(\.file).contains($0.file) }
+        let side = panes.filter { $0.role == nil }
+        var out = [
+            "#!/bin/zsh -il",
+            "# The demo's windows as panes of tmux session \(session), laid out by its spec's topology (\(topology.pattern ?? "no lead pattern")).",
+            "printf '\\e[3;0;0t\\e[8;\(size.rows);\(size.cols)t'",
+            "sleep 0.3",
+            "S=\(q(session))",
+            "tmux kill-session -t \"$S\" 2>/dev/null",
+        ]
+        var first = true
+        // Splits `target` for `pane`, giving the new pane `percent` of it; the first pane starts the session.
+        func open(_ pane: Pane, as id: String, split target: String = "", _ flags: String = "", percent: Int = 50) {
+            if first {
+                out.append("\(id)=$(tmux new-session -d -s \"$S\" -x \"$(tput cols)\" -y \"$(tput lines)\" -P -F '#{pane_id}' \(q(pane.file)))")
+                first = false
+            } else {
+                out.append("\(id)=$(tmux split-window \(flags) -t \"$\(target)\" -l \(percent)% -P -F '#{pane_id}' \(q(pane.file)))")
+            }
+            out.append("tmux select-pane -t \"$\(id)\" -T \(q(pane.title))")
+        }
+        // `column` panes stacked in `target`'s place (already the first of them), equally.
+        func stack(_ column: [Pane], from id: String, _ flags: String, prefix: String) {
+            var last = id
+            for (i, pane) in column.enumerated().dropFirst() {
+                let rest = column.count - i
+                let name = "\(prefix)\(i)"
+                open(pane, as: name, split: last, flags, percent: 100 * rest / (rest + 1))
+                last = name
+            }
+        }
+        if let main = lead.first {
+            open(main, as: "L0")
+            if let t = agents.first { open(t, as: "T0", split: "L0", "-h", percent: 45) }
+            stack(agents, from: "T0", "-v", prefix: "T")
+            stack(lead, from: "L0", "-v", prefix: "L")
+            if let s = side.first { open(s, as: "S0", split: "L\(lead.count - 1)", "-v", percent: 28) }
+            stack(side, from: "S0", "-h", prefix: "S")
+            out.append("tmux select-pane -t \"$L0\"")
+        } else {
+            let row = agents.isEmpty ? side : agents
+            if let a = row.first { open(a, as: "A0") }
+            stack(row, from: "A0", "-h", prefix: "A")
+            if !agents.isEmpty, let s = side.first { open(s, as: "S0", split: "A0", "-v -f", percent: 28) }
+            if !agents.isEmpty { stack(side, from: "S0", "-h", prefix: "S") }
+            out.append("tmux select-pane -t \"$A0\"")
+        }
+        out += [
+            "tmux set -t \"$S\" pane-border-status top",
+            "tmux set -t \"$S\" pane-border-format ' #{pane_title} '",
+            "tmux set -t \"$S\" -w allow-set-title off",
+            "tmux set -t \"$S\" -w remain-on-exit on",
+            "tmux set -t \"$S\" mouse on",
+            "exec tmux attach -t \"$S\"",
+            "",
+        ]
+        return out.joined(separator: "\n")
     }
 }
 
@@ -583,6 +843,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let id = EventHotKeyID(signature: OSType(0x636D706C), id: 1) // 'cmpl'
         RegisterEventHotKey(UInt32(kVK_Space), UInt32(controlKey | optionKey), id, GetApplicationEventTarget(), 0, &hotKey)
     }
+}
+
+// `ComplierWorkflows --topology <spec.csp>` prints who leads in a spec, for checking the layout.
+if let i = CommandLine.arguments.firstIndex(of: "--topology"), CommandLine.arguments.count > i + 1 {
+    let spec = (try? String(contentsOfFile: CommandLine.arguments[i + 1], encoding: .utf8)) ?? ""
+    let t = Topology.of(spec)
+    print("\(t.pattern ?? "-")\tlead: \(t.lead.joined(separator: " "))\tteam: \(t.team.joined(separator: " "))")
+    exit(0)
+}
+
+// `ComplierWorkflows --panes <demo> <dir>` prints the tmux script a launch would write, its panes
+// running <dir>/<n>-<title>.command, for checking the layout.
+if let i = CommandLine.arguments.firstIndex(of: "--panes"), CommandLine.arguments.count > i + 2 {
+    let name = CommandLine.arguments[i + 1]
+    let dir = CommandLine.arguments[i + 2]
+    guard let demo = Store.demos().first(where: { $0.name == name }), let launch = demo.launch, let source = demo.source else { exit(1) }
+    let panes = launch.windows.enumerated().map { n, w in
+        Pane(title: w.title, file: "\(dir)/\(n + 1)-\(w.title.replacingOccurrences(of: " ", with: "-")).command", role: Launcher.role(of: w.run))
+    }
+    print(Panes.script(session: "complier-\(name)", panes: panes, topology: Topology.of(Store.specText(source)), size: Launcher.terminalSize()))
+    exit(0)
 }
 
 // `ComplierWorkflows --launch <demo>` launches a demo without the panel, for testing and scripts.

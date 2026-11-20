@@ -12,6 +12,15 @@ one Terminal window per entry in `windows`. For the two-agents demo that's the m
 writer and the reviewer, each Claude Code session already given its prompt.
 `ComplierWorkflows --launch <name>` does the same without the panel.
 
+A demo whose `launch.json` says `"tmux": true` opens as one Terminal window instead, its windows as
+panes of a tmux session (`complier-<name>`), if tmux is installed. The layout comes from the demo's
+spec: when its policy is built with a pattern library process that has a lead (`FanOut`,
+`Dispatcher`, `Delegate`, `Consult`, `Guard`), the lead's pane takes the left side, with the
+machine's log in a strip under it, and the rest of the team shares the right side equally. A fan-out's
+lead is whoever acts outside its branches; a dispatcher's is its coordinator; a delegation's, an
+advice or a guard's is the role whose call it is. Otherwise every agent gets an equal column over
+the log. `ComplierWorkflows --topology <spec.csp>` prints who leads in a spec.
+
 ```sh
 launcher/build.sh --install
 ```

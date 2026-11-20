@@ -7,7 +7,11 @@
     "complier machine up fan-out \"$DEMO\""
   ],
   "windows": [
-    { "title": "machine log", "dir": "$DEMO", "run": "complier machine log fan-out --follow" },
+    {
+      "title": "machine log",
+      "dir": "$DEMO",
+      "run": "complier machine log fan-out --follow"
+    },
     {
       "title": "planner",
       "dir": "$DEMO/workspace",
@@ -29,11 +33,27 @@
       "run": "COMPLIER_MACHINE=fan-out COMPLIER_ROLE=worker3 claude --plugin-dir ~/.complier/plugin 'You are worker3: follow WORKER.md.'"
     }
   ],
+  "tmux": true,
   "setup": [
-    { "title": "Copy the demo, and make its workspace a git repository", "text": "cp -R ~/.complier/examples/fan-out ~/fan-out && cd ~/fan-out/workspace && git init -q -b main && git add -A && git commit -qm 'The task and its data'" },
-    { "title": "Start the machine", "text": "complier machine up fan-out ~/fan-out" },
-    { "title": "Watch it", "text": "complier machine log fan-out --follow" },
-    { "title": "Start the planner (in ~/fan-out/workspace)", "text": "COMPLIER_MACHINE=fan-out COMPLIER_ROLE=planner claude --plugin-dir ~/.complier/plugin 'You are the planner: follow PLANNER.md.'" },
-    { "title": "Start each worker (in ~/fan-out/workspace; worker1, worker2, worker3)", "text": "COMPLIER_MACHINE=fan-out COMPLIER_ROLE=worker1 claude --plugin-dir ~/.complier/plugin 'You are worker1: follow WORKER.md.'" }
+    {
+      "title": "Copy the demo, and make its workspace a git repository",
+      "text": "cp -R ~/.complier/examples/fan-out ~/fan-out && cd ~/fan-out/workspace && git init -q -b main && git add -A && git commit -qm 'The task and its data'"
+    },
+    {
+      "title": "Start the machine",
+      "text": "complier machine up fan-out ~/fan-out"
+    },
+    {
+      "title": "Watch it",
+      "text": "complier machine log fan-out --follow"
+    },
+    {
+      "title": "Start the planner (in ~/fan-out/workspace)",
+      "text": "COMPLIER_MACHINE=fan-out COMPLIER_ROLE=planner claude --plugin-dir ~/.complier/plugin 'You are the planner: follow PLANNER.md.'"
+    },
+    {
+      "title": "Start each worker (in ~/fan-out/workspace; worker1, worker2, worker3)",
+      "text": "COMPLIER_MACHINE=fan-out COMPLIER_ROLE=worker1 claude --plugin-dir ~/.complier/plugin 'You are worker1: follow WORKER.md.'"
+    }
   ]
 }
