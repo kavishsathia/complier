@@ -70,6 +70,7 @@ Live demo and walkthrough: [complier.dev](https://www.complier.dev)
 | [`plugin/`](plugin) | Claude Code plugin: complier's hooks and the workflow skill | `claude --plugin-dir plugin` |
 | [`packages/`](packages) | Reviewed metadata for each MCP server (`complier gen` writes here) | `packages/notion/service.yaml` |
 | [`examples/`](examples) | A translation unit for Notion, a small runnable demo machine and a saved-workflow example | `examples/units/notion.yaml`, `examples/demo/`, `examples/workflows/` |
+| [`patterns/`](patterns) | The pattern library: multi-agent topologies (pipeline, dispatcher, fan-out, hierarchy, generator/critic, refinement, advisor, guard) as CSP processes, with a proven example of each | `patterns/patterns.csp`, `patterns/examples/` |
 | [`fdr/`](fdr) | `complier-fdr`, which has FDR prove a policy and compile its automaton (bring your own FDR), and an earlier standalone guard demo | `fdr/build-complier-fdr.sh` |
 
 ## Quickstart
@@ -220,6 +221,10 @@ Tests: `cargo test --manifest-path cli/Cargo.toml` (they run the real CEL backen
 - The plugin's other hooks: session context, and holding an idle agent's Stop until it can act.
 - Saved workflows (`complier workflow`), applied to one Claude Code session at a time, and the
   plugin's skill that offers them.
+- Agents acting at the same time, one call in flight per role, and held calls: an attempt the
+  policy answers only after other agents have acted, while the agent's call waits.
+- The pattern library (`include "patterns.csp"`), with an example of each pattern whose guarantee
+  FDR proves; [complier.dev/patterns](https://www.complier.dev/patterns) animates them.
 - Only agents' actions (controllable events) for now: nothing observes the world.
 
 ## Licence
