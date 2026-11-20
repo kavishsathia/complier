@@ -1,0 +1,37 @@
+-- A planner and three workers, four Claude Code sessions on one machine, as the pattern library's
+-- fan-out. The planner prepares the work: it makes a git worktree for each worker and writes the
+-- approach that worker is to try, then hands them out. The three workers work at the same time,
+-- each on its own approach in its own tree, until its predictions score. Then the planner compares
+-- them and chooses one. Until the hand-off the workers have nothing to do, and while they work the
+-- planner has nothing to do: each waits, held by its Stop hook, until its turn comes.
+include "patterns.csp"
+datatype Role = planner | worker1 | worker2 | worker3
+datatype Act = work | assign | submit | choose
+datatype Value = done | failed
+Returns(_) = {done, failed}
+
+-- `work` is any other call (reading, writing, running code), offered only to whoever's turn it is.
+-- A hand-off that fails (a tree or an approach is missing) leaves the planner preparing; a
+-- submission that doesn't score leaves the worker working.
+Plan      = Permit(planner, work, \ _ @ Plan) [] Permit(planner, assign, \ v @ if v == done then SKIP else Plan)
+Worker(w) = Permit(w, work, \ _ @ Worker(w)) [] Permit(w, submit, \ v @ if v == done then SKIP else Worker(w))
+Gather    = Permit(planner, work, \ _ @ Gather) [] Permit(planner, choose, \ v @ if v == done then SKIP else Gather)
+
+Policy = Pipeline(<Plan, FanOut(<Worker(worker1), Worker(worker2), Worker(worker3)>, Gather)>)
+
+-- No worker acts before the approaches are handed out.
+assert Before({result.planner.assign.done}, {|attempt.worker1, attempt.worker2, attempt.worker3|}) [T= Policy
+-- Nothing is chosen before every worker's submission has scored.
+assert Before({result.worker1.submit.done}, {|attempt.planner.choose|}) [T= Policy
+assert Before({result.worker2.submit.done}, {|attempt.planner.choose|}) [T= Policy
+assert Before({result.worker3.submit.done}, {|attempt.planner.choose|}) [T= Policy
+-- From the hand-off until the last submission scores, the planner makes no call at all.
+Submitted = {result.worker1.submit.done, result.worker2.submit.done, result.worker3.submit.done}
+SitsOut   = SKIP [] ([] x : Events @ x -> (if x == (result.planner.assign.done) then Idle(3) else SitsOut))
+Idle(0)   = Anything
+Idle(n)   = SKIP [] ([] x : diff(Events, {|attempt.planner|}) @ x -> (if member(x, Submitted) then Idle(n - 1) else Idle(n)))
+assert SitsOut [T= Policy
+
+Agent  = ||| r : Role @ ControllableCHAOS(r)
+System = prioritise(Agent [| {|attempt, allow, deny, result, refuse|} |] ComplierGuard(Policy),
+                    <{|attempt|}, {|refuse|}>)
