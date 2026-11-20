@@ -122,7 +122,26 @@ ComplierSystem = prioritise(ComplierAgent [| {|attempt, allow, deny, result, ref
 -- What a well-formed policy may do: take one attempt, answer exactly it, and if it allowed the call,
 -- accept whatever the call returns, before the next attempt (by any role).
 ComplierHandshake = STOP |~| SKIP |~| (|~| r:Role, x:Act @ attempt.r.x -> (deny.r.x -> ComplierHandshake |~| allow.r.x -> ([] v : Returns(x) @ result.r.x.v -> ComplierHandshake)))
+-- The same for one role's calls, with the other roles' events in between: the policy takes one
+-- attempt from r, answers exactly it (perhaps only after other agents have acted: a held call), and
+-- if it allowed the call, accepts whatever it returns, before r's next attempt. Seen from r alone,
+-- the other roles' events hidden, it settles only where it answers r.
+ComplierAnswers(r) = STOP |~| SKIP |~| (|~| x:Act @ attempt.r.x -> (deny.r.x -> ComplierAnswers(r) |~| allow.r.x -> ([] v : Returns(x) @ result.r.x.v -> ComplierAnswers(r))))
+ComplierOnly(r) = Policy \ diff(Events, {|attempt.r, allow.r, deny.r, result.r|})
+-- An allowed call's result comes back whenever the call finishes, whatever the other agents are
+-- doing, so from the moment r's call is allowed the policy accepts every value it can return, in
+-- every state, until one comes back.
+ComplierChaos(A) = SKIP |~| STOP |~| (|~| e : A @ e -> ComplierChaos(A))
+ComplierDue(r) = SKIP |~| STOP |~| (|~| x : Act @ allow.r.x -> ([] v : Returns(x) @ result.r.x.v -> ComplierDue(r)))
+ComplierResults(r) = ComplierChaos(diff(Events, {|allow.r, result.r|})) ||| ComplierDue(r)
 )csp";
+
+// complier's pattern library (patterns/patterns.csp), built in by fdr/build-complier-fdr.sh. A spec
+// with roles gets it with `include "patterns.csp"`.
+const char* const PATTERNS =
+#include "patterns.inc"
+    ;
+const char* const PATTERNS_FILE = "patterns.csp";
 
 std::string json_escape(const std::string& text)
 {
@@ -225,9 +244,19 @@ private:
         roles_declared_ = std::regex_search(source.str(), role_decl);
         std::stringstream text;
         text << source.str() << "\n" << (roles_declared_ ? ROLE_PRELUDE : PRELUDE);
+        // `include "patterns.csp"` is the pattern library; FDR opens included files from these strings,
+        // resolved next to the spec. Its patterns carry roles, so a spec without them can't use it.
+        static const std::regex library_include("(^|\n)[ \t]*include[ \t]+\"patterns\\.csp\"");
+        if (std::regex_search(source.str(), library_include) && !roles_declared_)
+        {
+            fail("load", "the pattern library (include \"patterns.csp\") is for specs with roles: declare datatype Role");
+            return EXIT_LOAD_ERROR;
+        }
+        size_t slash = spec_path.find_last_of('/');
+        std::string library_path = (slash == std::string::npos ? "" : spec_path.substr(0, slash + 1)) + PATTERNS_FILE;
         try
         {
-            warnings_ = session_->load_strings_as_file(spec_path, {{spec_path, text.str()}});
+            warnings_ = session_->load_strings_as_file(spec_path, {{spec_path, text.str()}, {library_path, PATTERNS}});
             acts_ = members("Act");
             if (roles_declared_)
                 roles_ = members("Role");
@@ -360,7 +389,18 @@ private:
                       : equal("Agent is ControllableCHAOS, the most general agent", "Agent", "ControllableCHAOS");
         ok = equal("System is Agent against the guarded policy, refusing only when no attempt can",
                    "System", "ComplierSystem") && ok;
-        ok = check("every attempt the policy takes is answered with allow or deny, and every result an allowed call can return is accepted", "ComplierHandshake [FD= Policy") && ok;
+        if (!roles_declared_)
+            ok = check("every attempt the policy takes is answered with allow or deny, and every result an allowed call can return is accepted", "ComplierHandshake [FD= Policy") && ok;
+        // With roles, agents act at the same time: each role's calls follow the handshake on their own,
+        // and another agent may act between a role's attempt and its answer, or while its call runs.
+        for (const std::string& r : roles_)
+        {
+            ok = check("every attempt the policy takes from " + r + " is answered with allow or deny before " + r +
+                           "'s next attempt, even if other agents act in between",
+                       "ComplierAnswers(" + r + ") [F= ComplierOnly(" + r + ")") && ok;
+            ok = check("every result " + r + "'s allowed call can return is accepted until it comes back",
+                       "ComplierResults(" + r + ") [F= Policy") && ok;
+        }
         ok = check("no agent is left waiting for a verdict (System can't deadlock)", "System :[deadlock free [F]]") && ok;
         ok = check("the policy is deterministic, so each verdict is determined", "Policy :[deterministic [FD]]") && ok;
         for (const auto& assertion : session_->assertions())

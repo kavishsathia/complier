@@ -1,0 +1,67 @@
+-- complier's pattern library: multi-agent topologies as CSP processes.
+--
+-- A spec with roles loads it with
+--
+--   include "patterns.csp"
+--
+-- complier-fdr supplies this file (it's built into it), so the include needs no copy next to the
+-- spec. Every pattern is an ordinary process over the prelude's channels, so FDR proves a policy
+-- built from them like any other.
+--
+-- The patterns take two kinds of argument:
+--
+--   a phase      a process that ends (SKIP) when its part of the work is done, e.g.
+--                  Draft = Permit(writer, edit, \ _ @ Draft) [] Step(writer, submit)
+--   a judgement  a function of two processes, J(Pass, Fail): it runs, then carries on as one of
+--                them, e.g. Judgement(critic, review, {approved})
+
+-- One call by role r, then the phase ends, whatever the call returned.
+Step(r, x) = Permit(r, x, \ _ @ SKIP)
+
+-- Role r's call x is the judgement: a result in Passing passes, and any other result (a failed call
+-- too) fails.
+Judgement(r, x, Passing) = \ Pass, Fail @ Permit(r, x, \ v @ if member(v, Passing) then Pass else Fail)
+
+-- Sequential pipeline: the phases run in order, each starting once the one before it has ended.
+Pipeline(<>) = SKIP
+Pipeline(<P>^Ps) = P ; Pipeline(Ps)
+
+-- Coordinator/dispatcher: Route is the coordinator's turn. Route(Handle) either hands the request to
+-- a specialist, by carrying on as Handle(d), or ends. Specialist(d) is that specialist's phase; once
+-- it ends, the coordinator routes the next request.
+Dispatcher(Route, Specialist) = Route(\ d @ Specialist(d) ; Dispatcher(Route, Specialist))
+
+-- Parallel fan-out/gather: the branches run at the same time, and Gather starts once every one of
+-- them has ended. Each branch is its own agents: branches that share a role's calls make the policy
+-- nondeterministic, and FDR refuses it.
+FanOut(Branches, Gather) = Together(Branches) ; Gather
+Together(<>) = SKIP
+Together(<B>^Bs) = B ||| Together(Bs)
+
+-- Generator/critic: the generator's phase, then the critic's judgement. A pass ends the pattern; a
+-- fail sends the work back to the generator.
+GeneratorCritic(Generate, Critic) = Generate ; Critic(SKIP, GeneratorCritic(Generate, Critic))
+
+-- Iterative refinement: the generator's phase, then at most n rounds of critique. A pass ends it
+-- early; otherwise the refiner's phase runs and the next round starts. After n refinements it ends.
+Refinement(n, Generate, Critic, Refine) = Generate ; Rounds(n, Critic, Refine)
+Rounds(0, _, _) = SKIP
+Rounds(n, Critic, Refine) = Critic(SKIP, Refine ; Rounds(n - 1, Critic, Refine))
+
+-- A held call: role r's call x is taken, and answered only once H has ended. Until then r waits (its
+-- tool call doesn't return) while H's agents act. Then the call is allowed, and its result v carries
+-- on as K(v).
+Hold(r, x, H, K) = attempt.r.x -> (H ; allow.r.x -> result.r.x?v : Returns(x) -> K(v))
+
+-- Hierarchical decomposition: r's call x hands a task to Sub, the agents below it, and is held until
+-- Sub ends. Sub may delegate in turn.
+Delegate(r, x, Sub, K) = Hold(r, x, Sub, K)
+
+-- Advisor: r's call x asks advisor a, and is held until a answers with one call y; then r's call
+-- runs (and can read the answer). The advisor acts only when asked, and only to answer.
+Consult(r, x, a, y, K) = Hold(r, x, Step(a, y), K)
+
+-- Guard: r's call x is put to Judge before it runs. If the judge passes it, it's allowed, and its
+-- result v carries on as K(v); if not, it's denied, and the policy carries on as P. r never calls
+-- the judge: its attempt is what wakes it.
+Guard(r, x, Judge, K, P) = attempt.r.x -> Judge(allow.r.x -> result.r.x?v : Returns(x) -> K(v), deny.r.x -> P)

@@ -15,6 +15,9 @@ OUT=$HERE/build
 mkdir -p "$OUT"
 BIN=$OUT/complier-fdr
 
+# The pattern library (patterns/patterns.csp) is built in, as a C++ raw string.
+{ printf 'R"csp('; cat "$HERE/../patterns/patterns.csp"; printf ')csp"\n'; } >"$OUT/patterns.inc"
+
 if [ "$(uname)" = Darwin ]; then
   FDR_HOME=${FDR_HOME:-/Applications/FDR4.app}
   [ -d "$FDR_HOME/Contents" ] && FDR_HOME=$FDR_HOME/Contents
@@ -24,7 +27,7 @@ if [ "$(uname)" = Darwin ]; then
     exit 1
   fi
   LIB=$FDR_HOME/Frameworks
-  clang++ -arch x86_64 -std=c++14 -O2 -Wall -Wextra -Wno-unused-parameter -I"$FDR_HOME/Headers" \
+  clang++ -arch x86_64 -std=c++14 -O2 -Wall -Wextra -Wno-unused-parameter -I"$FDR_HOME/Headers" -I"$OUT" \
     -o "$BIN" "$HERE/src/complier_fdr.cc" -L"$LIB" -lfdr -Wl,-rpath,"$LIB"
   # libfdr.dylib's install name is bare, so point this binary at it through the rpath above.
   install_name_tool -change libfdr.dylib @rpath/libfdr.dylib "$BIN"
@@ -32,7 +35,7 @@ else
   . "$HERE/env.sh"
   SYSTEM_LIB_DIR=$(dirname "$(g++ -print-file-name=libstdc++.so.6)")
   # As build.sh: FDR 4.2.7's libfdr uses the pre-C++11 std::string ABI.
-  g++ -std=c++11 -O2 -Wall -Wextra -D_GLIBCXX_USE_CXX11_ABI=0 -I"$FDR_HOME/include" \
+  g++ -std=c++11 -O2 -Wall -Wextra -D_GLIBCXX_USE_CXX11_ABI=0 -I"$FDR_HOME/include" -I"$OUT" \
     -o "$BIN" "$HERE/src/complier_fdr.cc" \
     -L"$FDR_HOME/lib" -lfdr -Wl,--disable-new-dtags -Wl,-rpath,"$SYSTEM_LIB_DIR:$FDR_LIBS"
 fi
