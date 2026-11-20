@@ -392,10 +392,12 @@ fn machine(command: MachineCommand) -> Result<()> {
         }
         MachineCommand::Act { name, role, event } => {
             let mut out = daemon::request(&daemon::Request::Act { machine: name.clone(), role: role.clone(), event: event.clone(), value: serde_json::Value::Null }, false)?;
+            answered(&out);
             // A held call waits, as an agent's tool call would, until the policy answers it.
             if out["verdict"] == "held" {
                 println!("{event} held; the policy answers it once other agents have acted (waiting…)");
-                out = daemon::request(&daemon::Request::Verdict { machine: name, role }, false)?;
+                let id = out["id"].as_u64().unwrap_or_default();
+                out = daemon::request(&daemon::Request::Verdict { machine: name, id }, false)?;
             }
             let state = out["state"].as_str().unwrap_or("?");
             match out["verdict"].as_str() {
@@ -408,6 +410,7 @@ fn machine(command: MachineCommand) -> Result<()> {
             let request = daemon::Request::Result { machine: name, role, tool_use_id: String::new(), ok: true, output: String::new(), error: String::new(), value: Some(value) };
             let out = daemon::request(&request, false)?;
             println!("{} returned {}; the policy is now at {}", out["action"].as_str().unwrap_or("?"), out["value"].as_str().unwrap_or("?"), out["state"].as_str().unwrap_or("?"));
+            answered(&out);
         }
         MachineCommand::Ls => {
             for m in daemon::request(&daemon::Request::MachineLs, false)?.as_array().into_iter().flatten() {
@@ -418,6 +421,14 @@ fn machine(command: MachineCommand) -> Result<()> {
         MachineCommand::Log { name, follow } => log(&name, follow)?,
     }
     Ok(())
+}
+
+// The held calls a step answered, as `machine act` and `machine result` report them.
+fn answered(out: &serde_json::Value) {
+    for a in out["answered"].as_array().into_iter().flatten() {
+        let (role, event, outcome) = (a["role"].as_str().unwrap_or("?"), a["event"].as_str().unwrap_or("?"), a["outcome"].as_str().unwrap_or("?"));
+        println!("  so {role}'s held {event} is {outcome}");
+    }
 }
 
 // Waits while the agent has nothing it may do yet; then, while the policy is still running and lets

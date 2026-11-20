@@ -92,7 +92,9 @@ export default async function PatternPage({ params }: { params: Promise<{ slug: 
             <p>
               Each line is one step of the animation above. <code>act</code> attempts a step as the agent in that role; <code>result</code> gives
               its call&apos;s result.
-              {script(p).includes("&") ? " A held call waits for its verdict, so it runs in the background and prints the verdict when it comes." : ""}
+              {script(p).includes("&")
+                ? " A held call waits for its verdict, so it runs in the background; the step that answers it says so, and the held call prints its verdict when it comes."
+                : ""}
             </p>
             <Code label="Terminal">{script(p)}</Code>
           </Step>

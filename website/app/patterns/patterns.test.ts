@@ -78,8 +78,11 @@ test("every flow gets the same verdicts from the real daemon", { skip: (!existsS
       assert.ok(up.ok, `${p.slug}: ${up.out}`);
       const { played } = play(p);
       const lines = commands(p);
-      // A held call's command waits for its verdict, so it runs in the background, as on the page.
-      const waiting = new Map<string, Promise<string>>();
+      // A held call's command waits for its verdict, so it runs in the background, as on the page; the
+      // commands after it run straight away, as they do when the page's block is pasted, and its
+      // verdict is checked at the end.
+      const waiting = new Map<string, Promise<string>[]>();
+      const verdicts = new Map<string, { act: string; outcome: string }[]>();
       for (const [i, { step, happened }] of played.entries()) {
         const args = lines[i]!.command.replace(/ & sleep 1$/, "").split(" ").slice(1);
         if (lines[i]!.held) {
@@ -87,8 +90,8 @@ test("every flow gets the same verdicts from the real daemon", { skip: (!existsS
           let out = "";
           child.stdout.on("data", (c) => (out += c));
           child.stderr.on("data", (c) => (out += c));
-          waiting.set(step.role, new Promise((done) => child.on("close", () => done(out))));
-          await new Promise((r) => setTimeout(r, 700));
+          waiting.set(step.role, [...(waiting.get(step.role) ?? []), new Promise((done) => child.on("close", () => done(out)))]);
+          await new Promise((r) => setTimeout(r, 1000)); // the page's `sleep 1`
           continue;
         }
         const { ok, out } = d.run(args);
@@ -97,14 +100,22 @@ test("every flow gets the same verdicts from the real daemon", { skip: (!existsS
           assert.equal(ok, own.outcome === "allowed", `${p.slug} step ${i + 1}: ${out}`);
           assert.ok(out.includes(own.outcome === "allowed" ? `${own.act} allowed` : own.reason), `${p.slug} step ${i + 1}: ${out}`);
         } else assert.ok(ok, `${p.slug} step ${i + 1}: ${out}`);
-        // A held call this step answered prints its verdict.
-        for (const h of happened.filter((h) => h.kind === "verdict")) {
-          const out = await waiting.get(h.role)!;
-          waiting.delete(h.role);
+        // The step that answers a held call says so, and the held call's own command prints it too.
+        for (const h of happened) {
+          if (h.kind !== "verdict") continue;
+          assert.ok(out.includes(`so ${h.role}'s held ${h.act} is ${h.outcome}`), `${p.slug} step ${i + 1}: ${out}`);
+          verdicts.set(h.role, [...(verdicts.get(h.role) ?? []), h]);
+        }
+      }
+      // Each held call printed its own verdict.
+      for (const [role, outs] of waiting) {
+        const expected = verdicts.get(role) ?? [];
+        assert.equal(outs.length, expected.length, `${p.slug}: ${role}'s held calls`);
+        for (const [i, out] of (await Promise.all(outs)).entries()) {
+          const h = expected[i]!;
           assert.ok(out.includes(`${h.act} held`) && out.includes(h.outcome === "allowed" ? `${h.act} allowed` : `${h.act} denied`), `${p.slug}: ${out}`);
         }
       }
-      assert.equal(waiting.size, 0, p.slug);
       const ls = d.run(["machine", "ls"]).out.split("\n").find((l) => l.startsWith(`${p.slug}\t`));
       assert.ok(ls?.includes(`\t${played.at(-1)!.after.status}\t`), `${p.slug}: ${ls}`);
       d.run(["machine", "down", p.slug]);

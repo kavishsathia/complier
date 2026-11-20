@@ -92,8 +92,8 @@ pub enum Request {
         #[serde(default)]
         value: Value,
     },
-    // Waits for the policy's answer to this role's held attempt.
-    Verdict { machine: String, role: String },
+    // Waits for the policy's answer to a held attempt: `id` is the one `Act` gave it.
+    Verdict { machine: String, id: u64 },
     // The agent is stopping: wait while there's nothing it would be allowed to do, then report.
     Stop { machine: String, role: String },
 }
@@ -138,8 +138,14 @@ struct Machine {
     // Each role's allowed call whose result hasn't come back yet (the key is the agent's role).
     // Without roles, at most one call is in flight at a time.
     running: BTreeMap<String, Pending>,
-    // Each role's attempt the policy has taken but not answered yet, by role.
+    // Each role's attempt the policy has taken but not answered yet, by role; and the answers to held
+    // attempts, by the attempt's id, with the state the policy was in then, until whoever is waiting
+    // for one collects it.
     held: BTreeMap<String, Held>,
+    answered: BTreeMap<u64, (Verdict, String)>,
+    next_held: u64,
+    // The held attempts the last act or result answered, for whoever made it to be told.
+    settled: Vec<Value>,
     status: Status,
     log: File,
     // Why the machine left Running, and which agents have been told.
@@ -148,14 +154,15 @@ struct Machine {
 }
 
 // An attempt the policy has taken and will answer once other agents have acted. The agent's call
-// waits for `verdict`; meanwhile the call is shown to the agents whose turn it is.
+// waits for its answer, which goes in `answered` under `id`; meanwhile the call is shown to the
+// agents whose turn it is.
 struct Held {
+    id: u64,
     call: Pending,
     // The event as the log shows it, with its value (`publish.p1`).
     shown: String,
     tool: String,
     arguments: Value,
-    verdict: Option<Verdict>,
 }
 
 // One admitted unit: the service it covers, its proven translation (if it translates anything),
@@ -271,7 +278,7 @@ impl Machine {
     fn holding(&self, role: &str) -> Vec<Value> {
         self.held
             .iter()
-            .filter(|(r, h)| *r != role && h.verdict.is_none())
+            .filter(|(r, _)| *r != role)
             .map(|(r, h)| json!({ "role": r, "event": h.shown, "tool": h.tool, "arguments": h.arguments }))
             .collect()
     }
@@ -297,6 +304,7 @@ impl Machine {
 
     // The agent attempts `x`, for `call`. Err only if the machine can't take attempts at all.
     fn attempt(&mut self, role: &str, x: &str, value: &Value, call: Call, translator: Option<Arc<Translator>>) -> Result<Verdict> {
+        self.settled.clear();
         let shown = match value {
             Value::Null => x.to_string(),
             Value::String(v) => format!("{x}.{v}"),
@@ -304,10 +312,6 @@ impl Machine {
         };
         self.running()?;
         let key = self.key(role, x);
-        // A held attempt whose verdict nobody collected (its agent went away) is over.
-        if self.held.get(role).is_some_and(|h| h.verdict.is_some()) {
-            self.held.remove(role);
-        }
         // Calls of other roles still in flight, which the policy may be waiting for.
         let others = self.running.values().filter(|p| self.roles.is_empty() || !p.event.starts_with(&format!("{role}."))).map(|p| p.event.clone()).collect::<Vec<_>>();
         let busy = |reason: String| match others.as_slice() {
@@ -346,7 +350,8 @@ impl Machine {
                         // answer comes before this role's next attempt).
                         (None, None) if !self.roles.is_empty() => {
                             self.state = taken;
-                            let held = Held { call: pending, shown: shown.clone(), tool: call.tool.to_string(), arguments: call.arguments.clone(), verdict: None };
+                            self.next_held += 1;
+                            let held = Held { id: self.next_held, call: pending, shown: shown.clone(), tool: call.tool.to_string(), arguments: call.arguments.clone() };
                             self.held.insert(role.to_string(), held);
                             Verdict::Held
                         }
@@ -371,7 +376,7 @@ impl Machine {
     // take, so it takes it at once, and the waiting call learns its verdict.
     fn settle(&mut self) {
         loop {
-            let answered = self.held.iter().filter(|(_, h)| h.verdict.is_none()).find_map(|(role, h)| {
+            let answered = self.held.iter().find_map(|(role, h)| {
                 let edges = self.edges();
                 let allow = edges.get(&format!("allow.{}", h.call.event)).map(|&next| (Verdict::Allowed, next));
                 let deny = edges.get(&format!("deny.{}", h.call.event)).map(|&next| (Verdict::Denied, next));
@@ -379,13 +384,14 @@ impl Machine {
             });
             let Some((role, verdict, next)) = answered else { return };
             self.state = next;
-            let h = self.held.get_mut(&role).unwrap();
-            h.verdict = Some(verdict.clone());
-            let (event, call) = (h.shown.clone(), h.call.clone());
+            let h = self.held.remove(&role).unwrap();
+            self.answered.insert(h.id, (verdict.clone(), self.show()));
+            let event = h.shown;
             if verdict == Verdict::Allowed {
-                self.running.insert(role.clone(), call);
+                self.running.insert(role.clone(), h.call);
             }
             let outcome = if verdict == Verdict::Allowed { "allowed" } else { "denied" };
+            self.settled.push(json!({ "role": role, "event": event, "outcome": outcome }));
             self.record(json!({ "kind": "verdict", "role": role, "event": event, "outcome": outcome, "reason": if outcome == "denied" { "the policy denied it" } else { "" }, "state": self.show() }));
         }
     }
@@ -405,6 +411,7 @@ impl Machine {
 
     // The result of `role`'s call came back as `value`: W follows result.x.value.
     fn result_of(&mut self, role: &str, value: &str) -> Result<()> {
+        self.settled.clear();
         let Some(p) = self.running.remove(role) else { bail!("no call is waiting for a result") };
         let event = format!("result.{}.{value}", p.event);
         match self.edges().get(&event).copied() {
@@ -557,10 +564,15 @@ fn respond(request: Request, daemon: &Daemon) -> Result<Value> {
             let mut all = machines.lock().unwrap();
             let m = all.get_mut(&machine).ok_or_else(|| anyhow!("no machine named {machine}"))?;
             let verdict = m.act(&role, &event, &value, "", None)?;
-            Ok(verdict_json(&verdict, &event, m.show()))
+            let mut out = verdict_json(&verdict, &event, m.show());
+            if verdict == Verdict::Held {
+                out["id"] = json!(m.held[&role].id);
+            }
+            out["answered"] = json!(m.settled);
+            Ok(out)
         }
-        Request::Verdict { machine, role } => {
-            let (verdict, state) = wait_verdict(daemon, &machine, &role)?;
+        Request::Verdict { machine, id } => {
+            let (verdict, state) = wait_verdict(daemon, &machine, id)?;
             Ok(verdict_json(&verdict, "the call", state))
         }
         Request::Stop { machine, role } => loop {
@@ -590,24 +602,23 @@ fn verdict_json(verdict: &Verdict, event: &str, state: String) -> Value {
     json!({ "state": state, "verdict": verdict, "reason": reason })
 }
 
-// Waits until the policy answers this role's held attempt, and collects the answer.
-fn wait_verdict(daemon: &Daemon, machine: &str, role: &str) -> Result<(Verdict, String)> {
+// Waits until the policy answers the held attempt `id`, and collects the answer.
+fn wait_verdict(daemon: &Daemon, machine: &str, id: u64) -> Result<(Verdict, String)> {
     loop {
         {
             let mut all = daemon.machines.lock().unwrap();
-            let m = all.get_mut(machine).ok_or_else(|| anyhow!("machine {machine} went away while {role}'s call waited for its verdict"))?;
-            let Some(h) = m.held.get(role) else { bail!("{role} has no call waiting for a verdict") };
-            if let Some(verdict) = h.verdict.clone() {
-                m.held.remove(role);
-                return Ok((verdict, m.show()));
+            let m = all.get_mut(machine).ok_or_else(|| anyhow!("machine {machine} went away while a call waited for its verdict"))?;
+            if let Some(answer) = m.answered.remove(&id) {
+                return Ok(answer);
             }
+            let Some(role) = m.held.iter().find(|(_, h)| h.id == id).map(|(r, _)| r.clone()) else { bail!("no call {id} is waiting for a verdict") };
             if m.status != Status::Running {
-                m.held.remove(role);
+                m.held.remove(&role);
                 let status = serde_json::to_value(&m.status)?.as_str().unwrap_or("?").to_string();
                 return Ok((Verdict::Refused(format!("the machine is {status} ({})", m.ended)), m.show()));
             }
         }
-        std::thread::sleep(std::time::Duration::from_millis(100));
+        std::thread::sleep(std::time::Duration::from_millis(20));
     }
 }
 
@@ -638,12 +649,13 @@ fn call(daemon: &Daemon, machine: &str, role: &str, name: &str, args: &Value, to
     let verdict = {
         let mut all = daemon.machines.lock().unwrap();
         let m = all.get_mut(machine).ok_or_else(|| anyhow!("no machine named {machine}"))?;
-        m.attempt(role, &event.channel, &event.value, Call { tool: name, arguments: args, tool_use_id }, Some(translator))?
+        let verdict = m.attempt(role, &event.channel, &event.value, Call { tool: name, arguments: args, tool_use_id }, Some(translator))?;
+        (verdict.clone(), if verdict == Verdict::Held { m.held[role].id } else { 0 })
     };
     // A held call waits here, its agent's tool call with it, until the policy answers.
     let verdict = match verdict {
-        Verdict::Held => wait_verdict(daemon, machine, role)?.0,
-        verdict => verdict,
+        (Verdict::Held, id) => wait_verdict(daemon, machine, id)?.0,
+        (verdict, _) => verdict,
     };
     match verdict {
         Verdict::Allowed => Ok(json!({ "allow": true, "event": translate::show(&event) })),
@@ -692,7 +704,7 @@ fn result(daemon: &Daemon, machine: &str, role: &str, tool_use_id: &str, ok: boo
     let mut all = daemon.machines.lock().unwrap();
     let m = all.get_mut(machine).ok_or_else(|| anyhow!("no machine named {machine}"))?;
     m.result_of(&key, &value)?;
-    Ok(json!({ "action": action, "value": value, "state": m.show() }))
+    Ok(json!({ "action": action, "value": value, "state": m.show(), "answered": m.settled }))
 }
 
 fn machine_up(daemon: &Daemon, name: String, spec: &Path, units: Vec<PathBuf>) -> Result<Value> {
@@ -717,6 +729,9 @@ fn machine_up(daemon: &Daemon, name: String, spec: &Path, units: Vec<PathBuf>) -
         roles: compiled.roles,
         running: BTreeMap::new(),
         held: BTreeMap::new(),
+        answered: BTreeMap::new(),
+        next_held: 0,
+        settled: Vec::new(),
         status: Status::Running,
         log,
         ended: String::new(),
@@ -855,6 +870,9 @@ mod tests {
             roles: Vec::new(),
             running: BTreeMap::new(),
             held: BTreeMap::new(),
+            answered: BTreeMap::new(),
+            next_held: 0,
+            settled: Vec::new(),
             status: Status::Running,
             log: File::create(log).unwrap(),
             ended: String::new(),
@@ -960,15 +978,19 @@ mod tests {
         assert!(m.holding("w").is_empty());
         assert!(matches!(m.act("w", "go", &Value::Null, "t2", None).unwrap(), Verdict::Refused(r) if r.contains("still waiting")));
         assert_eq!(m.act("j", "look", &Value::Null, "t3", None).unwrap(), Verdict::Allowed);
-        assert_eq!(m.held["w"].verdict, None);
-        // The judge's result decides: failed is a deny, and the writer may try again.
+        let first = m.held["w"].id;
+        assert!(m.answered.is_empty());
+        // The judge's result decides: failed is a deny, and the writer may try again, even before
+        // whoever waits on the first attempt has collected its answer.
         m.result_of("j", "failed").unwrap();
-        assert_eq!(m.held["w"].verdict, Some(Verdict::Denied));
+        assert!(m.held.is_empty());
         assert_eq!(m.state, 0);
         assert_eq!(m.act("w", "go", &Value::Null, "t4", None).unwrap(), Verdict::Held);
+        let second = m.held["w"].id;
         m.act("j", "look", &Value::Null, "t5", None).unwrap();
         m.result_of("j", "done").unwrap();
-        assert_eq!(m.held["w"].verdict, Some(Verdict::Allowed));
+        assert_eq!(m.answered[&first].0, Verdict::Denied);
+        assert_eq!(m.answered[&second].0, Verdict::Allowed);
         // Allowed after the hold, the writer's call runs and its result is bound as usual.
         assert!(m.running.contains_key("w"));
         m.result_of("w", "done").unwrap();
