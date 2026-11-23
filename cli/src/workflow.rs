@@ -1,13 +1,14 @@
 // Saved workflows: a spec and its units, proven and kept under ~/.complier/workflows/<name>/ on this
-// computer, so a workflow found in one Claude Code session can be applied again in later ones.
+// computer, so a workflow found in one Claude Code or Codex session can be applied again in later ones.
 //
-// Applying a workflow starts its machine and binds one Claude Code session to it: the session's id
-// is recorded in ~/.complier/sessions/<id>.json, and complier's hooks, which get the session id with
-// every call, then enforce the machine exactly as they do for COMPLIER_MACHINE and COMPLIER_ROLE.
-// Saving a file enforces nothing; only an applied workflow constrains a session, and only through
-// the plugin's hooks.
+// Applying a workflow starts its machine and binds one session to it: the session's id is recorded
+// in ~/.complier/sessions/<id>.json, and complier's hooks, which get the session id with every call,
+// then enforce the machine exactly as they do for COMPLIER_MACHINE and COMPLIER_ROLE. Saving a file
+// enforces nothing; only an applied workflow constrains a session, and only through the hooks, so a
+// Codex session is bound only once Codex is known to run them there.
 
 use crate::daemon;
+use crate::harness::{self, Harness};
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -29,6 +30,8 @@ pub struct Binding {
     pub workflow: String,
     pub machine: String,
     pub role: String,
+    #[serde(default)]
+    pub harness: Harness,
 }
 
 pub fn dir() -> Result<PathBuf> {
@@ -44,9 +47,12 @@ pub fn machine_name(workflow: &str) -> String {
     format!("workflow-{workflow}")
 }
 
+pub fn valid_id(name: &str) -> bool {
+    !name.is_empty() && name.len() <= 128 && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+}
+
 fn valid(what: &str, name: &str) -> Result<()> {
-    let ok = !name.is_empty() && name.len() <= 128 && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
-    if !ok {
+    if !valid_id(name) {
         bail!("{what} {name:?} must be letters, digits, - and _ only");
     }
     Ok(())
@@ -104,7 +110,7 @@ pub fn save(name: &str, source: &Path, description: &str, noticed: &str, replace
     };
     std::fs::write(target.join("workflow.toml"), toml::to_string(&about)?)?;
     println!("saved workflow {name} in {}", target.display());
-    println!("It isn't applied to anything yet. Apply it to a Claude Code session with: complier workflow apply {name}");
+    println!("It isn't applied to anything yet. Apply it to a Claude Code or Codex session with: complier workflow apply {name}");
     Ok(())
 }
 
@@ -148,44 +154,105 @@ pub fn show(name: &str) -> Result<()> {
     Ok(())
 }
 
-// The Claude Code session to bind: --session, else the one Claude Code tells the commands it runs.
-fn session_id(given: Option<String>) -> Result<String> {
-    let id = given
-        .or_else(|| std::env::var("CLAUDE_CODE_SESSION_ID").ok())
-        .or_else(|| std::env::var("COMPLIER_SESSION").ok())
-        .filter(|s| !s.is_empty())
-        .context("no Claude Code session to apply the workflow to: run this from inside Claude Code, or pass --session <id>")?;
+// The session to bind and its harness: --session, else the one the harness tells the commands it
+// runs (CLAUDE_CODE_SESSION_ID, CODEX_SESSION_ID). The harness is --harness, else the one the
+// session's hooks recorded, else the one whose variable gave the session, else Claude Code.
+fn session_id(given: Option<String>, harness: Option<Harness>) -> Result<(String, Harness)> {
+    let from_env = |h: Harness| std::env::var(h.session_env()).ok().filter(|s| !s.is_empty()).map(|s| (s, h));
+    let (id, env_harness) = match given.filter(|s| !s.is_empty()) {
+        Some(id) => (id, None),
+        None => match harness.map(from_env).unwrap_or_else(|| match (from_env(Harness::Claude), from_env(Harness::Codex)) {
+            // One harness started from inside the other inherits the outer one's variable too, so
+            // which session this is can't be told: say it.
+            (Some(_), Some(_)) => None,
+            (claude, codex) => claude.or(codex),
+        }) {
+            Some((id, h)) => (id, Some(h)),
+            None if harness.is_none() && from_env(Harness::Claude).is_some() && from_env(Harness::Codex).is_some() => bail!(
+                "both {} and {} are set (one harness was started from inside the other), so which session to bind can't be told: pass --harness claude or --harness codex",
+                Harness::Claude.session_env(),
+                Harness::Codex.session_env()
+            ),
+            None => (
+                std::env::var("COMPLIER_SESSION").ok().filter(|s| !s.is_empty()).context(
+                    "no session to apply the workflow to: run this from inside Claude Code or Codex, or pass --session <id>",
+                )?,
+                None,
+            ),
+        },
+    };
     valid("session id", &id)?;
-    Ok(id)
+    let harness = harness.or_else(|| harness::live(&id)).or(env_harness).unwrap_or_default();
+    Ok((id, harness))
+}
+
+// A harness whose hooks run only once trusted (Codex) enforces nothing in a session they don't run
+// in, so the workflow is applied only where they demonstrably do: they ran when this session
+// started, and Codex says it runs every one of them here now.
+fn hooks_run(session: &str, harness: Harness) -> Result<()> {
+    if !harness.hooks_need_trust() {
+        return Ok(());
+    }
+    if harness::live(session) != Some(harness) {
+        bail!(
+            "complier's {} hooks didn't run when session {session} started, so a workflow applied to it would enforce nothing. Install and trust them (complier doctor says how), start a new {} session, and apply it there.",
+            harness.name(),
+            harness.name()
+        );
+    }
+    let here = std::env::current_dir()?;
+    let hooks = harness::codex_hooks(&here)?;
+    if !hooks.ready() {
+        bail!("not applying: {}", hooks.explain(&here));
+    }
+    Ok(())
 }
 
 // Starts the workflow's machine and binds the session to it. From then on the session's tool calls
-// are checked against the workflow by the plugin's hooks.
-pub fn apply(name: &str, role: &str, session: Option<String>) -> Result<()> {
+// are checked against the workflow by complier's hooks.
+pub fn apply(name: &str, role: &str, session: Option<String>, harness: Option<Harness>) -> Result<()> {
     let path = folder(name)?;
-    let session = session_id(session)?;
+    let (session, harness) = session_id(session, harness)?;
     let binding_path = sessions()?.join(format!("{session}.json"));
     if let Ok(existing) = read_binding(&binding_path) {
         bail!("this session already follows workflow {}; release it first (complier workflow release {})", existing.workflow, existing.workflow);
     }
+    hooks_run(&session, harness)?;
     let (spec, units) = crate::workflow_dir(&path)?;
     let machine = machine_name(name);
     if bindings()?.iter().any(|(_, b)| b.machine == machine) {
-        bail!("workflow {name} is already applied to another session; release it first (complier workflow release {name})");
+        bail!("workflow {name} is applied to another session; release it first (complier workflow release {name})");
     }
     // A machine left over from an earlier, released run of the workflow is replaced.
     let _ = daemon::request(&daemon::Request::MachineDown { name: machine.clone() }, false);
     let request = daemon::Request::MachineUp { name: machine.clone(), spec, units: units.clone() };
     daemon::request(&request, true).with_context(|| format!("starting workflow {name}"))?;
     std::fs::create_dir_all(sessions()?)?;
-    let binding = Binding { workflow: name.to_string(), machine: machine.clone(), role: role.to_string() };
+    let binding = Binding { workflow: name.to_string(), machine: machine.clone(), role: role.to_string(), harness };
     std::fs::write(&binding_path, serde_json::to_string_pretty(&binding)?)?;
 
     let info = daemon::request(&daemon::Request::MachineInfo { machine: machine.clone(), role: role.to_string() }, false)?;
     let next: Vec<&str> = info["next"].as_array().into_iter().flatten().filter_map(Value::as_str).collect();
-    let builtin = units.iter().any(|u| std::fs::read_to_string(u).is_ok_and(|t| t.lines().any(|l| l.trim() == format!("service: {}", daemon::BUILTIN))));
-    println!("workflow {name} applied to session {session} as machine {machine}");
-    println!("checked from now on: every MCP tool call{}", if builtin { ", and the built-in tools its claude-code unit names (others are blocked)" } else { " (built-in tools aren't, since no unit covers claude-code)" });
+    let services: Vec<String> = units
+        .iter()
+        .filter_map(|u| std::fs::read_to_string(u).ok())
+        .filter_map(|t| t.lines().find_map(|l| l.trim().strip_prefix("service:").map(|s| s.trim().trim_matches(|c| c == '"' || c == '\'').to_string())))
+        .collect();
+    let builtin = harness.builtin_service();
+    let others: Vec<&String> = services.iter().filter(|s| *s != builtin && Harness::of_builtin_service(s).is_some()).collect();
+    println!("workflow {name} applied to {} session {session} as machine {machine}", harness.name());
+    let checked = if services.iter().any(|s| s == builtin) {
+        format!(", and the built-in tools its {builtin} unit names (others are blocked)")
+    } else if !others.is_empty() {
+        format!(
+            "; its units cover only {}'s built-in tools, not {}'s, so this session's built-in tools are all blocked (a {builtin} unit would name the ones it may use)",
+            others.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", "),
+            harness.name()
+        )
+    } else {
+        format!(" (built-in tools aren't, since no unit covers {builtin})")
+    };
+    println!("checked from now on: every MCP tool call{checked}");
     println!("allowed now: {}", if next.is_empty() { "nothing yet".into() } else { next.join(", ") });
     println!("The session is held to the workflow until its policy finishes. To stop early, run this in your own terminal: complier workflow release {name}");
     Ok(())
