@@ -1,6 +1,6 @@
 # Fan-out: three approaches at once
 
-Four Claude Code sessions share one complier machine, `fan-out`, as the pattern library's parallel
+Four agent sessions (Claude Code or Codex) share one complier machine, `fan-out`, as the pattern library's parallel
 fan-out/gather. The task is a forecasting competition: predict hourly bike-share rentals for the
 last third of each month, scored by RMSLE (`workspace/TASK.md`).
 

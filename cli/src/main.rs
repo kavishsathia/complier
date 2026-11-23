@@ -2,6 +2,7 @@ mod cel;
 mod codegen;
 mod config;
 mod fdr;
+mod harness;
 mod install;
 mod daemon;
 mod hooks;
@@ -16,6 +17,7 @@ mod yaml;
 use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
 use config::Server;
+use harness::Harness;
 use std::io::{IsTerminal, Read};
 use std::path::{Path, PathBuf};
 
@@ -94,10 +96,43 @@ enum Command {
         #[command(subcommand)]
         command: MachineCommand,
     },
-    /// Claude Code hooks; reads the machine and role from COMPLIER_MACHINE and COMPLIER_ROLE.
+    /// An agent harness's hooks (Claude Code's, or Codex's with --harness codex); reads the machine
+    /// and role from COMPLIER_MACHINE and COMPLIER_ROLE, or the workflow applied to the session.
     Hook {
+        /// The harness running the hook, which decides how its payloads are read and answered.
+        #[arg(long, default_value = "claude")]
+        harness: Harness,
         #[command(subcommand)]
         command: HookCommand,
+    },
+    /// Start an agent in a machine as one of its roles, in Claude Code or Codex, with complier's
+    /// hooks: the command the workflow launcher and the demos run for each agent.
+    ///
+    /// complier agent --harness codex --machine review-gate --role writer 'You are the writer: follow WRITER.md.'
+    /// complier agent --machine loop --role dev "$(cat prompt.md)" -- --chrome
+    ///
+    /// For Codex it first asks Codex whether complier's hooks are installed and trusted here, and
+    /// starts nothing if they aren't, since Codex would skip them and nothing would be enforced.
+    Agent {
+        /// claude or codex (default: COMPLIER_HARNESS, else claude).
+        #[arg(long)]
+        harness: Option<Harness>,
+        #[arg(long)]
+        machine: String,
+        #[arg(long)]
+        role: String,
+        /// Print the command instead of running it.
+        #[arg(long)]
+        print: bool,
+        /// Only check that the agent could start here (for Codex, that Codex runs complier's
+        /// hooks), and start nothing: for scripts that start several agents.
+        #[arg(long, conflicts_with = "print")]
+        check: bool,
+        /// The agent's first prompt.
+        prompt: Option<String>,
+        /// More arguments for the harness itself, after `--`.
+        #[arg(last = true)]
+        extra: Vec<String>,
     },
     /// Forget a server and delete its credentials from the keychain.
     Remove { name: String },
@@ -130,15 +165,19 @@ enum WorkflowCommand {
     Ls,
     /// Print a saved workflow's description, spec and units.
     Show { name: String },
-    /// Start a saved workflow's machine and bind a Claude Code session to it (by default the one
-    /// running this command), whose tool calls the plugin's hooks then check against it.
+    /// Start a saved workflow's machine and bind a Claude Code or Codex session to it (by default
+    /// the one running this command), whose tool calls complier's hooks then check against it.
     Apply {
         name: String,
         #[arg(long, default_value = "claude")]
         role: String,
-        /// The Claude Code session id; defaults to CLAUDE_CODE_SESSION_ID.
+        /// The session id; defaults to CLAUDE_CODE_SESSION_ID (Claude Code) or CODEX_SESSION_ID (Codex).
         #[arg(long)]
         session: Option<String>,
+        /// The session's harness, claude or codex; by default the one the session's hooks recorded,
+        /// else the one whose session variable is set, else claude.
+        #[arg(long)]
+        harness: Option<Harness>,
     },
     /// Stop an applied workflow and let its session go.
     Release { name: String },
@@ -215,16 +254,23 @@ fn main() -> Result<()> {
         Command::Translate { unit, tool, arguments } => translate(&unit, &tool, &arguments),
         Command::Up => daemon::serve(),
         Command::Machine { command } => machine(command),
-        Command::Hook { command: HookCommand::SessionStart } => hooks::session_start(),
-        Command::Hook { command: HookCommand::PreToolUse } => hooks::pre_tool_use(),
-        Command::Hook { command: HookCommand::PostToolUse } => hooks::post_tool_use(),
-        Command::Hook { command: HookCommand::Stop } => hook_stop(),
+        Command::Hook { harness, command: HookCommand::SessionStart } => hooks::session_start(harness),
+        Command::Hook { harness, command: HookCommand::PreToolUse } => hooks::pre_tool_use(harness),
+        Command::Hook { harness, command: HookCommand::PostToolUse } => hooks::post_tool_use(harness),
+        Command::Hook { harness, command: HookCommand::Stop } => hooks::stop(harness),
+        Command::Agent { harness, machine, role, print, check, prompt, extra } => {
+            let harness = match harness {
+                Some(h) => h,
+                None => std::env::var("COMPLIER_HARNESS").ok().filter(|h| !h.is_empty()).map(|h| h.parse()).transpose()?.unwrap_or_default(),
+            };
+            agent(harness, &machine, &role, print, check, prompt.as_deref(), &extra)
+        }
         Command::Remove { name } => remove(&name),
         Command::Workflow { command } => match command {
             WorkflowCommand::Save { name, dir, description, noticed, replace } => workflow::save(&name, &dir, &description, &noticed, replace),
             WorkflowCommand::Ls => workflow::ls(),
             WorkflowCommand::Show { name } => workflow::show(&name),
-            WorkflowCommand::Apply { name, role, session } => workflow::apply(&name, &role, session),
+            WorkflowCommand::Apply { name, role, session, harness } => workflow::apply(&name, &role, session, harness),
             WorkflowCommand::Release { name } => workflow::release(&name),
             WorkflowCommand::Rm { name } => workflow::remove(&name),
         },
@@ -339,11 +385,17 @@ fn doctor() -> Result<()> {
         Err(e) => line(false, "FDR", format!("{e:#}")),
     }
     let _ = std::fs::remove_file(&spec);
-    let plugin = match install::root() {
-        Some(root) => root.join("plugin"),
-        None => PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../plugin")),
-    };
+    let plugin = plugin_dir();
     line(plugin.join("hooks/hooks.json").is_file(), "Claude Code plugin", plugin.display().to_string());
+    line(plugin.join(".codex-plugin/plugin.json").is_file() && plugin.join("hooks/codex.json").is_file(), "Codex plugin", plugin.display().to_string());
+    // Codex itself is optional (only Codex agents need it), but if it's here, say whether it would run
+    // complier's hooks: until they're installed and trusted, it skips them.
+    let here = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    match harness::codex_hooks(&here) {
+        Ok(hooks) if hooks.ready() => println!("✓ Codex runs complier's hooks: {}", hooks.codex),
+        Ok(hooks) => println!("– Codex ({}) won't run complier's hooks yet, so Codex agents can't be bound: {}", hooks.codex, hooks.explain(&here)),
+        Err(_) => println!("– Codex: not found (only needed for Codex agents)"),
+    }
     if !ok {
         bail!("complier can't run here yet; see the ✗ above");
     }
@@ -431,60 +483,46 @@ fn answered(out: &serde_json::Value) {
     }
 }
 
-// Waits while the agent has nothing it may do yet; then, while the policy is still running and lets
-// the agent do something, makes Claude continue instead of stopping. Outside a machine (no
-// COMPLIER_MACHINE/COMPLIER_ROLE or applied workflow), or once the policy has finished, it lets Claude stop.
-fn hook_stop() -> Result<()> {
-    let Some((machine, role)) = hooks::binding(&hooks::input()) else {
-        return Ok(());
-    };
-    let request = daemon::Request::Stop { machine: machine.clone(), role: role.clone() };
-    let delivery = daemon::request(&request, false)?;
-    let list = |k: &str| -> Vec<String> {
-        delivery[k].as_array().into_iter().flatten().filter_map(|v| v.as_str().map(String::from)).collect()
-    };
-    if let Some(status) = delivery["ended"].as_str() {
-        let reason = format!(
-            "complier: machine {machine} is {status} ({}), so nothing more will happen for you and complier will refuse your actions. Tell the user; a person has to restart the machine.",
-            delivery["reason"].as_str().unwrap_or("no reason given"),
-        );
-        println!("{}", serde_json::json!({ "decision": "block", "reason": reason }));
+// Starts an agent of `harness` in `machine` as `role`: the harness with complier's hooks, and
+// COMPLIER_MACHINE and COMPLIER_ROLE set for them. A Codex agent starts only once Codex says it will
+// run complier's hooks here (installed, enabled and trusted).
+fn agent(harness: Harness, machine: &str, role: &str, print: bool, check: bool, prompt: Option<&str>, extra: &[String]) -> Result<()> {
+    let command = harness::agent_command(harness, &plugin_dir(), prompt, extra);
+    if print {
+        let quoted: Vec<String> = command.iter().map(|a| shell_quote(a)).collect();
+        println!("COMPLIER_MACHINE={} COMPLIER_ROLE={} {}", shell_quote(machine), shell_quote(role), quoted.join(" "));
         return Ok(());
     }
-    // The policy says when the work is done: while it is still running and lets the agent do
-    // something, the agent may not stop, and is told to continue.
-    let next = list("next");
-    if next.is_empty() {
+    if harness.hooks_need_trust() {
+        let here = std::env::current_dir()?;
+        let hooks = harness::codex_hooks(&here)?;
+        if !hooks.ready() {
+            bail!("not starting Codex as {role} in machine {machine}: {}", hooks.explain(&here));
+        }
+    }
+    if check {
+        println!("{} can start as {role} in machine {machine} here{}", harness.name(), if harness.hooks_need_trust() { ": it runs complier's hooks" } else { "" });
         return Ok(());
     }
-    // Other agents' calls the policy holds until it can answer them: what this agent is acting on.
-    let held: Vec<String> = delivery["held"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .map(|h| {
-            let what = h["event"].as_str().unwrap_or("?");
-            match h["tool"].as_str().filter(|t| !t.is_empty()) {
-                Some(tool) => {
-                    let args = h["arguments"].to_string();
-                    let args = if args.chars().count() > 4000 { format!("{}…", args.chars().take(4000).collect::<String>()) } else { args };
-                    format!("{}'s {what} ({tool} with {args})", h["role"].as_str().unwrap_or("?"))
-                }
-                None => format!("{}'s {what}", h["role"].as_str().unwrap_or("?")),
-            }
-        })
-        .collect();
-    let holding = match held.as_slice() {
-        [] => String::new(),
-        calls => format!(" The policy is holding {} until it can answer: the call waits on what you do now.", calls.join("; ")),
-    };
-    let reason = format!(
-        "complier: machine {machine}'s policy hasn't finished, so you're not done yet. It now lets you: {}.{holding} Continue with the workflow.",
-        next.join(", ")
-    );
-    let _ = role;
-    println!("{}", serde_json::json!({ "decision": "block", "reason": reason }));
-    Ok(())
+    use std::os::unix::process::CommandExt;
+    let err = std::process::Command::new(&command[0]).args(&command[1..]).env("COMPLIER_MACHINE", machine).env("COMPLIER_ROLE", role).env("COMPLIER_HARNESS", harness.id()).exec();
+    bail!("couldn't start {}: {err}", command[0])
+}
+
+fn shell_quote(s: &str) -> String {
+    if !s.is_empty() && s.chars().all(|c| c.is_ascii_alphanumeric() || "-_./=:@%+,".contains(c)) {
+        s.to_string()
+    } else {
+        format!("'{}'", s.replace('\'', "'\\''"))
+    }
+}
+
+// complier's plugin folder: in the release it runs from, else in its checkout.
+pub(crate) fn plugin_dir() -> PathBuf {
+    match install::root() {
+        Some(root) => root.join("plugin"),
+        None => PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../plugin")),
+    }
 }
 
 // A workflow folder: exactly one spec (.csp) and any number of units (.yaml), in name order.

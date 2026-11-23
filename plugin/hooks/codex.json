@@ -1,0 +1,17 @@
+{
+  "description": "complier's Codex hooks: every tool call is checked against the machine the session is bound to. Codex runs them only once you trust them in /hooks.",
+  "hooks": {
+    "SessionStart": [
+      { "hooks": [{ "type": "command", "command": "complier hook --harness codex session-start" }] }
+    ],
+    "PreToolUse": [
+      { "hooks": [{ "type": "command", "command": "complier hook --harness codex pre-tool-use", "timeout": 3600 }] }
+    ],
+    "PostToolUse": [
+      { "hooks": [{ "type": "command", "command": "complier hook --harness codex post-tool-use" }] }
+    ],
+    "Stop": [
+      { "hooks": [{ "type": "command", "command": "complier hook --harness codex stop", "timeout": 3600 }] }
+    ]
+  }
+}

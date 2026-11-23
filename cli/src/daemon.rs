@@ -21,6 +21,7 @@
 
 use crate::cel::Backend;
 use crate::fdr::{self, Automaton};
+use crate::harness::{self, Harness};
 use crate::translate::{self, Translator};
 use crate::unit::{self, Unit};
 use anyhow::{anyhow, bail, Context, Result};
@@ -65,6 +66,13 @@ pub enum Request {
         arguments: Value,
         #[serde(default)]
         tool_use_id: String,
+        // The harness the agent runs in, which names its tools (Claude Code if not given).
+        #[serde(default)]
+        harness: Harness,
+        // For a call whose output will carry its exit status under this nonce (harness.rs,
+        // wrap_command): kept with the call until its result comes back.
+        #[serde(default)]
+        nonce: String,
     },
     // A call has finished: `ok` if it succeeded, with its output, or its error if it failed.
     // `value`, if given, is used as the result value as it is (for testing by hand).
@@ -95,7 +103,14 @@ pub enum Request {
     // Waits for the policy's answer to a held attempt: `id` is the one `Act` gave it.
     Verdict { machine: String, id: u64 },
     // The agent is stopping: wait while there's nothing it would be allowed to do, then report.
-    Stop { machine: String, role: String },
+    // `settle`: the agent's harness doesn't report calls that fail (Codex), so a call of this role
+    // still in flight now, when its turn has ended, never ran to completion and counts as failed.
+    Stop {
+        machine: String,
+        role: String,
+        #[serde(default)]
+        settle: bool,
+    },
 }
 
 #[derive(Clone, Serialize, PartialEq)]
@@ -120,6 +135,8 @@ struct Pending {
     tool_use_id: String,
     // The unit that translated the call, which also translates its result; none for `machine act`.
     translator: Option<Arc<Translator>>,
+    // Set when the call's output carries its exit status under this nonce (harness::wrap_command).
+    nonce: String,
 }
 
 struct Machine {
@@ -181,6 +198,12 @@ enum Route {
     Hidden,
     // A tool of a service the units cover, but none of them names it.
     Unoffered(String, String),
+    // A harness name that more than one of the service's tools is written as (Codex replaces `-` and
+    // other characters with `_`), so which tool was called can't be told.
+    Ambiguous(String, Vec<String>),
+    // A built-in tool of a harness none of the units covers, in a machine whose units cover another
+    // harness's built-in tools.
+    OtherHarness(Harness, Vec<String>),
     // Not a tool of any service the units cover.
     Unknown,
     // A built-in tool, in a machine none of whose units covers built-in tools: not complier's business.
@@ -188,23 +211,19 @@ enum Route {
 }
 
 // Claude Code's built-in tools (Bash, Edit, ...) are the service `claude-code`, called by their own
-// names.
-pub const BUILTIN: &str = "claude-code";
-
-// A server's name as Claude Code writes it into tool names: anything but letters, digits, `_` and
-// `-` becomes `_`.
-fn harness_name(server: &str) -> String {
-    server.chars().map(|c| if c.is_ascii_alphanumeric() || c == '_' || c == '-' { c } else { '_' }).collect()
-}
+// names; Codex's (Bash, apply_patch, ...) are the service `codex`. See harness.rs.
+#[cfg(test)]
+const BUILTIN: &str = "claude-code";
 
 // The service's tool a harness tool name calls, if it's one of `server`'s: `mcp__<server>__<tool>`,
 // `mcp__plugin_<plugin>_<server>__<tool>` for a server a plugin provides, or the tool's own name for
-// a built-in tool.
-fn service_tool<'a>(name: &'a str, server: &str) -> Option<&'a str> {
-    if server == BUILTIN {
-        return (!name.starts_with("mcp__")).then_some(name);
+// a built-in tool of the agent's own harness. The tool is as the harness writes it (for Codex, with
+// characters other than letters, digits and `_` replaced; see `offers`).
+fn service_tool<'a>(name: &'a str, server: &str, harness: Harness) -> Option<&'a str> {
+    if let Some(builtin) = Harness::of_builtin_service(server) {
+        return (builtin == harness && !name.starts_with("mcp__")).then_some(name);
     }
-    let server = harness_name(server);
+    let server = harness.tool_name_part(server);
     let rest = name.strip_prefix("mcp__")?;
     if let Some(tool) = rest.strip_prefix(&format!("{server}__")) {
         return Some(tool);
@@ -229,24 +248,42 @@ pub struct Call<'a> {
     pub tool: &'a str,
     pub arguments: &'a Value,
     pub tool_use_id: &'a str,
+    pub nonce: &'a str,
+}
+
+// The service's tools that `written` (a tool as the harness wrote it into a call) may be: the tool
+// itself for Claude Code; for Codex, every tool whose name Codex writes that way.
+fn offers<'a>(tools: impl Iterator<Item = &'a String>, written: &str, harness: Harness) -> Vec<&'a String> {
+    match harness {
+        Harness::Claude => tools.filter(|x| x.as_str() == written).collect(),
+        Harness::Codex => tools.filter(|x| x.as_str() == written || harness.tool_name_part(x) == written).collect(),
+    }
 }
 
 impl Machine {
-    fn route(&self, name: &str) -> Route {
+    fn route(&self, name: &str, harness: Harness) -> Route {
         let mut covered = None;
         for r in &self.routes {
-            let Some(tool) = service_tool(name, &r.server) else { continue };
-            if let Some(t) = r.translator.as_ref().filter(|t| t.translation.tools.iter().any(|x| x == tool)) {
-                return Route::Translated(t.clone(), tool.to_string());
-            }
-            if r.hidden.iter().any(|h| h == tool) {
-                return Route::Hidden;
+            let Some(tool) = service_tool(name, &r.server, harness) else { continue };
+            let translated = r.translator.as_ref().map(|t| offers(t.translation.tools.iter(), tool, harness)).unwrap_or_default();
+            let hidden = offers(r.hidden.iter(), tool, harness);
+            match (translated.as_slice(), hidden.as_slice()) {
+                ([x], []) => return Route::Translated(r.translator.clone().unwrap(), x.to_string()),
+                ([], [_]) => return Route::Hidden,
+                ([], []) => {}
+                _ => return Route::Ambiguous(r.server.clone(), translated.iter().chain(&hidden).map(|x| x.to_string()).collect()),
             }
             covered = Some((r.server.clone(), tool.to_string()));
         }
         match covered {
             Some((server, tool)) => Route::Unoffered(server, tool),
-            None if !name.starts_with("mcp__") => Route::Unmediated,
+            None if !name.starts_with("mcp__") => {
+                // Built-in tools are complier's business once any unit covers a harness's built-in
+                // tools: then an agent whose own harness no unit covers can't use its built-in tools
+                // unchecked either.
+                let others: Vec<String> = self.routes.iter().filter(|r| Harness::of_builtin_service(&r.server).is_some()).map(|r| r.server.clone()).collect();
+                if others.is_empty() { Route::Unmediated } else { Route::OtherHarness(harness, others) }
+            }
             None => Route::Unknown,
         }
     }
@@ -299,7 +336,7 @@ impl Machine {
 
     // The agent attempts `x`, outside any harness call. Err only if the machine can't take attempts.
     fn act(&mut self, role: &str, x: &str, value: &Value, tool_use_id: &str, translator: Option<Arc<Translator>>) -> Result<Verdict> {
-        self.attempt(role, x, value, Call { tool: "", arguments: &Value::Null, tool_use_id }, translator)
+        self.attempt(role, x, value, Call { tool: "", arguments: &Value::Null, tool_use_id, nonce: "" }, translator)
     }
 
     // The agent attempts `x`, for `call`. Err only if the machine can't take attempts at all.
@@ -334,7 +371,7 @@ impl Machine {
                 None if self.roles.is_empty() => Verdict::Refused(format!("the policy doesn't take {x} now")),
                 None => Verdict::Refused(busy(format!("the policy doesn't take {x} from {role} now"))),
                 Some(taken) => {
-                    let pending = Pending { action: x.to_string(), event: key.clone(), tool_use_id: call.tool_use_id.to_string(), translator };
+                    let pending = Pending { action: x.to_string(), event: key.clone(), tool_use_id: call.tool_use_id.to_string(), translator, nonce: call.nonce.to_string() };
                     let answers = &self.automaton.edges[taken];
                     match (answers.get(&format!("allow.{key}")), answers.get(&format!("deny.{key}"))) {
                         (Some(&next), None) => {
@@ -541,7 +578,7 @@ fn respond(request: Request, daemon: &Daemon) -> Result<Value> {
     match request {
         Request::Ping => Ok(json!("pong")),
         Request::MachineUp { name, spec, units } => machine_up(daemon, name, &spec, units),
-        Request::Call { machine, role, tool, arguments, tool_use_id } => call(daemon, &machine, &role, &tool, &arguments, &tool_use_id),
+        Request::Call { machine, role, tool, arguments, tool_use_id, harness, nonce } => call(daemon, &machine, &role, &tool, &arguments, &tool_use_id, harness, &nonce),
         Request::Result { machine, role, tool_use_id, ok, output, error, value } => result(daemon, &machine, &role, &tool_use_id, ok, &output, &error, value),
         Request::MachineDown { name } => {
             let mut all = machines.lock().unwrap();
@@ -579,7 +616,11 @@ fn respond(request: Request, daemon: &Daemon) -> Result<Value> {
             let (verdict, state) = wait_verdict(daemon, &machine, id)?;
             Ok(verdict_json(&verdict, "the call", state))
         }
-        Request::Stop { machine, role } => loop {
+        Request::Stop { machine, role, settle } => {
+            if settle {
+                settle_lost(daemon, &machine, &role)?;
+            }
+            loop {
             {
                 let mut all = machines.lock().unwrap();
                 let Some(m) = all.get_mut(&machine) else { return Ok(json!({ "happened": [], "note": format!("no machine named {machine}") })) };
@@ -592,8 +633,24 @@ fn respond(request: Request, daemon: &Daemon) -> Result<Value> {
                 }
             }
             std::thread::sleep(std::time::Duration::from_millis(250));
-        },
+            }
+        }
     }
+}
+
+// The agent's turn has ended with its call still in flight, in a harness that doesn't report calls
+// that fail: the call never finished, so its result is that it failed, as a reported failure would be.
+fn settle_lost(daemon: &Daemon, machine: &str, role: &str) -> Result<()> {
+    let lost = {
+        let all = daemon.machines.lock().unwrap();
+        let Some(m) = all.get(machine) else { return Ok(()) };
+        m.running.get(role).filter(|p| p.translator.is_some()).map(|p| p.tool_use_id.clone())
+    };
+    if let Some(id) = lost {
+        let error = "the harness reported no result for this call before the agent's turn ended, so it counts as failed";
+        result(daemon, machine, role, &id, false, "", error, None)?;
+    }
+    Ok(())
 }
 
 fn verdict_json(verdict: &Verdict, event: &str, state: String) -> Value {
@@ -630,12 +687,13 @@ fn wait_verdict(daemon: &Daemon, machine: &str, id: u64) -> Result<(Verdict, Str
 // call's action is attempted on the machine before the answer, so a call that is allowed has already
 // moved the policy, which then waits for its result. Err means nothing could be decided (no such
 // machine, or the CEL backend failed); the hook refuses the call then too.
-fn call(daemon: &Daemon, machine: &str, role: &str, name: &str, args: &Value, tool_use_id: &str) -> Result<Value> {
+#[allow(clippy::too_many_arguments)]
+fn call(daemon: &Daemon, machine: &str, role: &str, name: &str, args: &Value, tool_use_id: &str, harness: Harness, nonce: &str) -> Result<Value> {
     let deny = |reason: String| Ok(json!({ "allow": false, "reason": reason }));
     let route = {
         let all = daemon.machines.lock().unwrap();
         let m = all.get(machine).ok_or_else(|| anyhow!("no machine named {machine}"))?;
-        m.route(name)
+        m.route(name, harness)
     };
     let (translator, tool) = match route {
         Route::Hidden => return Ok(json!({ "allow": true, "hidden": true })),
@@ -644,6 +702,17 @@ fn call(daemon: &Daemon, machine: &str, role: &str, name: &str, args: &Value, to
             return deny(format!("{name} isn't a tool of any service machine {machine}'s units cover; inside a complier machine only the tools its units name are allowed."))
         }
         Route::Unoffered(server, tool) => return deny(format!("{tool} isn't named by any of machine {machine}'s units for {server}, so it isn't available.")),
+        Route::Ambiguous(server, tools) => {
+            return deny(format!("{name} could be any of {}'s tools {}, which {} writes the same way, so complier can't tell which one this is.", server, tools.join(", "), harness.name()))
+        }
+        Route::OtherHarness(harness, services) => {
+            return deny(format!(
+                "{name} is a built-in tool of {}, and machine {machine}'s units cover only {}'s built-in tools; a unit for the service {} would have to name it.",
+                harness.name(),
+                services.join(", "),
+                harness.builtin_service()
+            ))
+        }
         Route::Translated(translator, tool) => (translator, tool),
     };
     let event = match daemon.with_cel(|cel| translator.translate(cel, &tool, args))? {
@@ -653,7 +722,7 @@ fn call(daemon: &Daemon, machine: &str, role: &str, name: &str, args: &Value, to
     let verdict = {
         let mut all = daemon.machines.lock().unwrap();
         let m = all.get_mut(machine).ok_or_else(|| anyhow!("no machine named {machine}"))?;
-        let verdict = m.attempt(role, &event.channel, &event.value, Call { tool: name, arguments: args, tool_use_id }, Some(translator))?;
+        let verdict = m.attempt(role, &event.channel, &event.value, Call { tool: name, arguments: args, tool_use_id, nonce }, Some(translator))?;
         (verdict.clone(), if verdict == Verdict::Held { m.held[role].id } else { 0 })
     };
     // A held call waits here, its agent's tool call with it, until the policy answers.
@@ -673,7 +742,7 @@ fn call(daemon: &Daemon, machine: &str, role: &str, name: &str, args: &Value, to
 // value and the policy follows result.x.value; results of calls complier didn't mediate are ignored.
 // A result given by hand (`value`) is for the one call in flight, or the given role's.
 fn result(daemon: &Daemon, machine: &str, role: &str, tool_use_id: &str, ok: bool, output: &str, error: &str, value: Option<String>) -> Result<Value> {
-    let (key, action, translator) = {
+    let (key, action, translator, nonce) = {
         let all = daemon.machines.lock().unwrap();
         let m = all.get(machine).ok_or_else(|| anyhow!("no machine named {machine}"))?;
         let matches = |r: &String, p: &Pending| match value {
@@ -682,7 +751,7 @@ fn result(daemon: &Daemon, machine: &str, role: &str, tool_use_id: &str, ok: boo
         };
         let matching: Vec<(&String, &Pending)> = m.running.iter().filter(|(r, p)| matches(r, p)).collect();
         match matching.as_slice() {
-            [(r, p)] => ((*r).clone(), p.action.clone(), p.translator.clone()),
+            [(r, p)] => ((*r).clone(), p.action.clone(), p.translator.clone(), p.nonce.clone()),
             [] => return Ok(json!({ "ignored": true })),
             several => {
                 let events: Vec<&str> = several.iter().map(|(_, p)| p.event.as_str()).collect();
@@ -690,6 +759,18 @@ fn result(daemon: &Daemon, machine: &str, role: &str, tool_use_id: &str, ok: boo
             }
         }
     };
+    // A command run with complier's exit trap: whether it succeeded is its exit status, read out of
+    // its output (which then no longer shows the trap's line).
+    let (ok, output, error) = if nonce.is_empty() || !ok {
+        (ok, output.to_string(), error.to_string())
+    } else {
+        match harness::exit_status(output, &nonce) {
+            (Some(0), out) => (true, out, error.to_string()),
+            (Some(status), out) => (false, out, format!("exited with status {status}")),
+            (None, out) => (false, out, "the command's exit status didn't come back (it replaced complier's exit trap, or was killed), so it counts as failed".to_string()),
+        }
+    };
+    let (output, error) = (output.as_str(), error.as_str());
     let value = match (value, translator) {
         (Some(v), _) => v,
         (None, Some(t)) => match daemon.with_cel(|cel| t.result(cel, &action, ok, output, error))? {
@@ -974,7 +1055,7 @@ mod tests {
         let mut m = guarded();
         assert_eq!(m.next("w"), ["go"]);
         let args = json!({ "id": "p1" });
-        let call = Call { tool: "mcp__fake__go", arguments: &args, tool_use_id: "t1" };
+        let call = Call { tool: "mcp__fake__go", arguments: &args, tool_use_id: "t1", nonce: "" };
         assert_eq!(m.attempt("w", "go", &Value::Null, call, None).unwrap(), Verdict::Held);
         // The judge may act now, and is shown the call it's acting on; the writer may not.
         assert_eq!(m.next("j"), ["look"]);
@@ -1047,7 +1128,7 @@ mod tests {
         let mut m = machine();
         m.set(Status::Deadlocked, "the policy takes no more attempts");
         let daemon = Daemon { machines: Mutex::new([("demo".to_string(), m)].into()), cel: Mutex::new(None) };
-        let stop = || respond(Request::Stop { machine: "demo".into(), role: "dev".into() }, &daemon).unwrap();
+        let stop = || respond(Request::Stop { machine: "demo".into(), role: "dev".into(), settle: false }, &daemon).unwrap();
         let first = stop();
         assert_eq!(first["ended"], json!("deadlocked"));
         assert!(first["reason"].as_str().unwrap().contains("no more attempts"));
@@ -1056,23 +1137,45 @@ mod tests {
 
     #[test]
     fn harness_tool_names_are_matched_to_services() {
-        assert_eq!(service_tool("mcp__notion__notion-update-page", "notion"), Some("notion-update-page"));
-        assert_eq!(service_tool("mcp__plugin_acme_notion__notion-fetch", "notion"), Some("notion-fetch"));
-        assert_eq!(service_tool("mcp__claude_ai_Notion__notion-fetch", "claude.ai Notion"), Some("notion-fetch"));
-        assert_eq!(service_tool("mcp__claude-in-chrome__navigate", "claude-in-chrome"), Some("navigate"));
-        assert_eq!(service_tool("mcp__notionx__notion-fetch", "notion"), None);
-        assert_eq!(service_tool("Bash", "notion"), None);
-        assert_eq!(service_tool("Bash", BUILTIN), Some("Bash"));
-        assert_eq!(service_tool("mcp__notion__x", BUILTIN), None);
+        let claude = Harness::Claude;
+        assert_eq!(service_tool("mcp__notion__notion-update-page", "notion", claude), Some("notion-update-page"));
+        assert_eq!(service_tool("mcp__plugin_acme_notion__notion-fetch", "notion", claude), Some("notion-fetch"));
+        assert_eq!(service_tool("mcp__claude_ai_Notion__notion-fetch", "claude.ai Notion", claude), Some("notion-fetch"));
+        assert_eq!(service_tool("mcp__claude-in-chrome__navigate", "claude-in-chrome", claude), Some("navigate"));
+        assert_eq!(service_tool("mcp__notionx__notion-fetch", "notion", claude), None);
+        assert_eq!(service_tool("Bash", "notion", claude), None);
+        assert_eq!(service_tool("Bash", BUILTIN, claude), Some("Bash"));
+        assert_eq!(service_tool("mcp__notion__x", BUILTIN, claude), None);
+        // Codex writes servers and tools with `_` for `-`, and its built-in tools are the service codex.
+        let codex = Harness::Codex;
+        assert_eq!(service_tool("mcp__claude_in_chrome__navigate", "claude-in-chrome", codex), Some("navigate"));
+        assert_eq!(service_tool("mcp__notion__notion_update_page", "notion", codex), Some("notion_update_page"));
+        assert_eq!(service_tool("Bash", "codex", codex), Some("Bash"));
+        assert_eq!(service_tool("Bash", BUILTIN, codex), None);
+        assert_eq!(service_tool("Bash", "codex", claude), None);
 
         let mut m = machine();
         m.routes.push(UnitRoutes { server: "notion".into(), translator: None, hidden: vec!["notion-fetch".into()] });
-        assert!(matches!(m.route("mcp__notion__notion-fetch"), Route::Hidden));
-        assert!(matches!(m.route("mcp__notion__notion-delete"), Route::Unoffered(s, t) if s == "notion" && t == "notion-delete"));
-        assert!(matches!(m.route("mcp__github__create_issue"), Route::Unknown));
-        assert!(matches!(m.route("Bash"), Route::Unmediated)); // no unit covers built-in tools here
+        let (claude, codex) = (Harness::Claude, Harness::Codex);
+        assert!(matches!(m.route("mcp__notion__notion-fetch", claude), Route::Hidden));
+        assert!(matches!(m.route("mcp__notion__notion_fetch", codex), Route::Hidden));
+        assert!(matches!(m.route("mcp__notion__notion_fetch", claude), Route::Unoffered(..)));
+        assert!(matches!(m.route("mcp__notion__notion-delete", claude), Route::Unoffered(s, t) if s == "notion" && t == "notion-delete"));
+        assert!(matches!(m.route("mcp__github__create_issue", claude), Route::Unknown));
+        assert!(matches!(m.route("Bash", claude), Route::Unmediated)); // no unit covers built-in tools here
+        assert!(matches!(m.route("Bash", codex), Route::Unmediated));
         m.routes.push(UnitRoutes { server: BUILTIN.into(), translator: None, hidden: vec!["Read".into()] });
-        assert!(matches!(m.route("Read"), Route::Hidden));
-        assert!(matches!(m.route("Bash"), Route::Unoffered(s, _) if s == BUILTIN));
+        assert!(matches!(m.route("Read", claude), Route::Hidden));
+        assert!(matches!(m.route("Bash", claude), Route::Unoffered(s, _) if s == BUILTIN));
+        // A Codex agent in a machine whose units cover only Claude Code's built-in tools: blocked.
+        assert!(matches!(m.route("Bash", codex), Route::OtherHarness(Harness::Codex, s) if s == ["claude-code"]));
+        m.routes.push(UnitRoutes { server: "codex".into(), translator: None, hidden: vec!["view_image".into()] });
+        assert!(matches!(m.route("view_image", codex), Route::Hidden));
+        assert!(matches!(m.route("Bash", codex), Route::Unoffered(s, _) if s == "codex"));
+        assert!(matches!(m.route("Read", claude), Route::Hidden));
+        // Two tools Codex writes the same way can't be told apart.
+        m.routes.push(UnitRoutes { server: "twins".into(), translator: None, hidden: vec!["a-b".into(), "a_b".into()] });
+        assert!(matches!(m.route("mcp__twins__a_b", codex), Route::Ambiguous(..)));
+        assert!(matches!(m.route("mcp__twins__a-b", claude), Route::Hidden));
     }
 }

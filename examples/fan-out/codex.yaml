@@ -1,0 +1,37 @@
+# Codex's built-in tools as fan-out.csp's actions. A hand-off, a submission and a choice are
+# each one script in the workspace, counted only when the script is the command being run
+# (./tools/submit.sh, a path ending in tools/submit.sh, or bash/sh tools/submit.sh), never when it's
+# only mentioned (cat tools/submit.sh). Anything else (writing approaches and code, running models,
+# making worktrees) is `work`. Reading files is passed through.
+# The same steps as claude-code.yaml, for agents running in Codex: shell commands arrive as Bash,
+# file edits as apply_patch, and reading is done with shell commands, so there is no Read to hide.
+service: codex
+
+translate:
+  tools: [Bash, apply_patch]
+  schema:
+    command: optional<string>
+  rules:
+    assign:
+      when: >-
+        tool == 'Bash' && command.orValue('').matches('(^|[;&|]\\s*)((ba)?sh\\s+)?(\\S*/)?tools/assign\\.sh(\\s|$)')
+          && !command.orValue('').matches('(^|[;&|]\\s*)((ba)?sh\\s+)?(\\S*/)?tools/submit\\.sh(\\s|$)')
+          && !command.orValue('').matches('(^|[;&|]\\s*)((ba)?sh\\s+)?(\\S*/)?tools/choose\\.sh(\\s|$)')
+      emit: assign
+    submit:
+      when: >-
+        tool == 'Bash' && command.orValue('').matches('(^|[;&|]\\s*)((ba)?sh\\s+)?(\\S*/)?tools/submit\\.sh(\\s|$)')
+          && !command.orValue('').matches('(^|[;&|]\\s*)((ba)?sh\\s+)?(\\S*/)?tools/assign\\.sh(\\s|$)')
+          && !command.orValue('').matches('(^|[;&|]\\s*)((ba)?sh\\s+)?(\\S*/)?tools/choose\\.sh(\\s|$)')
+      emit: submit
+    choose:
+      when: >-
+        tool == 'Bash' && command.orValue('').matches('(^|[;&|]\\s*)((ba)?sh\\s+)?(\\S*/)?tools/choose\\.sh(\\s|$)')
+          && !command.orValue('').matches('(^|[;&|]\\s*)((ba)?sh\\s+)?(\\S*/)?tools/assign\\.sh(\\s|$)')
+          && !command.orValue('').matches('(^|[;&|]\\s*)((ba)?sh\\s+)?(\\S*/)?tools/submit\\.sh(\\s|$)')
+      emit: choose
+  fallback:
+    emit: work
+  results:
+    default: "ok ? 'done' : 'failed'"
+hidden: [view_image, update_plan, tool_search]

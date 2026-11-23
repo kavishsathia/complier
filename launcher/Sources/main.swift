@@ -5,7 +5,15 @@
 // what you need to use it: ↩ copies the whole setup, ⌘1–⌘9 copy one command each. A demo with a
 // launch.json also launches: ⌘↩ copies it to a fresh folder, runs its prepare commands (starting
 // its machine) and opens one Terminal window per entry in `windows`. Esc or clicking elsewhere hides
-// it. Saved workflows are never applied from here: that stays in Claude Code, which asks you first.
+// it. Saved workflows are never applied from here: that stays in Claude Code, which asks you first
+// (in Codex, which can't ask, complier hands you the command to run yourself).
+//
+// The agents it starts run in Claude Code or Codex, as you choose with the switch in the search bar
+// (⌘T): the choice fills `{harness}` in a demo's commands, which start each agent through
+// `complier agent --harness <claude|codex>`, the launch command complier itself owns. For Codex that
+// command first checks Codex will run complier's hooks (installed and trusted in /hooks), and starts
+// nothing otherwise. A demo lists the harnesses it can run in (`harnesses`; Claude Code only if it
+// doesn't say).
 
 import AppKit
 import Carbon.HIToolbox
@@ -31,6 +39,25 @@ struct Launch: Decodable {
     // Open the windows as panes of one tmux window, laid out by the spec's topology, if tmux is
     // installed (else as Terminal windows).
     var tmux: Bool? = nil
+    // The harnesses its agents can run in ("claude", "codex"); Claude Code alone if not given.
+    var harnesses: [String]? = nil
+
+    func runs(in harness: Harness) -> Bool { (harnesses ?? ["claude"]).contains(harness.rawValue) }
+}
+
+// The agent harnesses complier's launch command can start: `complier agent --harness <rawValue>`.
+enum Harness: String, CaseIterable, Identifiable {
+    case claude, codex
+    var id: String { rawValue }
+    var name: String { self == .claude ? "Claude Code" : "Codex" }
+
+    // `{harness}` in a demo's commands is the harness chosen in the panel.
+    func fill(_ text: String) -> String { text.replacingOccurrences(of: "{harness}", with: rawValue) }
+
+    static var saved: Harness {
+        get { Harness(rawValue: UserDefaults.standard.string(forKey: "harness") ?? "") ?? .claude }
+        set { UserDefaults.standard.set(newValue.rawValue, forKey: "harness") }
+    }
 }
 
 struct Workflow: Identifiable {
@@ -45,14 +72,25 @@ struct Workflow: Identifiable {
     var launch: Launch? = nil
     var source: URL? = nil
 
-    // What to copy to use it, in order. Applying happens inside Claude Code, which asks first.
-    var setup: [Snippet] {
-        if let launch { return launch.setup.map { Snippet(title: $0.title, text: $0.text) } }
-        return [
-            Snippet(title: "Start Claude Code with complier", text: "claude --plugin-dir ~/.complier/plugin"),
-            Snippet(title: "Ask Claude to apply it", text: "Apply the complier workflow \(name) to this session."),
-            Snippet(title: "Release it early, from your own terminal", text: "complier workflow release \(name)"),
-        ]
+    // What to copy to use it in `harness`, in order. Applying happens inside the agent's session:
+    // Claude Code asks you first; Codex can't ask, so complier gives you the command to run.
+    func setup(_ harness: Harness) -> [Snippet] {
+        if let launch { return launch.setup.map { Snippet(title: $0.title, text: harness.fill($0.text)) } }
+        switch harness {
+        case .claude:
+            return [
+                Snippet(title: "Start Claude Code with complier", text: "claude --plugin-dir ~/.complier/plugin"),
+                Snippet(title: "Ask Claude to apply it", text: "Apply the complier workflow \(name) to this session."),
+                Snippet(title: "Release it early, from your own terminal", text: "complier workflow release \(name)"),
+            ]
+        case .codex:
+            return [
+                Snippet(title: "Once: add complier to Codex, then trust its hooks in /hooks", text: "codex plugin marketplace add ~/.complier && codex plugin add complier@complier"),
+                Snippet(title: "Start Codex", text: "codex"),
+                Snippet(title: "Ask Codex to apply it (it hands you the command to run)", text: "Apply the complier workflow \(name) to this session."),
+                Snippet(title: "Release it early, from your own terminal", text: "complier workflow release \(name)"),
+            ]
+        }
     }
 }
 
@@ -131,7 +169,7 @@ enum Store {
         return []
     }
 
-    // ~/.complier/sessions/<id>.json records which workflow a Claude Code session follows.
+    // ~/.complier/sessions/<id>.json records which workflow a Claude Code or Codex session follows.
     static func boundSessions() -> [String: Int] {
         let dir = home.appendingPathComponent("sessions")
         var out: [String: Int] = [:]
@@ -317,8 +355,11 @@ enum Launcher {
     static func quote(_ s: String) -> String { "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'" }
 
     // Copies the demo to a fresh folder, runs its prepare commands, then opens its windows.
-    static func run(_ launch: Launch, from source: URL) -> Result<Int, LaunchError> {
+    static func run(_ launch: Launch, from source: URL, harness: Harness) -> Result<Int, LaunchError> {
         let fm = FileManager.default
+        guard launch.runs(in: harness) else {
+            return .failure(LaunchError(message: "it runs in \((launch.harnesses ?? ["claude"]).compactMap { Harness(rawValue: $0)?.name }.joined(separator: ", ")) only"))
+        }
         let demo = expand(launch.workspace, demo: "")
         // Only ever replace a folder under ~/complier-demos.
         guard URL(fileURLWithPath: demo).standardized.path.hasPrefix(demos.path + "/") else {
@@ -331,8 +372,8 @@ enum Launcher {
         } catch {
             return .failure(LaunchError(message: error.localizedDescription))
         }
-        // In a login shell, so complier and claude are on PATH as in your terminal.
-        let script = "set -e\nexport DEMO=\(quote(demo))\n" + launch.prepare.joined(separator: "\n")
+        // In a login shell, so complier, claude and codex are on PATH as in your terminal.
+        let script = "set -e\nexport DEMO=\(quote(demo))\nexport COMPLIER_HARNESS=\(harness.rawValue)\n" + launch.prepare.map(harness.fill).joined(separator: "\n")
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/bin/zsh")
         p.arguments = ["-lic", script]
@@ -357,9 +398,10 @@ enum Launcher {
                 let body = """
                 #!/bin/zsh -il
                 export DEMO=\(quote(demo))
+                export COMPLIER_HARNESS=\(harness.rawValue)
                 printf '\\e]0;%s\\a' \(quote(w.title))
                 cd \(quote(expand(w.dir, demo: demo)))
-                \(w.run)
+                \(harness.fill(w.run))
 
                 """
                 try body.write(to: file, atomically: false, encoding: .utf8)
@@ -392,10 +434,13 @@ enum Launcher {
         return .success(files.count)
     }
 
-    // The role an agent's window runs as: its COMPLIER_ROLE.
+    // The role an agent's window runs as: its `complier agent --role`, or its COMPLIER_ROLE.
     static func role(of run: String) -> String? {
-        guard let r = run.range(of: #"COMPLIER_ROLE=([A-Za-z0-9_]+)"#, options: .regularExpression) else { return nil }
-        return String(run[r].dropFirst("COMPLIER_ROLE=".count))
+        for prefix in ["--role ", "COMPLIER_ROLE="] {
+            guard let r = run.range(of: NSRegularExpression.escapedPattern(for: prefix) + "[A-Za-z0-9_]+", options: .regularExpression) else { continue }
+            return String(run[r].dropFirst(prefix.count))
+        }
+        return nil
     }
 
     static func hasTmux() -> Bool {
@@ -496,6 +541,14 @@ final class Model: ObservableObject {
     @Published var all: [Workflow] = []
     @Published var selected = 0
     @Published var copied: String?
+    // The harness the agents it starts run in, remembered between launches.
+    @Published var harness: Harness = Harness.saved {
+        didSet { Harness.saved = harness }
+    }
+
+    func toggleHarness() {
+        harness = harness == .claude ? .codex : .claude
+    }
 
     var results: [Workflow] { query.isEmpty ? all : all.filter { matches($0, query) } }
     var current: Workflow? { results.indices.contains(selected) ? results[selected] : nil }
@@ -521,18 +574,19 @@ final class Model: ObservableObject {
 
     func copyAll() {
         guard let w = current else { return }
-        let text = w.setup.map { "# \($0.title)\n\($0.text)" }.joined(separator: "\n\n")
+        let text = w.setup(harness).map { "# \($0.title)\n\($0.text)" }.joined(separator: "\n\n")
         copy(text, label: "Copied the setup for \(w.name)")
     }
 
     func launch() {
         guard let w = current, let launch = w.launch, let source = w.source else { return }
-        copied = "Starting \(w.name)…"
+        let harness = self.harness
+        copied = "Starting \(w.name) in \(harness.name)…"
         DispatchQueue.global().async {
-            let result = Launcher.run(launch, from: source)
+            let result = Launcher.run(launch, from: source, harness: harness)
             DispatchQueue.main.async {
                 switch result {
-                case .success(let n): self.copied = "Launched \(w.name): \(n) terminal\(n == 1 ? "" : "s")"
+                case .success(let n): self.copied = "Launched \(w.name) in \(harness.name): \(n) terminal\(n == 1 ? "" : "s")"
                 case .failure(let e): self.copied = "Couldn't launch \(w.name): \(e.message)"
                 }
                 let shown = self.copied
@@ -542,8 +596,9 @@ final class Model: ObservableObject {
     }
 
     func copyOne(_ i: Int) {
-        guard let w = current, w.setup.indices.contains(i) else { return }
-        copy(w.setup[i].text, label: "Copied: \(w.setup[i].title)")
+        let setup = current?.setup(harness) ?? []
+        guard setup.indices.contains(i) else { return }
+        copy(setup[i].text, label: "Copied: \(setup[i].title)")
     }
 }
 
@@ -575,6 +630,18 @@ struct LauncherView: View {
                         model.copyOne(n - 1)
                         return .handled
                     }
+                    .onKeyPress(characters: CharacterSet(charactersIn: "tT"), phases: .down) { press in
+                        guard press.modifiers.contains(.command) else { return .ignored }
+                        model.toggleHarness()
+                        return .handled
+                    }
+                Picker("Agents run in", selection: $model.harness) {
+                    ForEach(Harness.allCases) { h in Text(h.name).tag(h) }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .frame(width: 190)
+                .help("Where the agents it starts run (⌘T switches)")
             }
             .padding(.horizontal, 18)
             .frame(height: 58)
@@ -582,7 +649,7 @@ struct LauncherView: View {
             Divider()
 
             if model.results.isEmpty {
-                Text(model.all.isEmpty ? "No saved workflows yet. Claude Code offers to save one when your work looks repeatable." : "No workflow matches “\(model.query)”.")
+                Text(model.all.isEmpty ? "No saved workflows yet. Claude Code or Codex offers to save one when your work looks repeatable." : "No workflow matches “\(model.query)”.")
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .padding()
@@ -654,11 +721,19 @@ struct LauncherView: View {
                             .font(.system(size: 11)).foregroundStyle(w.sessions > 0 ? .green : .secondary)
                     }
                 }
-                if let launch = w.launch {
+                if let launch = w.launch, !launch.runs(in: model.harness) {
+                    Text("This demo runs in \((launch.harnesses ?? ["claude"]).compactMap { Harness(rawValue: $0)?.name }.joined(separator: ", ")) only. Switch with ⌘T.")
+                        .font(.system(size: 12)).foregroundStyle(.secondary)
+                }
+                if model.harness == .codex {
+                    Text("Codex runs complier's hooks only once you've trusted them in /hooks; complier checks that before it starts each agent, and starts none otherwise.")
+                        .font(.system(size: 11)).foregroundStyle(.tertiary)
+                }
+                if let launch = w.launch, launch.runs(in: model.harness) {
                     Button(action: { model.launch() }) {
                         HStack {
                             Image(systemName: "play.fill")
-                            Text("Launch: opens \(launch.windows.map(\.title).joined(separator: ", "))")
+                            Text("Launch in \(model.harness.name): opens \(launch.windows.map(\.title).joined(separator: ", "))")
                             Spacer()
                             Keys(caps: [.symbol("command"), .symbol("return")], onAccent: true)
                         }
@@ -670,7 +745,7 @@ struct LauncherView: View {
                     }
                     .buttonStyle(.plain)
                 }
-                ForEach(Array(w.setup.enumerated()), id: \.element.id) { i, s in
+                ForEach(Array(w.setup(model.harness).enumerated()), id: \.element.id) { i, s in
                     VStack(alignment: .leading, spacing: 4) {
                         HStack {
                             Text(s.title).font(.system(size: 12, weight: .semibold))
@@ -699,7 +774,8 @@ struct LauncherView: View {
             } else {
                 if model.current?.launch != nil { Hint(caps: [.symbol("command"), .symbol("return")], label: "launch") }
                 Hint(caps: [.symbol("return")], label: "copy setup")
-                Hint(caps: [.symbol("command"), .text("1–\(max(1, model.current?.setup.count ?? 3))")], label: "copy one")
+                Hint(caps: [.symbol("command"), .text("1–\(max(1, model.current?.setup(model.harness).count ?? 3))")], label: "copy one")
+                Hint(caps: [.symbol("command"), .text("T")], label: model.harness == .claude ? "Codex" : "Claude Code")
                 Hint(caps: [.symbol("arrow.up"), .symbol("arrow.down")], label: "choose")
                 Hint(caps: [.text("esc")], label: "close")
             }
@@ -866,14 +942,21 @@ if let i = CommandLine.arguments.firstIndex(of: "--panes"), CommandLine.argument
     exit(0)
 }
 
-// `ComplierWorkflows --launch <demo>` launches a demo without the panel, for testing and scripts.
+// `--harness claude|codex` with --launch or --panes: where the agents run (default: the panel's choice).
+let cliHarness: Harness = {
+    guard let i = CommandLine.arguments.firstIndex(of: "--harness"), CommandLine.arguments.count > i + 1,
+          let h = Harness(rawValue: CommandLine.arguments[i + 1]) else { return Harness.saved }
+    return h
+}()
+
+// `ComplierWorkflows --launch <demo> [--harness codex]` launches a demo without the panel, for testing and scripts.
 if let i = CommandLine.arguments.firstIndex(of: "--launch"), CommandLine.arguments.count > i + 1 {
     let name = CommandLine.arguments[i + 1]
     guard let demo = Store.demos().first(where: { $0.name == name }), let launch = demo.launch, let source = demo.source else {
         FileHandle.standardError.write("no demo named \(name) in ~/.complier/examples\n".data(using: .utf8)!)
         exit(1)
     }
-    switch Launcher.run(launch, from: source) {
+    switch Launcher.run(launch, from: source, harness: cliHarness) {
     case .success(let n): print("launched \(name): \(n) terminal(s)"); exit(0)
     case .failure(let e): FileHandle.standardError.write("couldn't launch \(name): \(e.message)\n".data(using: .utf8)!); exit(1)
     }

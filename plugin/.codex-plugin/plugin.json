@@ -1,0 +1,7 @@
+{
+  "name": "complier",
+  "version": "0.2.0",
+  "description": "Checks Codex's tool calls against a complier machine (COMPLIER_MACHINE and COMPLIER_ROLE, or a workflow applied to the session), and a skill that saves repeatable work as complier workflows.",
+  "hooks": "./hooks/codex.json",
+  "skills": "./skills"
+}

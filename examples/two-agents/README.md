@@ -1,6 +1,6 @@
-# Two Claude Code instances on one machine
+# Two agents on one machine
 
-A writer and a reviewer, two separate Claude Code sessions, work in one folder. One complier machine
+A writer and a reviewer, two separate Claude Code or Codex sessions, work in one folder. One complier machine
 monitors both of them. The writer drafts and submits, and the reviewer approves or rejects. **The
 review's result decides what comes next:** a rejection sends the work back to the writer, and an
 approval lets it be published. Publishing ends the workflow and releases both sessions.
@@ -14,7 +14,8 @@ Writing ──submit──▶ InReview ──review = approved──▶ Approved
 - `review-gate.csp`: the policy. Publishing before an approval is **denied**. Acting out of turn
   (reviewing before anything is submitted, or submitting while a draft is in review) is **refused**,
   and the state stays where it was.
-- `claude-code.yaml`: the unit. `tools/submit.sh`, `tools/review.sh` and `tools/publish.sh` are the
+- `claude-code.yaml`: the unit for Claude Code (`codex.yaml` is the same for Codex, whose edits are
+  `apply_patch`). `tools/submit.sh`, `tools/review.sh` and `tools/publish.sh` are the
   three steps, and any other Bash/Write/Edit call is `other`. The review's value comes from what
   `review.sh` prints (`APPROVED…` or `REJECTED…`).
 - `workspace/WRITER.md` and `workspace/REVIEWER.md`: each agent's instructions; an agent is told
@@ -29,12 +30,17 @@ The step-by-step guide, with two interactive Claude Code sessions, is on the sit
 ## Run it
 
 ```sh
-complier doctor                      # needs: ready
-examples/two-agents/run.sh           # about 3–6 minutes; prints the machine's timeline at the end
+complier doctor                               # needs: ready
+examples/two-agents/run.sh                    # Claude Code; about 3–6 minutes; prints the machine's timeline at the end
+examples/two-agents/run.sh --harness codex    # Codex
 ```
 
-Each agent runs `claude -p` with `COMPLIER_MACHINE=review-gate` and its own `COMPLIER_ROLE`, and
-loads this checkout's plugin with `--plugin-dir`, so nothing is installed globally. Transcripts
+In Claude Code each agent runs `claude -p` with `COMPLIER_MACHINE=review-gate` and its own
+`COMPLIER_ROLE`, and loads this checkout's plugin with `--plugin-dir`, so nothing is installed
+globally. In Codex each agent is started with `complier agent --harness codex` and runs
+`codex exec --json`: Codex needs complier's plugin installed and its hooks trusted in `/hooks`
+(`complier doctor` says whether it does), and the run starts nothing if they aren't. `HARNESS`
+chooses too; `CODEX_MODEL`, `CODEX_SANDBOX`, `CODEX_ARGS` and `CODEX_TIMEOUT` are in `run.sh`. Transcripts
 (`writer.jsonl`, `reviewer.jsonl`), session ids, the workspace and `machine.log` are kept in the
 output folder.
 

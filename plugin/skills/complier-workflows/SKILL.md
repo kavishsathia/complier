@@ -7,9 +7,9 @@ description: Notice when the user asks for work that looks repeatable (a sequenc
 
 A complier workflow is a proven rule about the order of an agent's tool calls: a CSP **spec** (which
 steps may happen when) and YAML **units** (which tool calls count as which steps). Saved workflows
-live in `~/.complier/workflows/<name>/` on this computer. Applying one binds **this Claude Code
-session** to it: complier's hooks then check each of your tool calls against the spec and refuse the
-ones that are out of turn.
+live in `~/.complier/workflows/<name>/` on this computer. Applying one binds **this session** (Claude
+Code or Codex) to it: complier's hooks then check each of your tool calls against the spec and refuse
+the ones that are out of turn.
 
 Saving a workflow enforces nothing. Only `complier workflow apply` does, and only through this
 plugin's hooks.
@@ -84,7 +84,9 @@ End the policy with `SKIP` once the workflow's goal is reached: that is what rel
 Every state should permit a catch-all step (`other`), or you will be stuck on ordinary commands.
 
 **Units** (`*.yaml`): one per service whose tools the steps use. Name a service complier ships
-(`claude-code` for your built-in tools, `notion`, `claude-in-chrome`), not a path. Each rule says
+(`claude-code` for Claude Code's built-in tools, `codex` for Codex's, `notion`, `claude-in-chrome`),
+not a path. Write the built-in unit for the harness you are running in; a workflow may hold both, and
+each session's built-in tools are checked by the unit for its own harness. Each rule says
 which calls are which step, in CEL; complier proves that no call matches two rules and that every call
 matches a rule or the fallback:
 
@@ -113,16 +115,40 @@ translate:
 hidden: [Read, ToolSearch]
 ```
 
-While a workflow is applied, a built-in tool its `claude-code` unit neither translates nor hides is
-blocked, and so is every MCP tool no unit covers. List every tool the work needs. `hidden` may only
-name tools the service marks read-only (for `claude-code`: Read, LSP, ToolSearch, ListAgents,
-TaskStop, CronList).
+The same unit for Codex names its tools as Codex's hooks do: shell commands are `Bash` (the command in
+`command`), file edits are `apply_patch` (the whole patch in `command`), and reading happens through
+`Bash`, so there is no Read to hide:
+
+```yaml
+service: codex
+translate:
+  tools: [Bash, apply_patch]
+  schema:
+    command: optional<string>
+  rules:
+    edit:
+      when: tool != 'Bash'
+      emit: edit
+    # test and commit: the same Bash rules as above
+  fallback:
+    emit: other
+  results:
+    default: "ok ? 'done' : 'failed'"
+hidden: [view_image, update_plan, tool_search]
+```
+
+While a workflow is applied, a built-in tool its unit for your harness neither translates nor hides is
+blocked (all of them are, if it has a unit only for the other harness), and so is every MCP tool no
+unit covers. List every tool the work needs. `hidden` may only name tools the service marks read-only
+(for `claude-code`: Read, LSP, ToolSearch, ListAgents, TaskStop, CronList; for `codex`: view_image,
+tool_search, update_plan, list_agents, list_mcp_resources, list_mcp_resource_templates,
+read_mcp_resource).
 
 Check the drafts as you go; both print what they proved or why they failed:
 
 ```sh
 complier verify /tmp/complier-workflow-<name>/policy.csp
-complier check /tmp/complier-workflow-<name>/claude-code.yaml
+complier check /tmp/complier-workflow-<name>/claude-code.yaml   # or codex.yaml
 ```
 
 ## 4. Save it (after the user's yes)
@@ -133,7 +159,8 @@ complier workflow save <name> /tmp/complier-workflow-<name> \
   --noticed "<the request that looked repeatable>"
 ```
 
-Claude Code asks the user to confirm this command. `save` proves the spec with FDR and every unit with
+Claude Code asks the user to confirm this command. Codex can't ask, so there complier refuses it and
+tells you the command: show it to the user and ask them to run it in their own terminal. `save` proves the spec with FDR and every unit with
 the CEL verifier, and saves nothing that fails; fix the draft and run it again. `--noticed` records
 where the workflow came from, so the user can later see which kinds of work produce workflows.
 Overwriting an existing workflow needs `--replace`, and the user's agreement.
@@ -156,7 +183,10 @@ complier workflow apply <name>
 ```
 
 Claude Code asks the user to confirm this too. It binds the session it runs in (Claude Code gives it
-`CLAUDE_CODE_SESSION_ID`). Report its output as it is: what's checked and what's allowed now.
+`CLAUDE_CODE_SESSION_ID`). In Codex, complier refuses the command and gives you the exact command,
+with this session's id (`--session`), for the user to run in their own terminal; it binds the session
+only if Codex runs complier's hooks here (the user trusted them in `/hooks`), and says what to do if
+not. Report its output as it is: what's checked and what's allowed now.
 
 Then do the work. A refusal from complier is the workflow telling you what has to happen first; follow
 it, don't route around it. You can't release, edit or stop the workflow yourself; if you're stuck,
@@ -170,6 +200,6 @@ session is let go automatically.
 | `complier workflow ls` | saved workflows, and which are applied |
 | `complier workflow show <name>` | a workflow's description, spec and units |
 | `complier workflow save <name> <dir> --description ...` | prove and save a draft |
-| `complier workflow apply <name>` | enforce it on this session |
+| `complier workflow apply <name>` | enforce it on this session (in Codex, the user runs it with `--session`) |
 | `complier workflow release <name>` | stop it (the user runs this) |
 | `complier workflow rm <name>` | delete a saved workflow |

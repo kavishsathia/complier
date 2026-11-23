@@ -1,6 +1,7 @@
 {
-  "description": "A writer and a reviewer, two Claude Code sessions on one machine, taking turns.",
+  "description": "A writer and a reviewer, two agent sessions (Claude Code or Codex) on one machine, taking turns.",
   "workspace": "~/complier-demos/two-agents",
+  "harnesses": ["claude", "codex"],
   "prepare": [
     "complier machine down review-gate >/dev/null 2>&1 || true",
     "complier machine up review-gate \"$DEMO\""
@@ -10,12 +11,12 @@
     {
       "title": "writer",
       "dir": "$DEMO/workspace",
-      "run": "COMPLIER_MACHINE=review-gate COMPLIER_ROLE=writer claude --plugin-dir ~/.complier/plugin 'You are the writer: follow WRITER.md.'"
+      "run": "complier agent --harness {harness} --machine review-gate --role writer 'You are the writer: follow WRITER.md.'"
     },
     {
       "title": "reviewer",
       "dir": "$DEMO/workspace",
-      "run": "COMPLIER_MACHINE=review-gate COMPLIER_ROLE=reviewer claude --plugin-dir ~/.complier/plugin 'You are the reviewer: follow REVIEWER.md.'"
+      "run": "complier agent --harness {harness} --machine review-gate --role reviewer 'You are the reviewer: follow REVIEWER.md.'"
     }
   ],
   "setup": [
@@ -24,11 +25,11 @@
     { "title": "Watch it", "text": "complier machine log review-gate --follow" },
     {
       "title": "Start the writer (in ~/two-agents/workspace)",
-      "text": "COMPLIER_MACHINE=review-gate COMPLIER_ROLE=writer claude --plugin-dir ~/.complier/plugin 'You are the writer: follow WRITER.md.'"
+      "text": "complier agent --harness {harness} --machine review-gate --role writer 'You are the writer: follow WRITER.md.'"
     },
     {
       "title": "Start the reviewer (in ~/two-agents/workspace)",
-      "text": "COMPLIER_MACHINE=review-gate COMPLIER_ROLE=reviewer claude --plugin-dir ~/.complier/plugin 'You are the reviewer: follow REVIEWER.md.'"
+      "text": "complier agent --harness {harness} --machine review-gate --role reviewer 'You are the reviewer: follow REVIEWER.md.'"
     }
   ]
 }

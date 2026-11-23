@@ -1,0 +1,29 @@
+# Codex's built-in tools, as the actions of policy.csp. Read-only tools are hidden (passed through);
+# every other built-in tool this unit doesn't name is blocked while the workflow is applied.
+# The same steps as claude-code.yaml, for agents running in Codex: shell commands arrive as Bash,
+# file edits as apply_patch, and reading is done with shell commands, so there is no Read to hide.
+service: codex
+
+translate:
+  tools: [Bash, apply_patch]
+  schema:
+    command: optional<string>
+  rules:
+    edit:
+      when: tool != 'Bash'
+      emit: edit
+    test:
+      when: >-
+        tool == 'Bash' && (command.orValue('').contains('cargo test') || command.orValue('').contains('npm test')
+          || command.orValue('').contains('pytest'))
+      emit: test
+    commit:
+      when: >-
+        tool == 'Bash' && command.orValue('').contains('git commit') && !(command.orValue('').contains('cargo test')
+          || command.orValue('').contains('npm test') || command.orValue('').contains('pytest'))
+      emit: commit
+  fallback:
+    emit: other
+  results:
+    default: "ok ? 'done' : 'failed'"
+hidden: [view_image, update_plan, tool_search]
