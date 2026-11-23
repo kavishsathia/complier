@@ -26,7 +26,7 @@ else
 fi
 tar -xzf "$TMP/complier.tar.gz" -C "$TMP"
 mkdir -p "$DEST"
-rm -rf "$DEST/bin" "$DEST/lib" "$DEST/plugin" "$DEST/packages" "$DEST/examples"
+rm -rf "$DEST/bin" "$DEST/lib" "$DEST/plugin" "$DEST/packages" "$DEST/examples" "$DEST/.claude-plugin"
 cp -R "$TMP/complier/." "$DEST/"
 echo "Installed complier in $DEST"
 

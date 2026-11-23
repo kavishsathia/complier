@@ -67,7 +67,7 @@ Live demo and walkthrough: [complier.dev](https://www.complier.dev)
 | [`website/`](website) | The Next.js site: landing page, the in-browser CEL + CSP playground, the CSP stepper, policy sequence diagrams, the research deck | `npm run dev` (from the root) |
 | [`cli/`](cli) | The Rust `complier` CLI: daemon, Claude Code hooks, unit checker, MCP client for `gen` | `cargo build --manifest-path cli/Cargo.toml` |
 | [`cel/`](cel) | CEL backend the CLI runs: cel-java 0.14.0 + verifier behind a small stdio bridge | `cel/build.sh` |
-| [`plugin/`](plugin) | Claude Code plugin: complier's hooks and the workflow skill | `claude --plugin-dir plugin` |
+| [`plugin/`](plugin) | The plugin for Claude Code and Codex: complier's hooks (`hooks/hooks.json`, `hooks/codex.json`) and the workflow skill | `claude --plugin-dir plugin`; `codex plugin add complier@complier` |
 | [`packages/`](packages) | Reviewed metadata for each MCP server (`complier gen` writes here) | `packages/notion/service.yaml` |
 | [`examples/`](examples) | A translation unit for Notion, a small runnable demo machine and a saved-workflow example | `examples/units/notion.yaml`, `examples/demo/`, `examples/workflows/` |
 | [`patterns/`](patterns) | The pattern library: multi-agent topologies (pipeline, dispatcher, fan-out, hierarchy, generator/critic, refinement, advisor, guard) as CSP processes, with a proven example of each | `patterns/patterns.csp`, `patterns/examples/` |
@@ -163,6 +163,48 @@ COMPLIER_MACHINE=demo COMPLIER_ROLE=writer claude --plugin-dir plugin
 
 `complier add` and `complier gen` are only needed to (re)generate a service's `tools.yaml`.
 
+### Codex
+
+complier's hooks run in Codex too (`complier hook --harness codex ...`, from `plugin/hooks/codex.json`),
+against the same daemon, specs and proofs. Add the plugin to Codex once, then trust its hooks:
+
+```sh
+codex plugin marketplace add kavishsathia/complier     # or ~/.complier, or a checkout
+codex plugin add complier@complier
+codex                                                  # then /hooks: review complier's hooks and trust them
+complier doctor                                        # ends its Codex line with: Codex runs complier's hooks
+```
+
+Codex skips hooks you haven't trusted, which would leave an agent unconstrained, so complier checks
+with Codex (its app-server's `hooks/list`) before it relies on them: `complier agent` won't start a
+Codex agent, and `complier workflow apply` won't bind a Codex session, until they are trusted.
+
+`complier agent` starts an agent in a machine in either harness; it's what the demos and the workflow
+launcher run:
+
+```sh
+complier agent --harness codex  --machine demo --role writer 'Draft the page.'
+complier agent --harness claude --machine demo --role writer 'Draft the page.'   # claude --plugin-dir ~/.complier/plugin ...
+```
+
+What differs in Codex, and how complier handles it:
+
+- **Built-in tools** are the service `codex` (`packages/codex`): shell commands are `Bash`, file edits are
+  `apply_patch` (the patch in `command`). Each agent's built-in tools are checked by the unit for its own
+  harness, so one machine can hold a `claude-code.yaml` and a `codex.yaml` and run agents of both; a
+  machine whose units cover only the other harness's built-in tools blocks an agent's built-in tools.
+- **MCP tool names**: Codex writes `-` and other characters as `_` (`mcp__notion__notion_fetch`); complier
+  maps them back to the unit's tools, and refuses a name two tools share.
+- **Exit status**: Codex's PostToolUse gives a shell command's output but not its exit status, so each
+  Bash call complier allowed and translated runs with an exit trap that prints the status under a
+  per-call nonce; complier reads it back (and removes the line). No status line counts as failed.
+- **Failed calls**: Codex reports nothing for a call that errors (a patch that doesn't apply, a
+  declined approval). Such a call stays in flight, so the agent's next call waits for it; when its turn
+  ends, the Stop hook counts it as failed.
+- **Denials** use `permissionDecision: "deny"`. Codex can't ask the user to confirm a command, so saving,
+  applying or removing a workflow is refused there, with the exact command (and `--session`) for the user
+  to run in their own terminal.
+
 ### Saved workflows in your own Claude Code
 
 The plugin's `complier-workflows` skill has Claude notice when you ask for work that looks
@@ -212,14 +254,14 @@ Tests: `cargo test --manifest-path cli/Cargo.toml` (they run the real CEL backen
 
 ## What works today
 
-- Enforcement in Claude Code's pre-tool-use hook: every MCP call is translated and checked by the
-  daemon before it runs, and fails closed.
+- Enforcement in Claude Code's and Codex's pre-tool-use hooks: every MCP call is translated and checked
+  by the daemon before it runs, and fails closed.
 - YAML translation units with CEL rules, proven disjoint and exhaustive at load time; calls outside
   the unit's domain, ambiguous calls and rule errors are refused.
 - Policies in CSPm with the full language FDR accepts, proven and compiled by FDR at `machine up`;
   every call is allowed, denied or refused, and the agent gets the reason.
 - The plugin's other hooks: session context, and holding an idle agent's Stop until it can act.
-- Saved workflows (`complier workflow`), applied to one Claude Code session at a time, and the
+- Saved workflows (`complier workflow`), applied to one Claude Code or Codex session at a time, and the
   plugin's skill that offers them.
 - Agents acting at the same time, one call in flight per role, and held calls: an attempt the
   policy answers only after other agents have acted, while the agent's call waits.

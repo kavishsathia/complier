@@ -1,6 +1,7 @@
 {
   "description": "One Claude Code session kept working in rounds for 30 minutes: edit, check in Chrome, commit, push, watch CI, notify.",
   "workspace": "~/complier-demos/loop",
+  "harnesses": ["claude"],
   "prepare": [
     "complier machine down loop >/dev/null 2>&1 || true",
     "pkill -f 'http.server 8799' >/dev/null 2>&1 || true",
@@ -16,7 +17,7 @@
     {
       "title": "agent",
       "dir": "$DEMO/site",
-      "run": "COMPLIER_MACHINE=loop COMPLIER_ROLE=dev claude --chrome --plugin-dir ~/.complier/plugin \"$(cat .complier/loop/prompt.md)\""
+      "run": "complier agent --harness {harness} --machine loop --role dev \"$(cat .complier/loop/prompt.md)\" -- --chrome"
     }
   ],
   "setup": [
@@ -27,7 +28,7 @@
     { "title": "Watch it", "text": "complier machine log loop --follow" },
     {
       "title": "Start Claude Code (in ~/loop-long)",
-      "text": "COMPLIER_MACHINE=loop COMPLIER_ROLE=dev claude --chrome --plugin-dir ~/.complier/plugin \"$(cat .complier/loop/prompt.md)\""
+      "text": "complier agent --harness {harness} --machine loop --role dev \"$(cat .complier/loop/prompt.md)\" -- --chrome"
     }
   ]
 }

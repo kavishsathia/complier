@@ -1,6 +1,7 @@
 {
   "description": "A planner hands three approaches to a forecasting task to three workers, each in its own git worktree; they work at the same time, and the planner chooses the best.",
   "workspace": "~/complier-demos/fan-out",
+  "harnesses": ["claude", "codex"],
   "prepare": [
     "complier machine down fan-out >/dev/null 2>&1 || true",
     "(cd \"$DEMO/workspace\" && git init -q -b main && git add -A && git -c user.name=planner -c user.email=planner@complier.invalid commit -qm 'The task and its data')",
@@ -15,22 +16,22 @@
     {
       "title": "planner",
       "dir": "$DEMO/workspace",
-      "run": "COMPLIER_MACHINE=fan-out COMPLIER_ROLE=planner claude --plugin-dir ~/.complier/plugin 'You are the planner: follow PLANNER.md.'"
+      "run": "complier agent --harness {harness} --machine fan-out --role planner 'You are the planner: follow PLANNER.md.'"
     },
     {
       "title": "worker1",
       "dir": "$DEMO/workspace",
-      "run": "COMPLIER_MACHINE=fan-out COMPLIER_ROLE=worker1 claude --plugin-dir ~/.complier/plugin 'You are worker1: follow WORKER.md.'"
+      "run": "complier agent --harness {harness} --machine fan-out --role worker1 'You are worker1: follow WORKER.md.'"
     },
     {
       "title": "worker2",
       "dir": "$DEMO/workspace",
-      "run": "COMPLIER_MACHINE=fan-out COMPLIER_ROLE=worker2 claude --plugin-dir ~/.complier/plugin 'You are worker2: follow WORKER.md.'"
+      "run": "complier agent --harness {harness} --machine fan-out --role worker2 'You are worker2: follow WORKER.md.'"
     },
     {
       "title": "worker3",
       "dir": "$DEMO/workspace",
-      "run": "COMPLIER_MACHINE=fan-out COMPLIER_ROLE=worker3 claude --plugin-dir ~/.complier/plugin 'You are worker3: follow WORKER.md.'"
+      "run": "complier agent --harness {harness} --machine fan-out --role worker3 'You are worker3: follow WORKER.md.'"
     }
   ],
   "tmux": true,
@@ -49,11 +50,11 @@
     },
     {
       "title": "Start the planner (in ~/fan-out/workspace)",
-      "text": "COMPLIER_MACHINE=fan-out COMPLIER_ROLE=planner claude --plugin-dir ~/.complier/plugin 'You are the planner: follow PLANNER.md.'"
+      "text": "complier agent --harness {harness} --machine fan-out --role planner 'You are the planner: follow PLANNER.md.'"
     },
     {
       "title": "Start each worker (in ~/fan-out/workspace; worker1, worker2, worker3)",
-      "text": "COMPLIER_MACHINE=fan-out COMPLIER_ROLE=worker1 claude --plugin-dir ~/.complier/plugin 'You are worker1: follow WORKER.md.'"
+      "text": "complier agent --harness {harness} --machine fan-out --role worker1 'You are worker1: follow WORKER.md.'"
     }
   ]
 }

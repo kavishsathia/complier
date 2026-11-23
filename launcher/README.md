@@ -2,7 +2,7 @@
 
 A native macOS app: a Spotlight-style panel for the workflows saved on this computer
 (`~/.complier/workflows`). Press ⌃⌥Space anywhere, type to find a workflow, and copy what you need
-to use it: ↩ copies the whole setup, ⌘1–⌘3 copy one command each. Esc or clicking elsewhere hides
+to use it: ↩ copies the whole setup, ⌘1–⌘4 copy one command each. Esc or clicking elsewhere hides
 it. It lives in the menu bar. Saved workflows are never applied from here; that stays in Claude
 Code, which asks you first.
 
@@ -20,6 +20,13 @@ machine's log in a strip under it, and the rest of the team shares the right sid
 lead is whoever acts outside its branches; a dispatcher's is its coordinator; a delegation's, an
 advice or a guard's is the role whose call it is. Otherwise every agent gets an equal column over
 the log. `ComplierWorkflows --topology <spec.csp>` prints who leads in a spec.
+
+The agents run in Claude Code or Codex: the switch in the search bar (⌘T) chooses, and is remembered.
+A demo's `launch.json` starts each agent with `complier agent --harness {harness} ...`, and the choice
+fills `{harness}` in its windows and setup commands (`ComplierWorkflows --launch <name> --harness codex`
+without the panel). `harnesses` lists the ones a demo runs in (Claude Code alone if it doesn't say; the
+loop demo needs Claude in Chrome). For Codex, `complier agent` first checks that Codex will run
+complier's hooks (installed and trusted in `/hooks`) and starts nothing otherwise.
 
 ```sh
 launcher/build.sh --install
