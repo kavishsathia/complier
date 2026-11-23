@@ -169,7 +169,7 @@ enum Store {
         return []
     }
 
-    // ~/.complier/sessions/<id>.json records which workflow a Claude Code session follows.
+    // ~/.complier/sessions/<id>.json records which workflow a Claude Code or Codex session follows.
     static func boundSessions() -> [String: Int] {
         let dir = home.appendingPathComponent("sessions")
         var out: [String: Int] = [:]
@@ -372,7 +372,7 @@ enum Launcher {
         } catch {
             return .failure(LaunchError(message: error.localizedDescription))
         }
-        // In a login shell, so complier and claude are on PATH as in your terminal.
+        // In a login shell, so complier, claude and codex are on PATH as in your terminal.
         let script = "set -e\nexport DEMO=\(quote(demo))\nexport COMPLIER_HARNESS=\(harness.rawValue)\n" + launch.prepare.map(harness.fill).joined(separator: "\n")
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/bin/zsh")
@@ -649,7 +649,7 @@ struct LauncherView: View {
             Divider()
 
             if model.results.isEmpty {
-                Text(model.all.isEmpty ? "No saved workflows yet. Claude Code offers to save one when your work looks repeatable." : "No workflow matches “\(model.query)”.")
+                Text(model.all.isEmpty ? "No saved workflows yet. Claude Code or Codex offers to save one when your work looks repeatable." : "No workflow matches “\(model.query)”.")
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .padding()

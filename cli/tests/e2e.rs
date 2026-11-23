@@ -806,6 +806,11 @@ fn a_workflow_binds_a_codex_session_only_where_codex_runs_complier_hooks() {
     let (ok, out) = env.complier(&["workflow", "apply", "tbc", "--session", session]);
     assert!(!ok && out.contains("codex app-server"), "{out}");
     assert!(!env.home.join(format!(".complier/sessions/{session}.json")).exists());
+    // `complier agent --check` (what run.sh uses before starting Codex agents) says the same: no.
+    let (ok, out) = env.complier(&["agent", "--harness", "codex", "--machine", "workflow-tbc", "--role", "dev", "--check"]);
+    assert!(!ok && out.contains("codex app-server"), "{out}");
+    let (ok, out) = env.complier(&["agent", "--harness", "claude", "--machine", "workflow-tbc", "--role", "dev", "--check"]);
+    assert!(ok && out.contains("Claude Code can start as dev"), "{out}");
     // A Claude Code session id is bound as before.
     let (ok, out) = env.complier(&["workflow", "apply", "tbc", "--session", "claude-session-1"]);
     assert!(ok && out.contains("Claude Code session"), "{out}");

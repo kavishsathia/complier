@@ -124,6 +124,10 @@ enum Command {
         /// Print the command instead of running it.
         #[arg(long)]
         print: bool,
+        /// Only check that the agent could start here (for Codex, that Codex runs complier's
+        /// hooks), and start nothing: for scripts that start several agents.
+        #[arg(long, conflicts_with = "print")]
+        check: bool,
         /// The agent's first prompt.
         prompt: Option<String>,
         /// More arguments for the harness itself, after `--`.
@@ -254,12 +258,12 @@ fn main() -> Result<()> {
         Command::Hook { harness, command: HookCommand::PreToolUse } => hooks::pre_tool_use(harness),
         Command::Hook { harness, command: HookCommand::PostToolUse } => hooks::post_tool_use(harness),
         Command::Hook { harness, command: HookCommand::Stop } => hooks::stop(harness),
-        Command::Agent { harness, machine, role, print, prompt, extra } => {
+        Command::Agent { harness, machine, role, print, check, prompt, extra } => {
             let harness = match harness {
                 Some(h) => h,
                 None => std::env::var("COMPLIER_HARNESS").ok().filter(|h| !h.is_empty()).map(|h| h.parse()).transpose()?.unwrap_or_default(),
             };
-            agent(harness, &machine, &role, print, prompt.as_deref(), &extra)
+            agent(harness, &machine, &role, print, check, prompt.as_deref(), &extra)
         }
         Command::Remove { name } => remove(&name),
         Command::Workflow { command } => match command {
@@ -482,7 +486,7 @@ fn answered(out: &serde_json::Value) {
 // Starts an agent of `harness` in `machine` as `role`: the harness with complier's hooks, and
 // COMPLIER_MACHINE and COMPLIER_ROLE set for them. A Codex agent starts only once Codex says it will
 // run complier's hooks here (installed, enabled and trusted).
-fn agent(harness: Harness, machine: &str, role: &str, print: bool, prompt: Option<&str>, extra: &[String]) -> Result<()> {
+fn agent(harness: Harness, machine: &str, role: &str, print: bool, check: bool, prompt: Option<&str>, extra: &[String]) -> Result<()> {
     let command = harness::agent_command(harness, &plugin_dir(), prompt, extra);
     if print {
         let quoted: Vec<String> = command.iter().map(|a| shell_quote(a)).collect();
@@ -495,6 +499,10 @@ fn agent(harness: Harness, machine: &str, role: &str, print: bool, prompt: Optio
         if !hooks.ready() {
             bail!("not starting Codex as {role} in machine {machine}: {}", hooks.explain(&here));
         }
+    }
+    if check {
+        println!("{} can start as {role} in machine {machine} here{}", harness.name(), if harness.hooks_need_trust() { ": it runs complier's hooks" } else { "" });
+        return Ok(());
     }
     use std::os::unix::process::CommandExt;
     let err = std::process::Command::new(&command[0]).args(&command[1..]).env("COMPLIER_MACHINE", machine).env("COMPLIER_ROLE", role).env("COMPLIER_HARNESS", harness.id()).exec();

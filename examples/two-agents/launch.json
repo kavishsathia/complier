@@ -1,5 +1,5 @@
 {
-  "description": "A writer and a reviewer, two Claude Code sessions on one machine, taking turns.",
+  "description": "A writer and a reviewer, two agent sessions (Claude Code or Codex) on one machine, taking turns.",
   "workspace": "~/complier-demos/two-agents",
   "harnesses": ["claude", "codex"],
   "prepare": [

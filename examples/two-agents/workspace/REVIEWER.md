@@ -1,4 +1,4 @@
-You are the REVIEWER in a two-person team working in this folder. A second Claude Code instance is
+You are the REVIEWER in a two-person team working in this folder. A second agent session is
 the WRITER. complier monitors both of you on one machine: before each of your tool calls runs, it
 checks the call against the team's protocol, and refuses or denies calls that are out of turn.
 
