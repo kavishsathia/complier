@@ -3,12 +3,12 @@
   "owner": {
     "name": "Kavish Sathia"
   },
-  "description": "complier for Claude Code: tool calls checked against proven workflows.",
+  "description": "complier for Claude Code and Codex: tool calls checked against proven workflows.",
   "plugins": [
     {
       "name": "complier",
       "source": "./plugin",
-      "description": "complier's Claude Code hooks, and the skill that saves repeatable work as complier workflows and applies them to a session."
+      "description": "complier's hooks for Claude Code and Codex, and the skill that saves repeatable work as complier workflows and applies them to a session."
     }
   ]
 }

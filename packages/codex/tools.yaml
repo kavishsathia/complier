@@ -1,0 +1,28 @@
+# Codex 0.163's built-in tools as its hooks name them (tool_name in PreToolUse). Written by hand:
+# they come with the harness, not from an MCP server, so there is no schema to hash.
+# Shell commands (exec_command, shell) arrive as Bash with the command in `command`; file edits as
+# apply_patch with the whole patch in `command`. write_stdin and hosted tools (web search) don't
+# reach hooks at all.
+server: "codex"
+tools:
+  "Bash": "builtin"
+  "apply_patch": "builtin"
+  "view_image": "builtin"
+  "update_plan": "builtin"
+  "request_user_input": "builtin"
+  "request_permissions": "builtin"
+  "tool_search": "builtin"
+  "spawn_agent": "builtin"
+  "send_input": "builtin"
+  "send_message": "builtin"
+  "followup_task": "builtin"
+  "wait_agent": "builtin"
+  "resume_agent": "builtin"
+  "close_agent": "builtin"
+  "interrupt_agent": "builtin"
+  "list_agents": "builtin"
+  "list_mcp_resources": "builtin"
+  "list_mcp_resource_templates": "builtin"
+  "read_mcp_resource": "builtin"
+  "request_plugin_install": "builtin"
+  "list_available_plugins_to_install": "builtin"
