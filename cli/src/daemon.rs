@@ -15,11 +15,15 @@
 // other roles' attempts meanwhile. W may also take an attempt and answer it only later, once other
 // agents have acted (a held call, as the pattern library's Hold and Guard do): the agent's call waits
 // here until W offers its allow or deny, which the daemon then takes at once.
-// Only an allowed call may run. Nothing else moves a machine: complier observes the world only
-// through the results of calls it allowed.
+// Only an allowed call may run. Besides agents' calls and their results, only the spec's checks move
+// a machine: when W offers check.c, the daemon takes it at once and runs check c (checks.rs) in the
+// background; its verdict comes back as pass.c or fail.c, and W follows that edge (FDR proved W
+// accepts either). complier observes the world only through the results of calls it allowed and the
+// verdicts of the checks it ran.
 // Clients talk to it over a Unix socket, one JSON request and one JSON response per line.
 
 use crate::cel::Backend;
+use crate::checks;
 use crate::fdr::{self, Automaton};
 use crate::translate::{self, Translator};
 use crate::unit::{self, Unit};
@@ -31,6 +35,8 @@ use std::fs::{File, OpenOptions};
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::mpsc::{channel, Sender};
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -50,7 +56,14 @@ pub fn log_path(machine: &str) -> Result<PathBuf> {
 #[serde(tag = "op", rename_all = "snake_case")]
 pub enum Request {
     Ping,
-    MachineUp { name: String, spec: PathBuf, units: Vec<PathBuf> },
+    // `workspace` is the folder the machine's checks take their inputs from.
+    MachineUp {
+        name: String,
+        spec: PathBuf,
+        units: Vec<PathBuf>,
+        #[serde(default)]
+        workspace: PathBuf,
+    },
     MachineDown { name: String },
     MachineLs,
     // A machine's units and what the agent may do next, for its session-start hook.
@@ -106,7 +119,8 @@ enum Status {
     Finished,
     // The policy takes no more attempts and can't terminate (STOP): every call is refused.
     Deadlocked,
-    // A result came back that the policy doesn't accept: the unit and the spec's Returns disagree.
+    // A result came back that the policy doesn't accept (the unit and the spec's Returns disagree), or
+    // a check couldn't run.
     Broken,
     Stopped,
 }
@@ -123,6 +137,9 @@ struct Pending {
 }
 
 struct Machine {
+    // Which machine this is, so a check that finishes after its machine was replaced is dropped.
+    id: u64,
+    name: String,
     spec: PathBuf,
     units: Vec<PathBuf>,
     // The admitted units, as they were when the machine started: later edits to their files don't
@@ -151,7 +168,25 @@ struct Machine {
     // Why the machine left Running, and which agents have been told.
     ended: String,
     told_ended: BTreeSet<String>,
+    // The spec's checks: the values of its Check, the checks themselves by name, the folder they take
+    // their inputs from, the checks running now, and where to send a check to run.
+    check_values: Vec<String>,
+    packages: BTreeMap<String, checks::Package>,
+    workspace: PathBuf,
+    checking: BTreeSet<String>,
+    jobs: Option<Sender<Job>>,
 }
+
+// A check the machine started, for the daemon to run.
+pub struct Job {
+    machine: String,
+    id: u64,
+    value: String,
+    package: checks::Package,
+    workspace: PathBuf,
+}
+
+static MACHINES: AtomicU64 = AtomicU64::new(0);
 
 // An attempt the policy has taken and will answer once other agents have acted. The agent's call
 // waits for its answer, which goes in `answered` under `id`; meanwhile the call is shown to the
@@ -346,9 +381,9 @@ impl Machine {
                             self.state = next;
                             Verdict::Denied
                         }
-                        // Taken, and answered only once other agents have acted (FDR proved the
-                        // answer comes before this role's next attempt).
-                        (None, None) if !self.roles.is_empty() => {
+                        // Taken, and answered only once other agents have acted, or a check has come
+                        // back (FDR proved the answer comes before this role's next attempt).
+                        (None, None) if !self.roles.is_empty() || !self.check_values.is_empty() => {
                             self.state = taken;
                             self.next_held += 1;
                             let held = Held { id: self.next_held, call: pending, shown: shown.clone(), tool: call.tool.to_string(), arguments: call.arguments.clone() };
@@ -372,9 +407,67 @@ impl Machine {
         Ok(verdict)
     }
 
+    // Moves W along every edge that is the daemon's to take: the answers to held attempts, and the
+    // checks W offers.
+    fn settle(&mut self) {
+        loop {
+            self.answer_held();
+            if !self.start_check() {
+                return;
+            }
+        }
+    }
+
+    // Starts one check W offers, if there is one: W moves past check.c, and c runs in the background
+    // until its verdict comes back. Of several on offer, the first by name.
+    fn start_check(&mut self) -> bool {
+        let Some((value, next)) = self.edges().iter().find_map(|(e, &next)| Some((e.strip_prefix("check.")?.to_string(), next))) else { return false };
+        self.state = next;
+        self.checking.insert(value.clone());
+        let (name, _) = checks::split(&value);
+        let job = self.packages.get(name).map(|p| Job { machine: self.name.clone(), id: self.id, value: value.clone(), package: p.clone(), workspace: self.workspace.clone() });
+        self.record(json!({ "kind": "check", "event": format!("check.{value}"), "state": self.show() }));
+        match (job, &self.jobs) {
+            (Some(job), Some(jobs)) => {
+                let _ = jobs.send(job);
+            }
+            (None, _) => self.set(Status::Broken, &format!("the spec's check {name} isn't loaded")),
+            (_, None) => {} // tests: the check stays running until they give its verdict
+        }
+        true
+    }
+
+    // Check `value` came back: W follows pass.value or fail.value. Err (and the machine is broken) if
+    // the check couldn't run, or W doesn't take the verdict.
+    fn verdict(&mut self, value: &str, run: Result<checks::Run>) -> Result<()> {
+        self.settled.clear();
+        if !self.checking.remove(value) {
+            bail!("check {value} isn't running");
+        }
+        let run = match run {
+            Ok(run) => run,
+            Err(e) => {
+                let reason = format!("check {value} couldn't run: {e:#}");
+                self.set(Status::Broken, &reason);
+                bail!("{reason}")
+            }
+        };
+        let event = format!("{}.{value}", if run.passed { "pass" } else { "fail" });
+        let Some(next) = self.edges().get(&event).copied() else {
+            let reason = format!("the policy doesn't take {event}, though FDR proved it would");
+            self.set(Status::Broken, &reason);
+            bail!("{reason}")
+        };
+        self.state = next;
+        self.record(json!({ "kind": "checked", "event": event, "output": run.output, "state": self.show() }));
+        self.settle();
+        self.check_end();
+        Ok(())
+    }
+
     // Answers every held attempt the policy now answers: W's allow or deny for it is the daemon's to
     // take, so it takes it at once, and the waiting call learns its verdict.
-    fn settle(&mut self) {
+    fn answer_held(&mut self) {
         loop {
             let answered = self.held.iter().find_map(|(role, h)| {
                 let edges = self.edges();
@@ -448,7 +541,7 @@ impl Machine {
             return;
         }
         let edges = self.edges();
-        if edges.keys().any(|e| e.starts_with("attempt.") || e.starts_with("result.")) {
+        if !self.checking.is_empty() || edges.keys().any(|e| ["attempt.", "result.", "check."].iter().any(|p| e.starts_with(p))) {
             return;
         }
         match edges.contains_key("✓") {
@@ -475,6 +568,8 @@ impl Machine {
 pub struct Daemon {
     machines: Mutex<BTreeMap<String, Machine>>,
     cel: Mutex<Option<Backend>>,
+    // Where machines send the checks they start; serve runs each in its own thread.
+    jobs: Mutex<Option<Sender<Job>>>,
 }
 
 impl Daemon {
@@ -510,6 +605,15 @@ pub fn serve() -> Result<()> {
     println!("complier daemon listening on {}", path.display());
 
     let daemon: Arc<Daemon> = Arc::default();
+    let (jobs, queue) = channel::<Job>();
+    *daemon.jobs.lock().unwrap() = Some(jobs);
+    let runner = daemon.clone();
+    std::thread::spawn(move || {
+        for job in queue {
+            let daemon = runner.clone();
+            std::thread::spawn(move || run_check(&daemon, job));
+        }
+    });
     for stream in listener.incoming() {
         let daemon = daemon.clone();
         std::thread::spawn(move || {
@@ -520,6 +624,25 @@ pub fn serve() -> Result<()> {
         });
     }
     Ok(())
+}
+
+// Runs a check a machine started, in a snapshot of its own, and gives the machine its verdict.
+fn run_check(daemon: &Daemon, job: Job) {
+    static RUNS: AtomicU64 = AtomicU64::new(0);
+    let run = dir().map(|d| d.join("checks").join(&job.machine).join(RUNS.fetch_add(1, Ordering::Relaxed).to_string()));
+    let (_, params) = checks::split(&job.value);
+    let outcome = run.and_then(|snapshot| {
+        let _ = std::fs::remove_dir_all(&snapshot);
+        let outcome = checks::run(&job.package, &job.workspace, &params, &snapshot);
+        let _ = std::fs::remove_dir_all(&snapshot);
+        outcome
+    });
+    let mut all = daemon.machines.lock().unwrap();
+    if let Some(m) = all.get_mut(&job.machine).filter(|m| m.id == job.id) {
+        if let Err(e) = m.verdict(&job.value, outcome) {
+            eprintln!("machine {}: {e:#}", job.machine);
+        }
+    }
 }
 
 fn handle(stream: UnixStream, daemon: &Daemon) -> Result<()> {
@@ -540,7 +663,7 @@ fn respond(request: Request, daemon: &Daemon) -> Result<Value> {
     let machines = &daemon.machines;
     match request {
         Request::Ping => Ok(json!("pong")),
-        Request::MachineUp { name, spec, units } => machine_up(daemon, name, &spec, units),
+        Request::MachineUp { name, spec, units, workspace } => machine_up(daemon, name, &spec, units, workspace),
         Request::Call { machine, role, tool, arguments, tool_use_id } => call(daemon, &machine, &role, &tool, &arguments, &tool_use_id),
         Request::Result { machine, role, tool_use_id, ok, output, error, value } => result(daemon, &machine, &role, &tool_use_id, ok, &output, &error, value),
         Request::MachineDown { name } => {
@@ -711,19 +834,32 @@ fn result(daemon: &Daemon, machine: &str, role: &str, tool_use_id: &str, ok: boo
     Ok(json!({ "action": action, "value": value, "state": m.show(), "answered": m.settled }))
 }
 
-fn machine_up(daemon: &Daemon, name: String, spec: &Path, units: Vec<PathBuf>) -> Result<Value> {
+fn machine_up(daemon: &Daemon, name: String, spec: &Path, units: Vec<PathBuf>, workspace: PathBuf) -> Result<Value> {
     // FDR proves the policy and compiles it; the units are proven by the CEL backend.
     let compiled = match fdr::compile(spec)? {
         Ok(compiled) => compiled,
         Err(report) => bail!("{} isn't admitted:\n{report}", spec.display()),
     };
     let admitted = admit(&units)?;
+    // Each of the spec's checks is loaded, and its image built, before the machine starts.
+    let mut packages = BTreeMap::new();
+    for value in &compiled.check_values {
+        let (check, _) = checks::split(value);
+        if !packages.contains_key(check) {
+            packages.insert(check.to_string(), checks::load(spec, check)?);
+        }
+    }
+    if !packages.is_empty() && !workspace.is_dir() {
+        bail!("the spec has checks, which take their inputs from the machine's workspace, but {} isn't a folder", workspace.display());
+    }
     if daemon.machines.lock().unwrap().contains_key(&name) {
         bail!("a machine named {name} is already running");
     }
 
     let log = OpenOptions::new().create(true).append(true).open(log_path(&name)?)?;
     let mut machine = Machine {
+        id: MACHINES.fetch_add(1, Ordering::Relaxed),
+        name: name.clone(),
         spec: spec.to_path_buf(),
         units: units.clone(),
         routes: Vec::new(),
@@ -740,9 +876,18 @@ fn machine_up(daemon: &Daemon, name: String, spec: &Path, units: Vec<PathBuf>) -
         log,
         ended: String::new(),
         told_ended: Default::default(),
+        check_values: compiled.check_values,
+        packages,
+        workspace,
+        checking: BTreeSet::new(),
+        jobs: daemon.jobs.lock().unwrap().clone(),
     };
     machine.record(json!({ "kind": "status", "status": Status::Running, "reason": "machine up", "state": machine.show() }));
     machine.record(json!({ "kind": "policy", "spec": spec, "states": machine.automaton.edges.len(), "report": compiled.report.to_string() }));
+    let loaded: Vec<Value> = machine.packages.iter().map(|(check, p)| json!({ "kind": "checks", "check": check, "folder": p.dir, "image": p.image, "workspace": machine.workspace })).collect();
+    for entry in loaded {
+        machine.record(entry);
+    }
     for a in admitted {
         machine.record(json!({ "kind": "admission", "unit": a.path, "report": a.report }));
         if let Some(t) = &a.translator {
@@ -755,12 +900,14 @@ fn machine_up(daemon: &Daemon, name: String, spec: &Path, units: Vec<PathBuf>) -
         }
         machine.routes.push(UnitRoutes { server: a.unit.server, translator: a.translator.map(Arc::new), hidden: a.unit.hidden });
     }
-    machine.check_end();
     let mut all = daemon.machines.lock().unwrap();
     if all.contains_key(&name) {
         bail!("a machine named {name} is already running");
     }
-    all.insert(name.clone(), machine);
+    // In place, so a check started here finds its machine when it comes back.
+    let machine = all.entry(name.clone()).or_insert(machine);
+    machine.settle();
+    machine.check_end();
     println!("machine {name} up");
     Ok(json!(name))
 }
@@ -865,6 +1012,8 @@ mod tests {
         let automaton = Automaton::from_transitions(vec![String::new(); 8], 0, &t);
         let log = std::env::temp_dir().join(format!("complier-test-{}.log", std::process::id()));
         Machine {
+            id: 0,
+            name: "test".to_string(),
             spec: PathBuf::new(),
             units: Vec::new(),
             routes: Vec::new(),
@@ -881,6 +1030,11 @@ mod tests {
             log: File::create(log).unwrap(),
             ended: String::new(),
             told_ended: Default::default(),
+            check_values: Vec::new(),
+            packages: BTreeMap::new(),
+            workspace: PathBuf::new(),
+            checking: BTreeSet::new(),
+            jobs: None,
         }
     }
 
@@ -1001,6 +1155,66 @@ mod tests {
         assert_eq!(m.state, 6);
     }
 
+    // normal(Policy) for: Permit(edit, \ _ @ Policy) [] attempt.commit -> check.v.src ->
+    //   (pass.v.src -> allow.commit -> result.commit?_ -> SKIP [] fail.v.src -> deny.commit -> Policy)
+    fn checked() -> Machine {
+        let t = [
+            (0, "attempt.edit", 1),
+            (1, "allow.edit", 2),
+            (2, "result.edit.done", 0),
+            (0, "attempt.commit", 3),
+            (3, "check.v.src", 4),
+            (4, "pass.v.src", 5),
+            (4, "fail.v.src", 6),
+            (5, "allow.commit", 7),
+            (7, "result.commit.done", 8),
+            (8, "✓", 9),
+            (6, "deny.commit", 0),
+        ];
+        let mut m = machine();
+        m.automaton = Automaton::from_transitions(vec![String::new(); 10], 0, &t);
+        m.acts = ["edit", "commit"].map(String::from).to_vec();
+        m.check_values = vec!["v.src".to_string()];
+        m
+    }
+
+    fn ran(passed: bool) -> Result<checks::Run> {
+        Ok(checks::Run { passed, output: String::new() })
+    }
+
+    #[test]
+    fn a_check_the_policy_offers_is_started_at_once_and_its_verdict_decides() {
+        let mut m = checked();
+        m.packages.insert("v".to_string(), checks::Package { dir: PathBuf::new(), image: "sha256:x".to_string(), run: "true".to_string() });
+        // The commit is taken and held while the daemon runs the check it needs.
+        assert_eq!(m.act("dev", "commit", &Value::Null, "t1", None).unwrap(), Verdict::Held);
+        assert!(m.checking.contains("v.src"));
+        assert_eq!(m.state, 4);
+        let first = m.held["dev"].id;
+        // A failing check denies it, and the policy is back where it started.
+        m.verdict("v.src", ran(false)).unwrap();
+        assert_eq!(m.answered[&first].0, Verdict::Denied);
+        assert_eq!(m.state, 0);
+        assert!(m.checking.is_empty());
+        // A verdict for a check that isn't running is an error, and changes nothing.
+        assert!(m.verdict("v.src", ran(true)).is_err());
+        assert_eq!(m.act("dev", "commit", &Value::Null, "t2", None).unwrap(), Verdict::Held);
+        let second = m.held["dev"].id;
+        m.verdict("v.src", ran(true)).unwrap();
+        assert_eq!(m.answered[&second].0, Verdict::Allowed);
+        m.result("done").unwrap();
+        assert!(m.status == Status::Finished);
+    }
+
+    #[test]
+    fn a_check_that_couldnt_run_breaks_the_machine() {
+        let mut m = checked();
+        m.packages.insert("v".to_string(), checks::Package { dir: PathBuf::new(), image: "sha256:x".to_string(), run: "true".to_string() });
+        assert_eq!(m.act("dev", "commit", &Value::Null, "t1", None).unwrap(), Verdict::Held);
+        assert!(m.verdict("v.src", Err(anyhow!("no docker"))).is_err());
+        assert!(m.status == Status::Broken && m.ended.contains("no docker"));
+    }
+
     // normal(Policy) for Step(a, x) ||| Step(b, y): either may go first, and both may be in flight.
     #[test]
     fn with_roles_agents_have_calls_in_flight_at_the_same_time() {
@@ -1046,7 +1260,7 @@ mod tests {
     fn a_stopping_agent_is_told_once_that_its_machine_ended() {
         let mut m = machine();
         m.set(Status::Deadlocked, "the policy takes no more attempts");
-        let daemon = Daemon { machines: Mutex::new([("demo".to_string(), m)].into()), cel: Mutex::new(None) };
+        let daemon = Daemon { machines: Mutex::new([("demo".to_string(), m)].into()), cel: Mutex::new(None), jobs: Mutex::new(None) };
         let stop = || respond(Request::Stop { machine: "demo".into(), role: "dev".into() }, &daemon).unwrap();
         let first = stop();
         assert_eq!(first["ended"], json!("deadlocked"));

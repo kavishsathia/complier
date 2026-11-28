@@ -63,6 +63,10 @@ struct Output {
     // (`attempt.writer.submit`).
     #[serde(default)]
     roles: Vec<String>,
+    // The values of the spec's Check, if it declares `datatype Check`: the checks its policy can
+    // start (`dafny.src`).
+    #[serde(default)]
+    check_values: Vec<String>,
     #[serde(default)]
     checks: Vec<Check>,
     automaton: Option<AutomatonJson>,
@@ -118,6 +122,7 @@ impl fmt::Display for Report {
 pub struct Compiled {
     pub acts: Vec<String>,
     pub roles: Vec<String>,
+    pub check_values: Vec<String>,
     pub automaton: Automaton,
     pub report: Report,
 }
@@ -180,6 +185,7 @@ pub fn compile(spec: &Path) -> Result<std::result::Result<Compiled, Report>> {
     Ok(Ok(Compiled {
         acts: o.acts,
         roles: o.roles,
+        check_values: o.check_values,
         automaton: Automaton { root: automaton.root, labels: automaton.states, edges },
         report,
     }))

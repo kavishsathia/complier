@@ -1,4 +1,5 @@
 mod cel;
+mod checks;
 mod codegen;
 mod config;
 mod fdr;
@@ -383,6 +384,8 @@ fn machine(command: MachineCommand) -> Result<()> {
                 name,
                 spec: absolute(&spec)?,
                 units: units.iter().map(|u| absolute(u)).collect::<Result<_>>()?,
+                // The machine's checks take their inputs from the folder it's started in.
+                workspace: std::env::current_dir()?,
             };
             println!("machine {} up", daemon::request(&request, true)?.as_str().unwrap_or("?"));
         }
@@ -539,6 +542,9 @@ fn log(name: &str, follow: bool) -> Result<()> {
         };
         match kind.as_str() {
             "admission" => println!("{time}  admitted {}", text("unit")),
+            "checks" => println!("{time}  check    {:<48} image {}", text("check"), text("image")),
+            "check" => println!("{time}  check    {:<48} started → {}", text("event"), text("state")),
+            "checked" => println!("{time}  checked  {:<48} → {}", text("event"), text("state")),
             "result" => println!("{time}  result   {:<48} → {}", text("event"), text("state")),
             "act" if text("outcome") == "held" => println!("{time}  act      {event:<48} held, until the policy answers"),
             "policy" => println!("{time}  policy   {} ({} states, compiled by FDR)", text("spec"), entry["states"]),

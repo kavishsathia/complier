@@ -175,7 +175,7 @@ pub fn apply(name: &str, role: &str, session: Option<String>) -> Result<()> {
     }
     // A machine left over from an earlier, released run of the workflow is replaced.
     let _ = daemon::request(&daemon::Request::MachineDown { name: machine.clone() }, false);
-    let request = daemon::Request::MachineUp { name: machine.clone(), spec, units: units.clone() };
+    let request = daemon::Request::MachineUp { name: machine.clone(), spec, units: units.clone(), workspace: std::env::current_dir()? };
     daemon::request(&request, true).with_context(|| format!("starting workflow {name}"))?;
     std::fs::create_dir_all(sessions()?)?;
     let binding = Binding { workflow: name.to_string(), machine: machine.clone(), role: role.to_string() };
