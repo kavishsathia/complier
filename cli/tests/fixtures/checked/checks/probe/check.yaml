@@ -1,0 +1,3 @@
+# Passes if the inbox holds a file named ok, and the check can't write to its snapshot or reach the
+# network.
+run: test -f "$1/ok" && ! touch "$1/scribble" 2>/dev/null && ! wget -q -T 2 -O /dev/null http://example.com 2>/dev/null

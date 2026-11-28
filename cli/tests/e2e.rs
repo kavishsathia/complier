@@ -645,3 +645,45 @@ fn the_daemon_still_proves_units_after_the_folder_it_started_in_is_removed() {
     let (ok, out) = env.machine_up("g", "gate.csp", &["gate.yaml"]);
     assert!(ok, "{out}");
 }
+
+// A check, run by the daemon itself in its own container: the write's attempt waits while check
+// probe looks at the workspace's inbox, and its verdict allows or denies the write. Needs Docker
+// (only the daemon gets a PATH, holding docker's folder).
+#[test]
+fn a_check_runs_in_its_container_on_a_snapshot_of_the_workspace_and_its_verdict_decides() {
+    let docker = Command::new("which").arg("docker").output().unwrap();
+    let docker = String::from_utf8_lossy(&docker.stdout).trim().to_string();
+    assert!(!docker.is_empty(), "this test needs Docker");
+    let docker_dir = Path::new(&docker).parent().unwrap().to_str().unwrap().to_string();
+    let env = Env::with("checks", &[("PATH", &docker_dir)]);
+    let workspace = env.home.join("workspace");
+    std::fs::create_dir_all(workspace.join("inbox")).unwrap();
+    let spec = fixture("checked/checked.csp");
+    let unit = fixture("checked/checked.yaml");
+    let out = Command::new(BIN)
+        .env("HOME", &env.home)
+        .env("PATH", &env.path)
+        .current_dir(&workspace)
+        .args(["machine", "up", "c", "--spec", spec.to_str().unwrap(), "--unit", unit.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
+    let policy = env.log("c").into_iter().find(|e| e["kind"] == "policy").unwrap();
+    let report = policy["report"].as_str().unwrap();
+    assert!(report.contains("ComplierVerdicts(probe.inbox) [F= Policy") && report.contains("admitted"), "{report}");
+    let loaded = env.log("c").into_iter().find(|e| e["kind"] == "checks").unwrap();
+    assert!(loaded["image"].as_str().unwrap().starts_with("sha256:"), "{loaded}");
+
+    // No inbox/ok yet: the check fails, so the write is denied.
+    let (ok, reason) = env.attempt("c", "mcp__fake__write-item", json!({ "id": "a" }));
+    assert!(!ok && reason.contains("denied"), "{reason}");
+    // With it, the check passes (it also found it couldn't write to its snapshot or reach the
+    // network), and the write is allowed.
+    std::fs::write(workspace.join("inbox/ok"), "").unwrap();
+    assert!(env.attempt("c", "mcp__fake__write-item", json!({ "id": "b" })).0);
+    let checked: Vec<String> = env.log("c").iter().filter(|e| e["kind"] == "checked").map(|e| e["event"].as_str().unwrap().to_string()).collect();
+    assert_eq!(checked, ["fail.probe.inbox", "pass.probe.inbox"]);
+    // The check read a snapshot: the workspace is as it was, and the snapshots are gone.
+    assert!(!workspace.join("inbox/scribble").exists());
+    assert_eq!(std::fs::read_dir(env.home.join(".complier/checks/c")).map(|d| d.count()).unwrap_or(0), 0);
+}

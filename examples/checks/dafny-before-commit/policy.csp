@@ -1,0 +1,22 @@
+-- A commit is allowed only if the Dafny in src/ verifies. The commit's attempt starts check
+-- dafny.src, which complier runs itself in the check's own container (checks/dafny), over a snapshot
+-- of the workspace's src/; the agent neither runs the verifier nor picks its version. A pass allows
+-- the commit and a fail denies it. Edits and other commands are always allowed.
+datatype Act = edit | commit | other
+datatype Value = done | failed
+Returns(_) = {done, failed}
+datatype Input = src
+datatype Check = dafny.Input
+
+Policy = Permit(edit, \ _ @ Policy)
+      [] Permit(other, \ _ @ Policy)
+      [] Commit
+
+Commit = attempt.commit -> check.dafny.src ->
+           (pass.dafny.src -> allow.commit -> result.commit?v : Returns(commit) ->
+              (if v == done then SKIP else Policy)
+         [] fail.dafny.src -> deny.commit -> Policy)
+
+Agent  = ControllableCHAOS
+System = prioritise(Agent [| {|attempt, allow, deny, result, refuse|} |] ComplierGuard(Policy),
+                    <{|attempt|}, {refuse}>)

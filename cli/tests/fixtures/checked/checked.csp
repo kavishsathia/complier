@@ -1,0 +1,15 @@
+-- A write is allowed only if check probe passes on the workspace's inbox: the write's attempt starts
+-- check.probe.inbox, a pass allows it and a fail denies it.
+datatype Act = write
+datatype Value = done | failed
+Returns(_) = {done, failed}
+datatype Input = inbox
+datatype Check = probe.Input
+
+Policy = attempt.write -> check.probe.inbox ->
+           (pass.probe.inbox -> allow.write -> result.write?_ : Returns(write) -> Policy
+         [] fail.probe.inbox -> deny.write -> Policy)
+
+Agent  = ControllableCHAOS
+System = prioritise(Agent [| {|attempt, allow, deny, result, refuse|} |] ComplierGuard(Policy),
+                    <{|attempt|}, {refuse}>)

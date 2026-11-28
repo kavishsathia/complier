@@ -1,0 +1,10 @@
+# For checked.csp: writing an item is `write`.
+service: ../fake/service.yaml
+translate:
+  tools: [write-item]
+  schema:
+    id: optional<string>
+  rules:
+    write: { when: "tool == 'write-item'", emit: write }
+  results:
+    default: "ok ? 'done' : 'failed'"

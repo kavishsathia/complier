@@ -1,0 +1,3 @@
+# How check dafny runs: every .dfy file under its parameter (the workspace folder the spec names, as
+# check.dafny.src), verified. Exit 0 passes the check; a failed proof, or no .dfy files, fails it.
+run: files=$(find "$@" -name '*.dfy'); [ -n "$files" ] && dafny verify $files

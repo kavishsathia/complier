@@ -92,10 +92,7 @@ pub fn run(package: &Package, workspace: &Path, params: &[&str], snapshot: &Path
     for p in params {
         let from = workspace.join(p);
         if from.exists() {
-            let status = Command::new("cp").arg("-R").arg(&from).arg(snapshot.join(p)).status().context("copying the check's inputs")?;
-            if !status.success() {
-                bail!("couldn't copy {} into the check's snapshot", from.display());
-            }
+            copy(&from, &snapshot.join(p)).with_context(|| format!("copying {} into the check's snapshot", from.display()))?;
         } else {
             missing.push(from.display().to_string());
         }
@@ -120,6 +117,20 @@ pub fn run(package: &Package, workspace: &Path, params: &[&str], snapshot: &Path
         Some(125..=127) | None => bail!("the check couldn't run (exit {:?}): {}", out.status.code(), output.trim()),
         Some(_) => Ok(Run { passed: false, output }),
     }
+}
+
+// Copies a file, or a folder and everything in it; links are copied as the files they point to.
+fn copy(from: &Path, to: &Path) -> Result<()> {
+    if from.is_dir() {
+        std::fs::create_dir_all(to)?;
+        for entry in std::fs::read_dir(from)? {
+            let entry = entry?;
+            copy(&entry.path(), &to.join(entry.file_name()))?;
+        }
+    } else {
+        std::fs::copy(from, to)?;
+    }
+    Ok(())
 }
 
 #[cfg(test)]
