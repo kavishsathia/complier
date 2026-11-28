@@ -67,6 +67,22 @@ call as `attempt.<COMPLIER_ROLE>.<action>`, so an agent can take only the steps 
 its role, and a role the spec doesn't list is refused. Exchanges are still one at a time: while
 one agent's call is running, the others are refused and their Stop hooks wait.
 
+A spec that declares `datatype Check` has checks: complier's own events. Each value of `Check` is
+one check with its parameters (`datatype Check = dafny.Input` with `datatype Input = src` gives
+`dafny.src`), and the prelude adds
+
+```csp
+channel check, pass, fail : Check
+ComplierCheck(c) = check.c -> (pass.c -> ComplierCheck(c) |~| fail.c -> ComplierCheck(c))
+ComplierChecks = ||| c : Check @ ComplierCheck(c)
+ComplierGuard(W) = (W [| {|check, pass, fail|} |] ComplierChecks) ||| RUN({refuse})
+```
+
+The policy starts a check by offering `check.c`, which the daemon takes at once, and goes on from its
+verdict, which neither an agent nor the policy picks. A check may come between an attempt and its
+answer: `attempt.commit -> check.dafny.src -> (pass.dafny.src -> allow.commit -> ... [] fail.dafny.src
+-> deny.commit -> ...)`.
+
 Those names (and anything starting with `Complier`) are reserved. A spec without `Agent` or
 `System` doesn't load. A policy is admitted only if FDR shows that:
 
@@ -74,9 +90,11 @@ Those names (and anything starting with `Complier`) are reserved. A spec without
 | --- | --- |
 | the agent is the most general one (one per role, with roles) | `ControllableCHAOS [FD= Agent` and `Agent [FD= ControllableCHAOS` (`ComplierAgent` with roles) |
 | the system is that agent against the guarded policy | `ComplierSystem [FD= System` and `System [FD= ComplierSystem` |
-| every attempt the policy takes is answered with allow or deny, and every result it can return is accepted | `ComplierHandshake [FD= Policy` |
+| every attempt the policy takes is answered with allow or deny, and every result it can return is accepted | `ComplierHandshake [FD= Policy` (with checks, over `Policy` with them hidden) |
 | no agent is left waiting for a verdict | `System :[deadlock free [F]]` |
 | each verdict is determined | `Policy :[deterministic [FD]]` |
+| with checks: every verdict a started check can return is accepted until it comes back | `ComplierVerdicts(c) [F= Policy`, for each `c` in `Check` |
+| with checks: the policy can't run checks forever without an agent acting | `Policy \ {\|check, pass, fail\|} :[divergence free]` |
 | the spec's own properties hold | every `assert` in the spec, e.g. `Safe [T= System \ diff(Events, {\|allow\|})` |
 
 A failed check comes back with FDR's counterexample trace. Then `normal(Policy)` is compiled and

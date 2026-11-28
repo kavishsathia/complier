@@ -54,7 +54,14 @@ Live demo and walkthrough: [complier.dev](https://www.complier.dev)
 - **Allow, deny or refuse.** A call becomes `attempt.<role>.<action>`. If the policy offers it, the
   policy's own `allow` or `deny` edge is the verdict; if not, the call is refused and the policy
   stays where it was. Only allowed calls run.
-- **Nothing polls the world.** Agents' translated calls are the only outside events.
+- **Checks run where the spec says.** A spec that declares `datatype Check` gets `check`, `pass`
+  and `fail`. When its policy offers `check.c`, complier itself runs check `c`: the image its
+  Dockerfile builds (pinned, so every computer checks with the same tools), its `check.yaml`
+  command, and a read-only snapshot of the workspace inputs `c`'s parameters name, with no network.
+  Exit 0 is `pass.c`, anything else `fail.c`, and the policy goes on from there. FDR proves it
+  accepts either. See [`examples/checks/dafny-before-commit`](examples/checks/dafny-before-commit).
+- **Nothing polls the world.** Agents' translated calls and the verdicts of complier's own checks
+  are the only outside events.
 - **Fails closed.** An MCP call the units don't cover, that can't be translated, or that can't be
   checked (no daemon, no machine) is denied. Built-in tools (Bash, Edit, ...) are checked only in
   a machine with a `claude-code` unit, which then blocks the ones it doesn't name; otherwise the
@@ -225,7 +232,9 @@ Tests: `cargo test --manifest-path cli/Cargo.toml` (they run the real CEL backen
   policy answers only after other agents have acted, while the agent's call waits.
 - The pattern library (`include "patterns.csp"`), with an example of each pattern whose guarantee
   FDR proves; [complier.dev/patterns](https://www.complier.dev/patterns) animates them.
-- Only agents' actions (controllable events) for now: nothing observes the world.
+- Checks (`datatype Check`): complier runs each in its container, on a snapshot of the workspace, and
+  the policy follows its pass or fail. Needs Docker.
+- Only agents' actions and complier's own checks for now: nothing else observes the world.
 
 ## Licence
 
