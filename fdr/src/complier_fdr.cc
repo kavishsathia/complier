@@ -89,9 +89,8 @@ Deny(x, P)   = attempt.x -> deny.x -> P
 -- allowed call returns any value its action can return; neither the agent nor the policy picks it.
 ControllableCHAOS = (STOP |~| (|~| x:Act @ attempt.x -> Await(x))) [] (refuse -> ControllableCHAOS)
 Await(x) = allow.x -> (|~| v : Returns(x) @ result.x.v -> ControllableCHAOS) [] deny.x -> ControllableCHAOS
-ComplierGuard(W) = W ||| RUN({refuse})
 -- The spec defines Agent and System itself; admission checks they are these. A refusal happens only
--- when no attempt can.
+-- when no attempt can. ComplierGuard comes after this prelude: with or without the spec's checks.
 ComplierSystem = prioritise(ControllableCHAOS [| {|attempt, allow, deny, result, refuse|} |] ComplierGuard(Policy), <{|attempt|}, {refuse}>)
 -- What a well-formed policy may do: take an attempt, answer exactly it, and if it allowed the call,
 -- accept whatever the call returns.
@@ -114,9 +113,9 @@ Deny(r, x, P)   = attempt.r.x -> deny.r.x -> P
 -- refusable. An allowed call returns any value its action can return.
 ControllableCHAOS(r) = (STOP |~| (|~| x:Act @ attempt.r.x -> Await(r, x))) [] (refuse.r -> ControllableCHAOS(r))
 Await(r, x) = allow.r.x -> (|~| v : Returns(x) @ result.r.x.v -> ControllableCHAOS(r)) [] deny.r.x -> ControllableCHAOS(r)
-ComplierGuard(W) = W ||| RUN({|refuse|})
 -- The spec defines Agent and System itself; admission checks they are these: one agent per role,
--- against the guarded policy. A refusal happens only when no attempt can.
+-- against the guarded policy. A refusal happens only when no attempt can. ComplierGuard comes after
+-- this prelude: with or without the spec's checks.
 ComplierAgent = ||| r : Role @ ControllableCHAOS(r)
 ComplierSystem = prioritise(ComplierAgent [| {|attempt, allow, deny, result, refuse|} |] ComplierGuard(Policy), <{|attempt|}, {|refuse|}>)
 -- What a well-formed policy may do: take one attempt, answer exactly it, and if it allowed the call,
@@ -135,6 +134,29 @@ ComplierChaos(A) = SKIP |~| STOP |~| (|~| e : A @ e -> ComplierChaos(A))
 ComplierDue(r) = SKIP |~| STOP |~| (|~| x : Act @ allow.r.x -> ([] v : Returns(x) @ result.r.x.v -> ComplierDue(r)))
 ComplierResults(r) = ComplierChaos(diff(Events, {|allow.r, result.r|})) ||| ComplierDue(r)
 )csp";
+
+// The guard, for a spec without checks: the policy, refusable at any time without moving it.
+const char* const GUARD = "ComplierGuard(W) = W ||| RUN({refuse})\n";
+const char* const ROLE_GUARD = "ComplierGuard(W) = W ||| RUN({|refuse|})\n";
+
+// For a spec that declares `datatype Check`: its checks. A check is complier's own event: when the
+// policy offers check.c, the daemon performs it by running c's container, and the container comes
+// back pass.c or fail.c. Each check runs on its own, and neither an agent nor the policy picks its
+// verdict.
+const char* const CHECKS_PRELUDE = R"csp(
+-- complier prelude (checks), appended to the spec by complier-fdr.
+channel check, pass, fail : Check
+ComplierCheck(c) = check.c -> (pass.c -> ComplierCheck(c) |~| fail.c -> ComplierCheck(c))
+ComplierChecks = ||| c : Check @ ComplierCheck(c)
+-- What a well-formed policy may do with check c: once it has started c, accept either verdict, in
+-- every state, until one comes back, and not start c again before then.
+ComplierAnyOf(A) = SKIP |~| STOP |~| (|~| e : A @ e -> ComplierAnyOf(A))
+ComplierVerdictDue(c) = SKIP |~| STOP |~| check.c -> (pass.c -> ComplierVerdictDue(c) [] fail.c -> ComplierVerdictDue(c))
+ComplierVerdicts(c) = ComplierAnyOf(diff(Events, {check.c, pass.c, fail.c})) ||| ComplierVerdictDue(c)
+ComplierCheckEvents = {|check, pass, fail|}
+)csp";
+const char* const CHECKS_GUARD = "ComplierGuard(W) = (W [| {|check, pass, fail|} |] ComplierChecks) ||| RUN({refuse})\n";
+const char* const ROLE_CHECKS_GUARD = "ComplierGuard(W) = (W [| {|check, pass, fail|} |] ComplierChecks) ||| RUN({|refuse|})\n";
 
 // complier's pattern library (patterns/patterns.csp), built in by fdr/build-complier-fdr.sh. A spec
 // with roles gets it with `include "patterns.csp"`.
@@ -242,8 +264,15 @@ private:
         // A spec has roles if it declares the datatype Role (at the start of a line).
         static const std::regex role_decl("(^|\n)[ \t]*datatype[ \t]+Role\\b");
         roles_declared_ = std::regex_search(source.str(), role_decl);
+        // It has checks if it declares the datatype Check.
+        static const std::regex check_decl("(^|\n)[ \t]*datatype[ \t]+Check\\b");
+        checks_declared_ = std::regex_search(source.str(), check_decl);
         std::stringstream text;
         text << source.str() << "\n" << (roles_declared_ ? ROLE_PRELUDE : PRELUDE);
+        if (checks_declared_)
+            text << CHECKS_PRELUDE << (roles_declared_ ? ROLE_CHECKS_GUARD : CHECKS_GUARD);
+        else
+            text << (roles_declared_ ? ROLE_GUARD : GUARD);
         // `include "patterns.csp"` is the pattern library; FDR opens included files from these strings,
         // resolved next to the spec. Its patterns carry roles, so a spec without them can't use it.
         static const std::regex library_include("(^|\n)[ \t]*include[ \t]+\"patterns\\.csp\"");
@@ -260,6 +289,8 @@ private:
             acts_ = members("Act");
             if (roles_declared_)
                 roles_ = members("Role");
+            if (checks_declared_)
+                check_values_ = members("Check");
         }
         catch (const FDR::Error& error)
         {
@@ -273,6 +304,11 @@ private:
         if (acts_.empty())
         {
             fail("load", "Act must have at least one value");
+            return EXIT_LOAD_ERROR;
+        }
+        if (checks_declared_ && check_values_.empty())
+        {
+            fail("load", "Check must have at least one value");
             return EXIT_LOAD_ERROR;
         }
         if (roles_declared_ && roles_.empty())
@@ -389,8 +425,11 @@ private:
                       : equal("Agent is ControllableCHAOS, the most general agent", "Agent", "ControllableCHAOS");
         ok = equal("System is Agent against the guarded policy, refusing only when no attempt can",
                    "System", "ComplierSystem") && ok;
+        // A check the policy runs between an attempt and its answer is complier's own step, so the
+        // handshake is over the policy with its checks hidden.
         if (!roles_declared_)
-            ok = check("every attempt the policy takes is answered with allow or deny, and every result an allowed call can return is accepted", "ComplierHandshake [FD= Policy") && ok;
+            ok = check("every attempt the policy takes is answered with allow or deny, and every result an allowed call can return is accepted",
+                       checks_declared_ ? "ComplierHandshake [FD= Policy \\ ComplierCheckEvents" : "ComplierHandshake [FD= Policy") && ok;
         // With roles, agents act at the same time: each role's calls follow the handshake on their own,
         // and another agent may act between a role's attempt and its answer, or while its call runs.
         for (const std::string& r : roles_)
@@ -401,6 +440,12 @@ private:
             ok = check("every result " + r + "'s allowed call can return is accepted until it comes back",
                        "ComplierResults(" + r + ") [F= Policy") && ok;
         }
+        for (const std::string& c : check_values_)
+            ok = check("every verdict check " + c + " can come back with is accepted until it comes back",
+                       "ComplierVerdicts(" + c + ") [F= Policy") && ok;
+        if (checks_declared_)
+            ok = check("the policy can't run checks forever without an agent acting",
+                       "Policy \\ ComplierCheckEvents :[divergence free]") && ok;
         ok = check("no agent is left waiting for a verdict (System can't deadlock)", "System :[deadlock free [F]]") && ok;
         ok = check("the policy is deterministic, so each verdict is determined", "Policy :[deterministic [FD]]") && ok;
         for (const auto& assertion : session_->assertions())
@@ -443,11 +488,13 @@ private:
                     return EXIT_INVARIANT;
                 }
                 bool protocol = name.compare(0, 8, "attempt.") == 0 || name.compare(0, 6, "allow.") == 0 ||
-                                name.compare(0, 5, "deny.") == 0 || name.compare(0, 7, "result.") == 0 || name == "✓";
+                                name.compare(0, 5, "deny.") == 0 || name.compare(0, 7, "result.") == 0 || name == "✓" ||
+                                (checks_declared_ && (name.compare(0, 6, "check.") == 0 || name.compare(0, 5, "pass.") == 0 ||
+                                                      name.compare(0, 5, "fail.") == 0));
                 if (!protocol)
                 {
                     fail("compile", "the policy performs " + name +
-                                        "; a policy may only use attempt, allow, deny and result (and terminate)");
+                                        "; a policy may only use attempt, allow, deny and result, its checks' check, pass and fail, and terminate");
                     return EXIT_INVARIANT;
                 }
                 const NodePtr& destination = transition.destination();
@@ -486,7 +533,7 @@ private:
         if (!error_.empty())
             out << ",\"error\":{\"stage\":" << json_quoted(error_stage_) << ",\"message\":" << json_quoted(error_) << "}";
         out << ",\"warnings\":" << json_list(warnings_)
-            << ",\"acts\":" << json_list(acts_) << ",\"roles\":" << json_list(roles_) << ",\"checks\":[";
+            << ",\"acts\":" << json_list(acts_) << ",\"roles\":" << json_list(roles_) << ",\"check_values\":" << json_list(check_values_) << ",\"checks\":[";
         for (size_t i = 0; i < checks_.size(); ++i)
         {
             const Check& c = checks_[i];
@@ -506,8 +553,8 @@ private:
     }
 
     std::shared_ptr<FDR::Session> session_;
-    std::vector<std::string> warnings_, acts_, roles_, states_, transitions_;
-    bool roles_declared_ = false;
+    std::vector<std::string> warnings_, acts_, roles_, check_values_, states_, transitions_;
+    bool roles_declared_ = false, checks_declared_ = false;
     std::vector<Check> checks_;
     std::string error_stage_, error_;
 };
